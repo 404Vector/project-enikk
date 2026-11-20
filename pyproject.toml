@@ -54,6 +54,7 @@ runtime-evaluated-base-classes = [
     "enikk_kernel.settings.SettingsModel",
     "enikk_kernel.settings.ServiceSettings",
     "enikk_contracts.base.Contract",
+    "enikk_core_domain.model.Entity",
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
@@ -65,7 +66,14 @@ runtime-evaluated-base-classes = [
 "src/**/tests/**" = ["S101", "S105", "S106", "TID251"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["enikk_kernel", "enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
+known-first-party = [
+    "enikk_kernel",
+    "enikk_contracts",
+    "enikk_core_domain",
+    "enikk_platform",
+    "enikk_core",
+    "enikk_ops",
+]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -75,6 +83,7 @@ plugins = ["pydantic.mypy"]
 files = [
     "src/libs/kernel/enikk_kernel",
     "src/libs/contracts/enikk_contracts",
+    "src/libs/core-domain/enikk_core_domain",
     "src/libs/adapters/platform/enikk_platform",
     "src/apps/core/enikk_core",
     "src/apps/ops-cli/enikk_ops",
@@ -88,25 +97,41 @@ warn_required_dynamic_aliases = true
 # ---------------------------------------------------------------- import-linter
 # Dependency rules from docs/architecture/code-structure.md section 4.
 [tool.importlinter]
-root_packages = ["enikk_kernel", "enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
+root_packages = [
+    "enikk_kernel",
+    "enikk_contracts",
+    "enikk_core_domain",
+    "enikk_platform",
+    "enikk_core",
+    "enikk_ops",
+]
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "kernel depends on no other project package"
 type = "forbidden"
 source_modules = ["enikk_kernel"]
-forbidden_modules = ["enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
+forbidden_modules = ["enikk_contracts", "enikk_core_domain", "enikk_platform", "enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]
 name = "contracts depend only on kernel"
 type = "forbidden"
 source_modules = ["enikk_contracts"]
-forbidden_modules = ["enikk_platform", "enikk_core", "enikk_ops"]
+forbidden_modules = ["enikk_core_domain", "enikk_platform", "enikk_core", "enikk_ops"]
+
+[[tool.importlinter.contracts]]
+name = "core domain depends only on contracts and kernel"
+type = "forbidden"
+source_modules = ["enikk_core_domain"]
+forbidden_modules = [
+    "enikk_platform", "enikk_core", "enikk_ops",
+    "fastapi", "starlette", "uvicorn", "httpx", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
+]
 
 [[tool.importlinter.contracts]]
 name = "libraries never import apps"
 type = "forbidden"
-source_modules = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
+source_modules = ["enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_platform"]
 forbidden_modules = ["enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]

@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "enikk-contracts",
     "enikk-core",
+    "enikk-core-domain",
     "enikk-kernel",
     "enikk-ops",
     "enikk-platform",
@@ -166,6 +167,21 @@ requires-dist = [
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
+name = "enikk-core-domain"
+version = "0.1.0"
+source = { editable = "src/libs/core-domain" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-kernel" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
 ]
 
 [[package]]

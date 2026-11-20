@@ -1,0 +1,20 @@
+[project]
+name = "enikk-core-domain"
+version = "0.1.0"
+description = "enikk-core domain model and ports (repositories, unit of work, job queue)"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+]
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_core_domain"]
