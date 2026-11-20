@@ -9,6 +9,7 @@ from enikk_platform.adapters.base import CliTool
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     from pydantic import BaseModel
 
@@ -36,6 +37,23 @@ class KubectlCli(CliTool):
 
     def apply(self, target: KubeTarget, manifest: BaseModel) -> None:
         self._run(*self._scope(target), "apply", "-f", "-", stdin=self._serialise(manifest))
+
+    def apply_file(self, target: KubeTarget, path: Path) -> None:
+        self._run(*self._scope(target), "apply", "-f", str(path))
+
+    def port_forward(
+        self, target: KubeTarget, resource: str, local_port: int, remote_port: int
+    ) -> int:
+        result = self._run(
+            *self._scope(target),
+            "port-forward",
+            resource,
+            f"{local_port}:{remote_port}",
+            mutating=False,
+            stream=True,
+            check=False,
+        )
+        return result.returncode
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool:
         result = self._run(

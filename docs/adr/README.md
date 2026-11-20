@@ -11,7 +11,7 @@
 | [0005](0005-agent-definition-format.md) | 에이전트 정의 공통 형식 | 승인 | 2026-11-21 |
 | [0006](0006-prompts-managed-in-langfuse.md) | 프롬프트의 원본은 Langfuse 이며 git 에 두지 않는다 | 승인 | 2026-11-21 |
 | [0007](0007-self-improvement-workflow.md) | 에이전트 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 | 2026-11-21 |
-| [0008](0008-cicd-github-ghcr-gitops.md) | CI/CD — GitHub Actions 빌드, GHCR, GitOps 배포 | 승인 (일부 미결정) | 2026-11-21 |
+| [0008](0008-cicd-github-ghcr-gitops.md) | CI/CD — GitHub Actions 빌드, GHCR, GitOps 배포 | 승인 | 2026-11-21 |
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 에이전트 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
 | [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 | 2026-11-21 |
 | [0011](0011-core-persistence-and-api.md) | enikk-core 의 저장소·작업 큐·API·데이터 모델링 | 승인 | 2026-11-21 |

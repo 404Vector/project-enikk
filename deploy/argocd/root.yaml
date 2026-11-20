@@ -1,0 +1,29 @@
+# Root Application (app-of-apps). Applied once by `enikk-ops argocd bootstrap`;
+# afterwards everything under deploy/argocd/apps/ on main is reconciled automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/404Vector/project-enikk.git
+    targetRevision: main
+    path: deploy/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  # Argo CD Image Updater records image tags in child Application helm parameters
+  # (ADR-0008, write-back method "argocd"). Do not revert those changes.
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Application
+      jsonPointers:
+        - /spec/source/helm/parameters
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true

@@ -66,7 +66,15 @@ cd project-enikk
 uv sync --all-packages
 ```
 
-실행 방법은 구현이 진행되면 추가됩니다.
+### 클러스터 부트스트랩
+
+```bash
+uv run enikk-ops argocd bootstrap   # Argo CD 설치 후 deploy/argocd/ 를 따르도록 등록
+uv run enikk-ops argocd status      # Application 동기화·상태 확인
+uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
+```
+
+이후에는 `main` 에 머지된 변경이 Argo CD 를 통해 자동으로 배포됩니다.
 
 ## 문서
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from enikk_platform.domain import HelmRelease, ImageRef, KubeTarget
+from enikk_platform.domain import HelmRelease, ImageRef, KubeTarget, LocalChart
 
 
 def test_image_ref_str() -> None:
@@ -27,4 +27,4 @@ def test_kube_target_rejects_invalid_namespace(namespace: str) -> None:
 def test_release_name_validated() -> None:
     target = KubeTarget(context="docker-desktop", namespace="enikk")
     with pytest.raises(ValidationError):
-        HelmRelease(name="Bad_Name", chart=Path("chart"), target=target)
+        HelmRelease(name="Bad_Name", chart=LocalChart(path=Path("chart")), target=target)

@@ -42,6 +42,8 @@ uv run pytest
 
 ## 배포 자산
 
-- Dockerfile: `deploy/docker/`
-- Helm 차트: `deploy/helm/`
+- Dockerfile: `deploy/docker/python-app.Dockerfile` (빌드 인자 `PACKAGE`)
+- Helm 차트: `deploy/helm/`, 그 외 매니페스트: `deploy/k8s/`
+- Argo CD Application: `deploy/argocd/` (클러스터는 `main` 의 이 디렉토리를 따른다)
 - 대상 클러스터: kube context `docker-desktop`
+- 운영 리소스를 `helm`/`kubectl` 로 직접 바꾸지 않는다. 최초 설치만 `uv run enikk-ops argocd bootstrap` 으로 한다.

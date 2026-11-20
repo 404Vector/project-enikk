@@ -5,10 +5,19 @@ from pathlib import Path
 from enikk_kernel.models import FrozenModel
 from enikk_kernel.testing import RecordingRunner
 from enikk_platform.adapters import DockerCli, HelmCli, KubectlCli
-from enikk_platform.domain import HelmRelease, ImageRef, KubeTarget, ReleaseInfo
+from enikk_platform.domain import (
+    HelmRelease,
+    ImageRef,
+    KubeTarget,
+    LocalChart,
+    ReleaseInfo,
+    RemoteChart,
+)
 
 TARGET = KubeTarget(context="docker-desktop", namespace="enikk")
-RELEASE = HelmRelease(name="enikk-core", chart=Path("deploy/helm/core"), target=TARGET)
+RELEASE = HelmRelease(
+    name="enikk-core", chart=LocalChart(path=Path("deploy/helm/core")), target=TARGET
+)
 
 
 class _Image(FrozenModel):
@@ -40,6 +49,32 @@ def test_helm_upgrade_uses_values_file_and_scope() -> None:
     assert argv[-3:] == ("--wait", "--timeout", "2m")
     values_path = Path(argv[argv.index("--values") + 1])
     assert not values_path.exists()  # temporary file is removed afterwards
+
+
+def test_helm_remote_chart_is_pinned() -> None:
+    runner = RecordingRunner()
+    chart = RemoteChart(repository="https://charts.example.com/", name="argo-cd", version="1.2.3")
+    release = HelmRelease(name="argocd", chart=chart, target=TARGET)
+    HelmCli(runner).upgrade_install(release, _Values(image=_Image(tag="x")), wait=False)
+    argv = runner.argvs[0]
+    assert argv[3:9] == (
+        "argocd",
+        "argo-cd",
+        "--repo",
+        "https://charts.example.com/",
+        "--version",
+        "1.2.3",
+    )
+
+
+def test_kubectl_apply_file_and_port_forward() -> None:
+    runner = RecordingRunner()
+    kubectl = KubectlCli(runner)
+    kubectl.apply_file(TARGET, Path("deploy/argocd/root.yaml"))
+    kubectl.port_forward(TARGET, "svc/argocd-server", 8080, 80)
+    assert runner.argvs[0][-3:] == ("apply", "-f", "deploy/argocd/root.yaml")
+    assert runner.argvs[1][-3:] == ("port-forward", "svc/argocd-server", "8080:80")
+    assert runner.calls[1].mutating is False
 
 
 def test_helm_status_parses_output_and_ignores_unknown_fields() -> None:

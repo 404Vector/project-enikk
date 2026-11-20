@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enikk-core
+  labels:
+    {{- include "enikk-core.labels" . | nindent 4 }}
+spec:
+  # No image has been published yet until Image Updater sets image.tag.
+  replicas: {{ if .Values.image.tag }}1{{ else }}0{{ end }}
+  selector:
+    matchLabels:
+      {{- include "enikk-core.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "enikk-core.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: enikk-core
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: core
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-core"]
+          env:
+            - name: ENIKK_CORE_PORT
+              value: {{ .Values.port | quote }}
+            - name: ENIKK_CORE_VERSION
+              value: {{ .Values.image.tag | default "unset" | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
