@@ -1,0 +1,23 @@
+[project]
+name = "enikk-k8s-auth"
+version = "0.1.0"
+description = "Authenticator port implementation using the Kubernetes TokenReview API"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-domain",
+    "httpx>=0.28",
+]
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-domain = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_k8s_auth"]

@@ -73,7 +73,9 @@ known-first-party = [
     "enikk_kernel",
     "enikk_contracts",
     "enikk_core_domain",
+    "enikk_core_client",
     "enikk_persistence_sql",
+    "enikk_k8s_auth",
     "enikk_platform",
     "enikk_core",
     "enikk_ops",
@@ -88,7 +90,9 @@ files = [
     "src/libs/kernel/enikk_kernel",
     "src/libs/contracts/enikk_contracts",
     "src/libs/core-domain/enikk_core_domain",
+    "src/libs/core-client/enikk_core_client",
     "src/libs/adapters/persistence-sql/enikk_persistence_sql",
+    "src/libs/adapters/k8s-auth/enikk_k8s_auth",
     "src/libs/adapters/platform/enikk_platform",
     "src/apps/core/enikk_core",
     "src/apps/ops-cli/enikk_ops",
@@ -106,7 +110,9 @@ root_packages = [
     "enikk_kernel",
     "enikk_contracts",
     "enikk_core_domain",
+    "enikk_core_client",
     "enikk_persistence_sql",
+    "enikk_k8s_auth",
     "enikk_platform",
     "enikk_core",
     "enikk_ops",
@@ -118,8 +124,8 @@ name = "kernel depends on no other project package"
 type = "forbidden"
 source_modules = ["enikk_kernel"]
 forbidden_modules = [
-    "enikk_contracts", "enikk_core_domain", "enikk_persistence_sql", "enikk_platform",
-    "enikk_core", "enikk_ops",
+    "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql",
+    "enikk_k8s_auth", "enikk_platform", "enikk_core", "enikk_ops",
 ]
 
 [[tool.importlinter.contracts]]
@@ -127,7 +133,8 @@ name = "contracts depend only on kernel"
 type = "forbidden"
 source_modules = ["enikk_contracts"]
 forbidden_modules = [
-    "enikk_core_domain", "enikk_persistence_sql", "enikk_platform", "enikk_core", "enikk_ops",
+    "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth",
+    "enikk_platform", "enikk_core", "enikk_ops",
 ]
 
 [[tool.importlinter.contracts]]
@@ -135,29 +142,40 @@ name = "core domain depends only on contracts and kernel"
 type = "forbidden"
 source_modules = ["enikk_core_domain"]
 forbidden_modules = [
-    "enikk_persistence_sql", "enikk_platform", "enikk_core", "enikk_ops",
+    "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
+    "enikk_core", "enikk_ops",
     "fastapi", "starlette", "uvicorn", "httpx", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
+]
+
+[[tool.importlinter.contracts]]
+name = "core client depends only on contracts and kernel"
+type = "forbidden"
+source_modules = ["enikk_core_client"]
+forbidden_modules = [
+    "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
+    "enikk_core", "enikk_ops",
 ]
 
 [[tool.importlinter.contracts]]
 name = "libraries never import apps"
 type = "forbidden"
 source_modules = [
-    "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_persistence_sql", "enikk_platform",
+    "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
+    "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
 ]
 forbidden_modules = ["enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]
 name = "adapters do not import each other"
 type = "independence"
-modules = ["enikk_persistence_sql", "enikk_platform"]
+modules = ["enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform"]
 
 [[tool.importlinter.contracts]]
 name = "database libraries only in persistence-sql (I-26)"
 type = "forbidden"
 source_modules = [
-    "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_platform", "enikk_core",
-    "enikk_ops",
+    "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_k8s_auth",
+    "enikk_platform", "enikk_core", "enikk_ops",
 ]
 forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
 allow_indirect_imports = true
