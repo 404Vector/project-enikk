@@ -11,6 +11,9 @@ spec:
   commonUpdateSettings:
     updateStrategy: newest-build
     allowTags: "regexp:^sha-[0-9a-f]{40}$"
+    # Update even when the image is not yet running. Charts start with 0 replicas
+    # until the first tag is set, so the image never appears as "in use" otherwise.
+    forceUpdate: true
   applicationRefs:
     - namePattern: enikk-core
       images:

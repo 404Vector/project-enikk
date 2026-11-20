@@ -61,6 +61,8 @@
 ### 결정
 - **B안.** Argo CD Image Updater 1.5 의 `ImageUpdater` CR 로 설정한다 (`deploy/k8s/image-updates/`).
   - 전략 `newest-build`, 허용 태그 `^sha-[0-9a-f]{40}$`.
+  - `forceUpdate: true`: Image Updater 는 기본적으로 Application 이 실제 사용 중인 이미지만 갱신한다.
+    태그가 없는 차트는 0 복제본으로 시작하므로 이 옵션이 없으면 첫 배포가 시작되지 않는다.
 - 최상위 app-of-apps(`deploy/argocd/root.yaml`)는 하위 Application 의 `/spec/source/helm/parameters` 차이를 무시한다(`RespectIgnoreDifferences=true`).
   그렇지 않으면 Image Updater 가 기록한 태그를 최상위 앱이 git 상태로 되돌린다.
 - 이미지 태그가 아직 없으면 Deployment 는 0개 복제본으로 배포된다.
