@@ -18,6 +18,8 @@ spec:
       serviceAccountName: enikk-core
       # core needs its Kubernetes API token for TokenReview only (I-28).
       automountServiceAccountToken: true
+      # Service links inject ENIKK_CORE_PORT=tcp://... and collide with settings.
+      enableServiceLinks: false
       securityContext:
         {{- include "enikk-core.podSecurityContext" . | nindent 8 }}
       containers:
