@@ -1,25 +1,40 @@
 from __future__ import annotations
 
-import json
-import os
 import tempfile
-from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict
 
 from enikk_platform.adapters.base import CliTool
 from enikk_platform.domain import ReleaseInfo
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from enikk_platform.domain import HelmRelease
+
+
+class _HelmStatusInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+    status: str
+
+
+class _HelmStatus(BaseModel):
+    """Subset of ``helm status -o json`` output. Unknown fields are ignored."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+    name: str
+    version: int
+    info: _HelmStatusInfo
 
 
 class HelmCli(CliTool):
     """``ChartManager`` via the helm CLI.
 
-    Override values are written to a temporary JSON values file (JSON is valid YAML)
-    instead of ``--set`` so arbitrary strings (commas, quotes, newlines) are safe.
+    Values are written to a temporary JSON values file (JSON is valid YAML), so
+    arbitrary strings are passed safely without ``--set`` escaping.
     """
 
     binary = "helm"
@@ -27,7 +42,7 @@ class HelmCli(CliTool):
     def lint(self, chart: Path) -> str:
         return self._run("lint", str(chart), mutating=False).stdout
 
-    def template(self, release: HelmRelease, values: Mapping[str, Any]) -> str:
+    def template(self, release: HelmRelease, values: BaseModel) -> str:
         with self._values_file(values) as overrides:
             return self._run(
                 "template",
@@ -42,7 +57,7 @@ class HelmCli(CliTool):
     def upgrade_install(
         self,
         release: HelmRelease,
-        values: Mapping[str, Any],
+        values: BaseModel,
         *,
         wait: bool = True,
         timeout: str = "5m",
@@ -66,19 +81,19 @@ class HelmCli(CliTool):
 
     def status(self, release: HelmRelease) -> ReleaseInfo | None:
         result = self._run(
-            "status", release.name, *self._scope(release), "-o", "json",
-            mutating=False, check=False,
+            "status",
+            release.name,
+            *self._scope(release),
+            "--output",
+            "json",
+            mutating=False,
+            check=False,
         )
         if not result.ok:
             return None
-        data = json.loads(result.stdout)
-        return ReleaseInfo(
-            name=data["name"],
-            revision=int(data["version"]),
-            status=data["info"]["status"],
-        )
+        parsed = _HelmStatus.model_validate_json(result.stdout)
+        return ReleaseInfo(name=parsed.name, revision=parsed.version, status=parsed.info.status)
 
-    # ------------------------------------------------------------------ helpers
     @staticmethod
     def _scope(release: HelmRelease) -> list[str]:
         return ["--kube-context", release.target.context, "--namespace", release.target.namespace]
@@ -92,11 +107,13 @@ class HelmCli(CliTool):
 
     @staticmethod
     @contextmanager
-    def _values_file(values: Mapping[str, Any]) -> Iterator[Path]:
-        fd, name = tempfile.mkstemp(prefix="enikk-values-", suffix=".json")
+    def _values_file(values: BaseModel) -> Iterator[Path]:
+        with tempfile.NamedTemporaryFile(
+            "w", prefix="enikk-values-", suffix=".json", encoding="utf-8", delete=False
+        ) as handle:
+            handle.write(values.model_dump_json(by_alias=True, exclude_none=True))
+            path = Path(handle.name)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(values, fh)
-            yield Path(name)
+            yield path
         finally:
-            Path(name).unlink(missing_ok=True)
+            path.unlink(missing_ok=True)

@@ -61,9 +61,9 @@ project-enikk/
 ### 설치
 
 ```bash
-git clone <repository-url> project-enikk
+git clone https://github.com/404Vector/project-enikk.git
 cd project-enikk
-uv sync
+uv sync --all-packages
 ```
 
 실행 방법은 구현이 진행되면 추가됩니다.

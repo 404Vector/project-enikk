@@ -17,8 +17,10 @@
 - 의존성 추가: 해당 패키지 디렉토리에서 `uv add <패키지>`.
 
 ```bash
-uv sync                          # 의존성 설치
+uv sync --all-packages           # 모든 workspace 멤버와 개발 도구 설치
 ```
+
+- `main` 에는 직접 push 할 수 없다. 브랜치를 만들고 PR 로 반영한다.
 
 ## 검사 (변경 후 모두 통과해야 함)
 
@@ -33,6 +35,8 @@ uv run pytest
 ## 코드 규칙
 
 - 테스트는 해당 패키지의 `tests/` 에 둔다.
+- 값 객체와 계약은 `enikk_kernel.FrozenModel` / `enikk_contracts.Contract` 를, 설정은 `ServiceSettings` 와 `SettingsModel` 을 상속한다.
+- `json`, `subprocess` 모듈은 직접 쓰지 않는다 (ruff 가 막는다). pydantic 과 `ProcessRunner` 를 쓴다.
 - 코드 주석에는 "무엇을 하는지"만 쓴다. "왜 이렇게 설계했는지"는 `docs/` 에 쓴다.
 - 비밀값을 코드, 테스트 픽스처, 명령 인자, 로그에 넣지 않는다.
 

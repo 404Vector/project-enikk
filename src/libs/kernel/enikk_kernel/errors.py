@@ -1,9 +1,12 @@
-"""Error hierarchy (P6). Interfaces translate these into messages and exit codes."""
+"""Project error hierarchy. Interfaces translate these into user-facing output."""
 
 from __future__ import annotations
 
 import shlex
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class EnikkError(Exception):
@@ -14,12 +17,6 @@ class EnikkError(Exception):
 
 class ConfigurationError(EnikkError):
     """Invalid or missing configuration."""
-
-    exit_code = 2
-
-
-class ValidationError(EnikkError):
-    """A value object or use-case input violated an invariant."""
 
     exit_code = 2
 
@@ -37,10 +34,10 @@ class ToolNotFoundError(EnikkError):
 class ExternalCommandError(EnikkError):
     """An external command exited with a non-zero status."""
 
-    def __init__(self, args: Sequence[str], returncode: int, stderr: str = "") -> None:
+    def __init__(self, argv: Sequence[str], returncode: int, stderr: str = "") -> None:
         detail = f"\n{stderr.strip()}" if stderr.strip() else ""
-        super().__init__(f"command failed ({returncode}): {shlex.join(args)}{detail}")
-        self.args_ = tuple(args)
+        super().__init__(f"command failed ({returncode}): {shlex.join(argv)}{detail}")
+        self.argv = tuple(argv)
         self.returncode = returncode
         self.stderr = stderr
         self.exit_code = returncode or 1

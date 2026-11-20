@@ -4,9 +4,9 @@ import sys
 
 import pytest
 
-from enikk_core.errors import ExternalCommandError, ToolNotFoundError
-from enikk_core.process import SubprocessRunner
-from enikk_core.testing import RecordingRunner
+from enikk_kernel.errors import ExternalCommandError, ToolNotFoundError
+from enikk_kernel.process import SubprocessRunner
+from enikk_kernel.testing import RecordingRunner
 
 
 def test_captures_stdout() -> None:
@@ -15,9 +15,9 @@ def test_captures_stdout() -> None:
     assert result.stdout.strip() == "hi"
 
 
-def test_passes_input_via_stdin() -> None:
+def test_passes_stdin() -> None:
     code = "import sys; print(sys.stdin.read().upper())"
-    result = SubprocessRunner().run([sys.executable, "-c", code], input="secret", mutating=False)
+    result = SubprocessRunner().run([sys.executable, "-c", code], stdin="secret", mutating=False)
     assert result.stdout.strip() == "SECRET"
 
 
@@ -34,8 +34,7 @@ def test_returns_failure_when_unchecked() -> None:
 
 def test_dry_run_skips_mutating_but_runs_queries() -> None:
     runner = SubprocessRunner(dry_run=True)
-    skipped = runner.run([sys.executable, "-c", "raise SystemExit(1)"])
-    assert skipped.ok
+    assert runner.run([sys.executable, "-c", "raise SystemExit(1)"]).ok
     query = runner.run([sys.executable, "-c", "print('q')"], mutating=False)
     assert query.stdout.strip() == "q"
 

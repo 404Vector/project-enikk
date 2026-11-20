@@ -1,12 +1,12 @@
 [project]
 name = "enikk-platform"
 version = "0.1.0"
-description = "Platform domain (value objects), ports, and adapters for Docker/Helm/kubectl"
+description = "Docker, Helm and kubectl adapters for the ops CLI"
 requires-python = ">=3.12"
-dependencies = ["enikk-core"]
+dependencies = ["enikk-kernel"]
 
 [tool.uv.sources]
-enikk-core = { workspace = true }
+enikk-kernel = { workspace = true }
 
 [build-system]
 requires = ["hatchling>=1.25"]

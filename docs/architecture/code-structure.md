@@ -101,8 +101,8 @@ src/
 
 | 기존 | 처리 |
 |---|---|
-| `src/libs/core` (enikk_core) | `libs/kernel` 로 이동·이름 변경. dataclass 값 객체를 pydantic 으로 전환 |
-| `src/libs/platform` (enikk_platform) | `libs/adapters/platform` 으로 이동. ops-cli 전용 |
+| `src/libs/core` (enikk_core) | `libs/kernel` 로 이동·이름 변경, pydantic 으로 전환. **완료 (M0)** |
+| `src/libs/platform` (enikk_platform) | `libs/adapters/platform` 으로 이동, pydantic 으로 전환. ops-cli 전용. **완료 (M0)** |
 | `deploy/helm/enikk-agent`, `deploy/docker/claude-agent` | 초기 실험용(Claude Code 상주 Pod). **삭제 완료 (2026-11-21)** |
 | 루트 `enikk.toml` | ops-cli 설정으로 축소하거나 앱별 pydantic-settings 로 대체 |
 | 클러스터의 `enikk` 릴리스, PVC, 네임스페이스, 로컬 이미지 | **삭제 완료 (2026-11-21)** |

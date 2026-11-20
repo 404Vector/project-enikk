@@ -1,31 +1,33 @@
-"""Ports (P2): the only contracts the application layer knows about."""
+"""Ports for build and deployment tooling."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
+
+    from pydantic import BaseModel
 
     from enikk_platform.domain import HelmRelease, ImageRef, KubeTarget, ReleaseInfo
 
 
 class ImageBuilder(Protocol):
-    def build(
-        self, image: ImageRef, context: Path, *, build_args: Mapping[str, str] | None = None
-    ) -> None: ...
+    def build(self, image: ImageRef, context: Path) -> None: ...
 
 
 class ChartManager(Protocol):
+    """Helm operations. ``values`` is a pydantic model serialised by alias."""
+
     def lint(self, chart: Path) -> str: ...
 
-    def template(self, release: HelmRelease, values: Mapping[str, Any]) -> str: ...
+    def template(self, release: HelmRelease, values: BaseModel) -> str: ...
 
     def upgrade_install(
         self,
         release: HelmRelease,
-        values: Mapping[str, Any],
+        values: BaseModel,
         *,
         wait: bool = True,
         timeout: str = "5m",
@@ -37,13 +39,17 @@ class ChartManager(Protocol):
 
 
 class ClusterClient(Protocol):
+    """kubectl operations. Manifests are pydantic models serialised by alias."""
+
     def ensure_namespace(self, target: KubeTarget) -> None: ...
 
-    def apply(self, target: KubeTarget, manifest: Mapping[str, Any]) -> None: ...
+    def apply(self, target: KubeTarget, manifest: BaseModel) -> None: ...
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool: ...
 
-    def describe(self, target: KubeTarget, kinds: Sequence[str], selector: str | None = None) -> str: ...
+    def describe(
+        self, target: KubeTarget, kinds: Sequence[str], selector: str | None = None
+    ) -> str: ...
 
     def exec(
         self, target: KubeTarget, resource: str, command: Sequence[str], *, tty: bool = True
