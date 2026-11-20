@@ -6,6 +6,34 @@ image:
 
 port: 8000
 
+# CloudNativePG application Secret (ADR-0011). Created by the operator, never by hand.
+database:
+  secret: enikk-db-app
+
+# ServiceAccounts allowed to call core and their roles (ADR-0011 §5).
+# Any other ServiceAccount is rejected. Accounts live in deploy/k8s/identities.
+roleBindings:
+  - namespace: enikk
+    service_account: enikk-connector-slack
+    role: connector
+    connector: slack
+  - namespace: enikk
+    service_account: enikk-runtime-claude
+    role: runtime
+    engine: claude
+  - namespace: enikk
+    service_account: enikk-runtime-gemini
+    role: runtime
+    engine: gemini
+  - namespace: enikk
+    service_account: enikk-dev-agent
+    role: dev-agent
+
 resources:
-  requests: { cpu: 50m, memory: 96Mi }
-  limits: { memory: 256Mi }
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 320Mi }
+
+migration:
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { memory: 256Mi }

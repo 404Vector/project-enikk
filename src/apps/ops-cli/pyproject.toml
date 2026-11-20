@@ -5,6 +5,8 @@ description = "enikk ops CLI: cluster bootstrap and local development tools"
 requires-python = ">=3.12"
 dependencies = [
     "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
     "enikk-platform",
     "typer>=0.15",
 ]
@@ -14,6 +16,8 @@ enikk-ops = "enikk_ops.cli:main"
 
 [tool.uv.sources]
 enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
 enikk-platform = { workspace = true }
 
 [build-system]

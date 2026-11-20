@@ -1,0 +1,13 @@
+name: assistant
+description: General-purpose assistant for direct Slack conversations
+engine: claude
+prompt:
+  name: assistant
+  label: production
+tools:
+  mcp: []
+  builtin: []
+delegates: []
+limits:
+  max_turns: 20
+  timeout_seconds: 600

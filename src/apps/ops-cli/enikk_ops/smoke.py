@@ -1,0 +1,176 @@
+"""End-to-end smoke test of a deployed enikk-core (ADR-0012 §7).
+
+Uses real ServiceAccount tokens and a port-forward; creates no cluster resources.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from typing import TYPE_CHECKING, Final
+
+from pydantic import SecretStr
+
+from enikk_contracts.common import ConnectorKind, ConversationRef
+from enikk_contracts.events import InboundEvent
+from enikk_contracts.outbox import OutboxAck, OutboxPoll
+from enikk_contracts.routes import AUDIENCE
+from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport, Succeeded
+from enikk_core_client import (
+    CoreClient,
+    CoreForbiddenError,
+    CoreUnauthenticatedError,
+    CoreUnavailableError,
+    StaticTokenSource,
+)
+from enikk_kernel.errors import EnikkError
+from enikk_platform.domain import KubeTarget
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from enikk_contracts.tasks import TaskAssignment
+    from enikk_ops.settings import SmokeSettings
+    from enikk_platform.ports import ClusterClient
+
+    ClientFactory = Callable[[str, SecretStr], CoreClient]
+
+SMOKE_CHANNEL: Final = "enikk-smoke"
+READY_ATTEMPTS: Final = 30
+
+
+class SmokeTestError(EnikkError):
+    """A smoke check did not behave as expected."""
+
+
+def default_client(base_url: str, token: SecretStr) -> CoreClient:
+    return CoreClient.connect(base_url, StaticTokenSource(token))
+
+
+class CoreSmokeTest:
+    def __init__(
+        self,
+        settings: SmokeSettings,
+        kube_context: str,
+        cluster: ClusterClient,
+        client: ClientFactory = default_client,
+        report: Callable[[str], None] = print,
+    ) -> None:
+        self._settings = settings
+        self._cluster = cluster
+        self._client = client
+        self._report = report
+        self._target = KubeTarget(context=kube_context, namespace=settings.namespace)
+
+    def run(self) -> None:
+        s = self._settings
+        tokens = {
+            name: self._cluster.create_token(self._target, name, audience=AUDIENCE)
+            for name in (s.connector_account, s.runtime_account, s.unbound_account)
+        }
+        with self._cluster.forwarding(self._target, s.service, s.local_port, s.service_port):
+            asyncio.run(self._checks(f"http://127.0.0.1:{s.local_port}", tokens))
+
+    async def _checks(self, base_url: str, tokens: dict[str, SecretStr]) -> None:
+        s = self._settings
+        async with (
+            self._client(base_url, tokens[s.connector_account]) as connector,
+            self._client(base_url, tokens[s.runtime_account]) as runtime,
+            self._client(base_url, tokens[s.unbound_account]) as stranger,
+            self._client(base_url, _forged()) as forger,
+        ):
+            health = await _until_ready(connector)
+            self._ok(f"core is up (version {health})")
+
+            event = _smoke_event()
+            await _expect_error(CoreUnauthenticatedError, forger.submit_event(event))
+            self._ok("forged token rejected (401)")
+            await _expect_error(CoreForbiddenError, stranger.submit_event(event))
+            self._ok(f"ServiceAccount without a role rejected (403): {s.unbound_account}")
+            await _expect_error(CoreForbiddenError, runtime.submit_event(event))
+            self._ok("runtime cannot submit events (403)")
+
+            accepted = await connector.submit_event(event)
+            if accepted.duplicate or not (await connector.submit_event(event)).duplicate:
+                raise SmokeTestError("event idempotency check failed")
+            self._ok(f"event accepted as task {accepted.task_id}; resend deduplicated")
+
+            assignment = await self._lease(runtime, accepted.task_id)
+            self._ok(f"runtime leased the task (attempt {assignment.attempt})")
+            await runtime.heartbeat(
+                assignment.task_id, Heartbeat(lease_id=assignment.lease_id, progress="smoke")
+            )
+            report = ResultReport(lease_id=assignment.lease_id, outcome=Succeeded(text="smoke ok"))
+            await runtime.report_result(assignment.task_id, report)
+            if not (await runtime.report_result(assignment.task_id, report)).duplicate:
+                raise SmokeTestError("result idempotency check failed")
+            self._ok("heartbeat and result accepted; repeated result deduplicated")
+
+            message_id = await self._receive(connector, accepted.task_id)
+            acked = await connector.ack_outbox(OutboxAck(message_ids=(message_id,)))
+            if acked.acknowledged != 1:
+                raise SmokeTestError("outbox acknowledgement failed")
+            self._ok("connector received the reply from the outbox and acknowledged it")
+
+    async def _lease(self, runtime: CoreClient, task_id: uuid.UUID) -> TaskAssignment:
+        for _ in range(self._settings.max_foreign_tasks + 1):
+            response = await runtime.lease_task(LeaseRequest(wait_seconds=10))
+            assignment = response.assignment
+            if assignment is None:
+                break
+            if assignment.task_id == task_id:
+                return assignment
+            # A leftover task from an earlier, interrupted smoke run: close it.
+            leftover = ResultReport(
+                lease_id=assignment.lease_id,
+                outcome=Failed(reason="closed by enikk-ops smoke", retryable=False),
+            )
+            await runtime.report_result(assignment.task_id, leftover)
+        raise SmokeTestError(f"task {task_id} was not assigned to the runtime")
+
+    async def _receive(self, connector: CoreClient, task_id: uuid.UUID) -> uuid.UUID:
+        batch = await connector.poll_outbox(OutboxPoll(wait_seconds=10, limit=100))
+        stale = [m.message_id for m in batch.messages if m.task_id != task_id]
+        if stale and all(m.conversation.channel == SMOKE_CHANNEL for m in batch.messages):
+            await connector.ack_outbox(OutboxAck(message_ids=tuple(stale)))
+        for message in batch.messages:
+            if message.task_id == task_id:
+                return message.message_id
+        raise SmokeTestError(f"no outbox message for task {task_id}")
+
+    def _ok(self, text: str) -> None:
+        self._report(f"  ok  {text}")
+
+
+def _smoke_event() -> InboundEvent:
+    run = uuid.uuid4().hex
+    return InboundEvent(
+        event_id=f"smoke-{run}",
+        conversation=ConversationRef(
+            connector=ConnectorKind.SLACK, channel=SMOKE_CHANNEL, thread=run
+        ),
+        user="enikk-smoke",
+        text="smoke test",
+        agent="assistant",
+    )
+
+
+def _forged() -> SecretStr:
+    return SecretStr("forged-token")
+
+
+async def _until_ready(client: CoreClient) -> str:
+    for _ in range(READY_ATTEMPTS):
+        try:
+            return (await client.health()).version
+        except CoreUnavailableError:
+            await asyncio.sleep(1)
+    raise SmokeTestError("core did not become reachable through the port-forward")
+
+
+async def _expect_error(error: type[Exception], call: Awaitable[object]) -> None:
+    try:
+        await call
+    except error:
+        return
+    raise SmokeTestError(f"expected {error.__name__}")
