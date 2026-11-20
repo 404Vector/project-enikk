@@ -1,0 +1,73 @@
+[project]
+name = "project-enikk"
+version = "0.1.0"
+description = "Claude Code agent environment on Kubernetes (workspace root)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["enikk-cli"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["src/libs/*", "src/apps/*"]
+
+[tool.uv.sources]
+enikk-cli = { workspace = true }
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["src"]
+addopts = ["--import-mode=importlib", "-ra"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PT", "TCH"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["enikk_core", "enikk_platform", "enikk_agentops", "enikk_cli"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = [
+    "src/libs/core/enikk_core",
+    "src/libs/platform/enikk_platform",
+    "src/libs/agentops/enikk_agentops",
+    "src/apps/cli/enikk_cli",
+]
+plugins = ["pydantic.mypy"]
+
+# ---------------------------------------------------------------- import-linter
+[tool.importlinter]
+root_packages = ["enikk_core", "enikk_platform", "enikk_agentops", "enikk_cli"]
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture (apps > agentops > platform > core)"
+type = "layers"
+layers = ["enikk_cli", "enikk_agentops", "enikk_platform", "enikk_core"]
+
+[[tool.importlinter.contracts]]
+name = "Domain and ports never depend on adapters"
+type = "forbidden"
+source_modules = ["enikk_platform.domain", "enikk_platform.ports"]
+forbidden_modules = ["enikk_platform.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "Use cases depend on ports, not adapters"
+type = "forbidden"
+source_modules = ["enikk_agentops"]
+forbidden_modules = ["enikk_platform.adapters"]

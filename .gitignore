@@ -1,0 +1,16 @@
+# secrets / local overrides
+values.local.yaml
+*.local.yaml
+.env
+
+# python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.import_linter_cache/

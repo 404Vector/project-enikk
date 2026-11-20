@@ -1,0 +1,16 @@
+[project]
+name = "enikk-platform"
+version = "0.1.0"
+description = "Platform domain (value objects), ports, and adapters for Docker/Helm/kubectl"
+requires-python = ">=3.12"
+dependencies = ["enikk-core"]
+
+[tool.uv.sources]
+enikk-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_platform"]
