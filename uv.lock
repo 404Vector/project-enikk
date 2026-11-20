@@ -10,7 +10,9 @@ resolution-markers = [
 members = [
     "enikk-contracts",
     "enikk-core",
+    "enikk-core-client",
     "enikk-core-domain",
+    "enikk-k8s-auth",
     "enikk-kernel",
     "enikk-ops",
     "enikk-persistence-sql",
@@ -330,6 +332,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "enikk-core-client"
+version = "0.1.0"
+source = { editable = "src/libs/core-client" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
+]
+
+[[package]]
 name = "enikk-core-domain"
 version = "0.1.0"
 source = { editable = "src/libs/core-domain" }
@@ -342,6 +361,25 @@ dependencies = [
 requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
+]
+
+[[package]]
+name = "enikk-k8s-auth"
+version = "0.1.0"
+source = { editable = "src/libs/adapters/k8s-auth" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-core-domain" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-domain", editable = "src/libs/core-domain" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
 ]
 
 [[package]]
