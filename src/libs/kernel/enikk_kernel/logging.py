@@ -13,3 +13,5 @@ def configure_logging(*, verbose: bool = False) -> None:
         stream=sys.stderr,
         force=True,
     )
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.DEBUG if verbose else logging.WARNING)
