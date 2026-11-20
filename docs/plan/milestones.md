@@ -38,7 +38,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 **완료 조건**: PR 에서 검사가 돌고, 계층 위반 코드를 넣으면 CI 가 실패한다.
 **소유자 준비물**: GitHub 저장소 생성(또는 생성 권한), 원격 URL.
 
-## M1. 배포 플랫폼 — 진행 중
+## M1. 배포 플랫폼 — 완료 (2026-11-21, PR #2, #3)
 
 **목표**: "git 에 머지하면 클러스터에 반영되는" 경로를 만든다.
 
@@ -51,9 +51,10 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 **완료 조건**: core 골격 코드를 고쳐 머지하면 사람 개입 없이 새 이미지가 클러스터에 배포된다.
 **소유자 준비물**: 없음 (공개 저장소·이미지이므로 pull 자격증명 불필요).
 
-## M2. core 골격
+## M2. core 골격 — 진행 중
 
 **목표**: core 의 상태 관리·작업 큐·API·인증을 완성한다. 아직 실제 에이전트 실행은 없다.
+**세부 결정**: ADR-0012
 
 - `contracts` v0: 이벤트, 작업, 결과, outbox 메시지, 에이전트 정의 스키마
 - `core-domain`: Task·Session 상태 기계, 레포지토리·UoW·JobQueue 포트
@@ -64,7 +65,12 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 - 테스트: 도메인 단위 테스트(가짜 레포지토리), 영속성 통합 테스트(실제 Postgres)
 
 **완료 조건**: 가짜 커넥터·가짜 런타임(테스트용 클라이언트)으로 "이벤트 → 작업 배정 → 결과 → outbox" 흐름이 클러스터에서 동작하고, 허용되지 않은 ServiceAccount 의 호출은 거부된다.
-**결정 필요**: 영속성 통합 테스트용 Postgres 를 어디서 띄울지 (CI 서비스 컨테이너 / testcontainers).
+**작업 단위(PR)**:
+1. 문서 정리, kernel 보강(시계·ID 포트), contracts v0, 외부 SDK import 위치 제한
+2. core-domain: 상태 기계, 포트, 메모리 기반 가짜 구현
+3. persistence-sql: SQLAlchemy 레포지토리·UoW·Postgres 큐, Alembic, 통합 테스트(testcontainers)
+4. k8s-auth(TokenReview), core-client
+5. core 앱 조립, 배포 설정(마이그레이션 Job, ServiceAccount·권한), `enikk-ops smoke core` 로 클러스터 검증
 
 ## M3. 첫 대화 (End-to-End)
 

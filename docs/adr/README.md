@@ -15,6 +15,7 @@
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 에이전트 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
 | [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 | 2026-11-21 |
 | [0011](0011-core-persistence-and-api.md) | enikk-core 의 저장소·작업 큐·API·데이터 모델링 | 승인 | 2026-11-21 |
+| [0012](0012-core-skeleton-implementation.md) | enikk-core 골격 구현 세부 결정 | 승인 | 2026-11-21 |
 
 ## 상태 정의
 
