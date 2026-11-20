@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from enikk_kernel.errors import ExternalCommandError
@@ -11,6 +13,33 @@ from enikk_kernel.process import ProcessResult
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
+
+
+class ManualClock:
+    """``Clock`` whose time only moves when the test advances it."""
+
+    def __init__(self, start: datetime | None = None) -> None:
+        self._now = start or datetime(2026, 1, 1, tzinfo=UTC)
+        if self._now.tzinfo is None:
+            raise ValueError("ManualClock requires a timezone-aware start time")
+
+    def now(self) -> datetime:
+        return self._now
+
+    def advance(self, delta: timedelta) -> None:
+        self._now += delta
+
+
+class SequentialIds:
+    """``IdGenerator`` that returns predictable UUIDs: 1, 2, 3, ..."""
+
+    def __init__(self) -> None:
+        self._next = 1
+
+    def new(self) -> uuid.UUID:
+        value = uuid.UUID(int=self._next)
+        self._next += 1
+        return value
 
 
 class RecordedCall(FrozenModel):

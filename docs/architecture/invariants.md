@@ -36,3 +36,4 @@
 | I-26 | 데이터베이스에는 enikk-core 만 접근하며, core 안에서도 레포지토리·Unit of Work 포트를 통해서만 접근한다. 스키마 변경은 마이그레이션으로만 한다. | ADR-0011 |
 | I-27 | 서비스 경계를 넘는 데이터(API, 큐 메시지, 이벤트)는 공용 계약 패키지의 pydantic 모델로만 표현한다. 원시 JSON·`dict` 로 주고받지 않는다. | ADR-0011 |
 | I-28 | core API 의 모든 요청은 audience=`enikk-core` ServiceAccount 토큰으로 인증되고, API 별로 선언된 역할만 허용된다. 인증 없는 엔드포인트는 상태 확인(health)뿐이다. core 를 제외한 자체 서비스 Pod 는 Kubernetes API 토큰을 받지 않으며, core 는 TokenReview 권한만 갖는다. | ADR-0011 |
+| I-29 | 한 세션(스레드)에서 동시에 실행되는 작업은 최대 1개다. 같은 세션의 작업은 접수 순서대로 배정된다. | ADR-0012 |

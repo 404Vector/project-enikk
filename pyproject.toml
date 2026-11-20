@@ -89,6 +89,7 @@ warn_required_dynamic_aliases = true
 # Dependency rules from docs/architecture/code-structure.md section 4.
 [tool.importlinter]
 root_packages = ["enikk_kernel", "enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "kernel depends on no other project package"
@@ -112,6 +113,12 @@ forbidden_modules = ["enikk_core", "enikk_ops"]
 name = "apps are independent of each other"
 type = "independence"
 modules = ["enikk_core", "enikk_ops"]
+
+[[tool.importlinter.contracts]]
+name = "kernel and contracts import no frameworks or SDKs"
+type = "forbidden"
+source_modules = ["enikk_kernel", "enikk_contracts"]
+forbidden_modules = ["fastapi", "starlette", "uvicorn", "httpx", "typer", "yaml"]
 
 [[tool.importlinter.contracts]]
 name = "platform domain and ports never import platform adapters"
