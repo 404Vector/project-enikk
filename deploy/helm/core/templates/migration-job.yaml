@@ -21,6 +21,8 @@ spec:
       restartPolicy: Never
       serviceAccountName: enikk-core
       automountServiceAccountToken: false
+      # Service links inject ENIKK_CORE_PORT=tcp://... and collide with settings.
+      enableServiceLinks: false
       securityContext:
         {{- include "enikk-core.podSecurityContext" . | nindent 8 }}
       containers:
