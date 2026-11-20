@@ -1,10 +1,10 @@
 [project]
 name = "project-enikk"
 version = "0.1.0"
-description = "Claude Code agent environment on Kubernetes (workspace root)"
+description = "Personal AI agent platform on Slack (uv workspace root)"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["enikk-cli"]
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -18,15 +18,13 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["src/libs/*", "src/apps/*"]
-
-[tool.uv.sources]
-enikk-cli = { workspace = true }
+members = ["src/libs/*", "src/libs/adapters/*", "src/apps/*"]
+exclude = ["src/libs/adapters"]
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["src"]
-addopts = ["--import-mode=importlib", "-ra"]
+addopts = ["--import-mode=importlib", "-ra", "--strict-markers"]
 
 # ---------------------------------------------------------------- ruff
 [tool.ruff]
@@ -34,40 +32,75 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PT", "TCH"]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "SIM", "RUF", "PT",
+    "TC",   # type-checking-only imports
+    "ANN",  # annotations everywhere; ANN401 forbids Any in signatures
+    "TID",  # banned APIs, no relative imports
+    "S",    # security
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+# pydantic resolves field annotations at runtime, so their imports must stay outside
+# TYPE_CHECKING blocks in subclasses of these bases.
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+    "enikk_kernel.models.FrozenModel",
+    "enikk_kernel.settings.SettingsModel",
+    "enikk_kernel.settings.ServiceSettings",
+    "enikk_contracts.base.Contract",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"json".msg = "Parse and serialize with pydantic models (docs/architecture/principles.md P-13)."
+"subprocess".msg = "Run external commands through enikk_kernel.process.ProcessRunner."
+
+[tool.ruff.lint.per-file-ignores]
+"src/libs/kernel/enikk_kernel/process.py" = ["TID251", "S603"]
+"src/**/tests/**" = ["S101", "S105", "S106", "TID251"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["enikk_core", "enikk_platform", "enikk_agentops", "enikk_cli"]
+known-first-party = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = [
-    "src/libs/core/enikk_core",
-    "src/libs/platform/enikk_platform",
-    "src/libs/agentops/enikk_agentops",
-    "src/apps/cli/enikk_cli",
-]
 plugins = ["pydantic.mypy"]
+files = [
+    "src/libs/kernel/enikk_kernel",
+    "src/libs/contracts/enikk_contracts",
+    "src/libs/adapters/platform/enikk_platform",
+]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
 
 # ---------------------------------------------------------------- import-linter
+# Dependency rules from docs/architecture/code-structure.md section 4.
 [tool.importlinter]
-root_packages = ["enikk_core", "enikk_platform", "enikk_agentops", "enikk_cli"]
+root_packages = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
 
 [[tool.importlinter.contracts]]
-name = "Layered architecture (apps > agentops > platform > core)"
-type = "layers"
-layers = ["enikk_cli", "enikk_agentops", "enikk_platform", "enikk_core"]
+name = "kernel depends on no other project package"
+type = "forbidden"
+source_modules = ["enikk_kernel"]
+forbidden_modules = ["enikk_contracts", "enikk_platform"]
 
 [[tool.importlinter.contracts]]
-name = "Domain and ports never depend on adapters"
+name = "contracts depend only on kernel"
+type = "forbidden"
+source_modules = ["enikk_contracts"]
+forbidden_modules = ["enikk_platform"]
+
+[[tool.importlinter.contracts]]
+name = "platform domain and ports never import platform adapters"
 type = "forbidden"
 source_modules = ["enikk_platform.domain", "enikk_platform.ports"]
-forbidden_modules = ["enikk_platform.adapters"]
-
-[[tool.importlinter.contracts]]
-name = "Use cases depend on ports, not adapters"
-type = "forbidden"
-source_modules = ["enikk_agentops"]
 forbidden_modules = ["enikk_platform.adapters"]

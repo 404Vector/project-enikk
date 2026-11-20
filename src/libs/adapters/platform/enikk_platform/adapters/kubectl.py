@@ -1,27 +1,41 @@
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Literal
 
+from pydantic import Field
+
+from enikk_kernel.models import FrozenModel
 from enikk_platform.adapters.base import CliTool
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
+
+    from pydantic import BaseModel
 
     from enikk_platform.domain import KubeTarget
 
 
+class _ObjectMeta(FrozenModel):
+    name: str
+
+
+class _Namespace(FrozenModel):
+    api_version: Literal["v1"] = Field(default="v1", serialization_alias="apiVersion")
+    kind: Literal["Namespace"] = "Namespace"
+    metadata: _ObjectMeta
+
+
 class KubectlCli(CliTool):
-    """``ClusterClient`` via kubectl. Manifests are sent on stdin (never argv)."""
+    """``ClusterClient`` via kubectl. Manifests are sent on stdin, never argv."""
 
     binary = "kubectl"
 
     def ensure_namespace(self, target: KubeTarget) -> None:
-        manifest = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": target.namespace}}
-        self._run("--context", target.context, "apply", "-f", "-", input=json.dumps(manifest))
+        manifest = _Namespace(metadata=_ObjectMeta(name=target.namespace))
+        self._run("--context", target.context, "apply", "-f", "-", stdin=self._serialise(manifest))
 
-    def apply(self, target: KubeTarget, manifest: Mapping[str, Any]) -> None:
-        self._run(*self._scope(target), "apply", "-f", "-", input=json.dumps(manifest))
+    def apply(self, target: KubeTarget, manifest: BaseModel) -> None:
+        self._run(*self._scope(target), "apply", "-f", "-", stdin=self._serialise(manifest))
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool:
         result = self._run(
@@ -42,8 +56,14 @@ class KubectlCli(CliTool):
     ) -> int:
         flags = ["-it"] if tty else ["-i"]
         result = self._run(
-            *self._scope(target), "exec", *flags, resource, "--", *command,
-            stream=True, check=False,
+            *self._scope(target),
+            "exec",
+            *flags,
+            resource,
+            "--",
+            *command,
+            stream=True,
+            check=False,
         )
         return result.returncode
 
@@ -52,6 +72,10 @@ class KubectlCli(CliTool):
         if follow:
             args.append("--follow")
         return self._run(*args, mutating=False, stream=True, check=False).returncode
+
+    @staticmethod
+    def _serialise(manifest: BaseModel) -> str:
+        return manifest.model_dump_json(by_alias=True, exclude_none=True)
 
     @staticmethod
     def _scope(target: KubeTarget) -> list[str]:
