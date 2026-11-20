@@ -1,0 +1,240 @@
+"""Entities and their state machines.
+
+Entities are immutable: every transition returns a new, fully re-validated
+instance, so an entity in an inconsistent state cannot exist.
+"""
+
+from __future__ import annotations
+
+import uuid
+from enum import StrEnum
+from typing import TYPE_CHECKING, Annotated, Self
+
+from pydantic import AwareDatetime, Field, model_validator
+
+from enikk_contracts.common import AgentName, ConversationRef, Engine, Identifier, NonEmptyText
+from enikk_contracts.outbox import OutboundKind
+from enikk_contracts.tasks import FailureReason, ProgressNote, TaskStatus
+from enikk_core_domain.errors import InvalidTransitionError, LeaseLostError
+from enikk_kernel.models import FrozenModel
+
+if TYPE_CHECKING:
+    from datetime import datetime, timedelta
+
+    from enikk_contracts.agents import AgentDefinition
+
+TERMINAL_STATUSES = frozenset({TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED})
+
+
+class Entity(FrozenModel):
+    def _evolve(self, **changes: object) -> Self:
+        """Return a copy with ``changes`` applied, validated like a new instance."""
+        return type(self)(**{**dict(self), **changes})
+
+
+class Session(Entity):
+    """A conversation thread bound to one agent definition (I-11)."""
+
+    id: uuid.UUID
+    conversation: ConversationRef
+    agent: AgentName
+    engine: Engine
+    engine_session_id: Identifier | None = None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @classmethod
+    def start(
+        cls,
+        *,
+        session_id: uuid.UUID,
+        conversation: ConversationRef,
+        agent: AgentDefinition,
+        now: datetime,
+    ) -> Self:
+        return cls(
+            id=session_id,
+            conversation=conversation,
+            agent=agent.name,
+            engine=agent.engine,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def bind_engine_session(self, engine_session_id: str, now: datetime) -> Self:
+        if engine_session_id == self.engine_session_id:
+            return self
+        return self._evolve(engine_session_id=engine_session_id, updated_at=now)
+
+
+class Lease(FrozenModel):
+    id: uuid.UUID
+    expires_at: AwareDatetime
+
+    def expired(self, now: datetime) -> bool:
+        return now >= self.expires_at
+
+
+class Task(Entity):
+    """One unit of agent work. ``QUEUED`` tasks are the job queue (ADR-0012)."""
+
+    id: uuid.UUID
+    session_id: uuid.UUID
+    source_event_id: Identifier
+    agent: AgentName
+    engine: Engine
+    input: NonEmptyText
+    status: TaskStatus
+    attempt: Annotated[int, Field(ge=0)]
+    max_attempts: Annotated[int, Field(ge=1, le=10)]
+    lease: Lease | None = None
+    last_lease_id: uuid.UUID | None = None
+    progress: ProgressNote | None = None
+    output: NonEmptyText | None = None
+    failure: FailureReason | None = None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        leased = self.status is TaskStatus.LEASED
+        if leased != (self.lease is not None):
+            raise ValueError("a task has a lease exactly when it is leased")
+        if self.attempt > self.max_attempts:
+            raise ValueError("attempt exceeds max_attempts")
+        if (self.status is TaskStatus.SUCCEEDED) != (self.output is not None):
+            raise ValueError("a task has output exactly when it succeeded")
+        if self.status is TaskStatus.FAILED and self.failure is None:
+            raise ValueError("a failed task records its failure")
+        if self.lease is not None and self.lease.id != self.last_lease_id:
+            raise ValueError("the active lease must be the last issued lease")
+        return self
+
+    @classmethod
+    def enqueue(
+        cls,
+        *,
+        task_id: uuid.UUID,
+        session: Session,
+        source_event_id: str,
+        text: str,
+        max_attempts: int,
+        now: datetime,
+    ) -> Self:
+        return cls(
+            id=task_id,
+            session_id=session.id,
+            source_event_id=source_event_id,
+            agent=session.agent,
+            engine=session.engine,
+            input=text,
+            status=TaskStatus.QUEUED,
+            attempt=0,
+            max_attempts=max_attempts,
+            created_at=now,
+            updated_at=now,
+        )
+
+    @property
+    def terminal(self) -> bool:
+        return self.status in TERMINAL_STATUSES
+
+    def grant_lease(self, *, lease_id: uuid.UUID, now: datetime, duration: timedelta) -> Self:
+        self._require(TaskStatus.QUEUED, "lease")
+        return self._evolve(
+            status=TaskStatus.LEASED,
+            attempt=self.attempt + 1,
+            lease=Lease(id=lease_id, expires_at=now + duration),
+            last_lease_id=lease_id,
+            progress=None,
+            updated_at=now,
+        )
+
+    def extend_lease(
+        self,
+        *,
+        lease_id: uuid.UUID,
+        now: datetime,
+        duration: timedelta,
+        progress: str | None,
+    ) -> Self:
+        lease = self._active_lease(lease_id, now)
+        return self._evolve(
+            lease=lease.model_copy(update={"expires_at": now + duration}),
+            progress=progress if progress is not None else self.progress,
+            updated_at=now,
+        )
+
+    def already_reported(self, lease_id: uuid.UUID) -> bool:
+        """True when the result for ``lease_id`` was applied before (idempotent retry)."""
+        return self.status is not TaskStatus.LEASED and self.last_lease_id == lease_id
+
+    def succeed(self, *, lease_id: uuid.UUID, text: str, now: datetime) -> Self:
+        self._active_lease(lease_id, now)
+        return self._evolve(status=TaskStatus.SUCCEEDED, lease=None, output=text, updated_at=now)
+
+    def fail(self, *, lease_id: uuid.UUID, reason: str, retryable: bool, now: datetime) -> Self:
+        self._active_lease(lease_id, now)
+        if retryable and self.attempt < self.max_attempts:
+            return self._evolve(
+                status=TaskStatus.QUEUED, lease=None, failure=reason, updated_at=now
+            )
+        return self._evolve(status=TaskStatus.FAILED, lease=None, failure=reason, updated_at=now)
+
+    def expire(self, now: datetime) -> Self:
+        self._require(TaskStatus.LEASED, "expire")
+        if self.lease is None or not self.lease.expired(now):
+            raise InvalidTransitionError(f"task {self.id}: lease has not expired")
+        if self.attempt < self.max_attempts:
+            return self._evolve(status=TaskStatus.QUEUED, lease=None, updated_at=now)
+        return self._evolve(
+            status=TaskStatus.FAILED,
+            lease=None,
+            failure=f"lease expired on the last of {self.max_attempts} attempts",
+            updated_at=now,
+        )
+
+    def cancel(self, now: datetime) -> Self:
+        if self.terminal:
+            raise InvalidTransitionError(f"task {self.id}: cannot cancel a {self.status} task")
+        return self._evolve(status=TaskStatus.CANCELLED, lease=None, updated_at=now)
+
+    def _require(self, status: TaskStatus, action: str) -> None:
+        if self.status is not status:
+            raise InvalidTransitionError(f"task {self.id}: cannot {action} a {self.status} task")
+
+    def _active_lease(self, lease_id: uuid.UUID, now: datetime) -> Lease:
+        if self.lease is None or self.lease.id != lease_id:
+            raise LeaseLostError(f"task {self.id}: lease {lease_id} is not active")
+        if self.lease.expired(now):
+            raise LeaseLostError(f"task {self.id}: lease {lease_id} has expired")
+        return self.lease
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+
+
+class OutboxMessage(Entity):
+    """A message waiting for its connector to publish it."""
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    conversation: ConversationRef
+    kind: OutboundKind
+    text: NonEmptyText
+    status: OutboxStatus = OutboxStatus.PENDING
+    created_at: AwareDatetime
+    delivered_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        if (self.status is OutboxStatus.DELIVERED) != (self.delivered_at is not None):
+            raise ValueError("a message has delivered_at exactly when it was delivered")
+        return self
+
+    def mark_delivered(self, now: datetime) -> Self:
+        if self.status is OutboxStatus.DELIVERED:
+            return self
+        return self._evolve(status=OutboxStatus.DELIVERED, delivered_at=now)
