@@ -18,9 +18,10 @@ project-enikk/
 ├─ agents/                 에이전트 정의 YAML (ADR-0005). 프롬프트 본문 없음 (I-13)
 ├─ config/                 인터페이스 연결 규칙 등 구성 (예: Slack → 에이전트 매핑, I-15)
 ├─ deploy/
-│  ├─ docker/              앱별 Dockerfile
-│  ├─ helm/                앱별 Helm 차트 (또는 공용 차트 + 앱별 values)
-│  └─ argocd/              Argo CD Application 정의 (app-of-apps)
+│  ├─ docker/              공용 Python 앱 Dockerfile (빌드 인자 PACKAGE 로 앱 선택)
+│  ├─ helm/                앱별 Helm 차트
+│  ├─ k8s/                 Helm 이 아닌 매니페스트 (DB Cluster, ImageUpdater 등)
+│  └─ argocd/              Argo CD 부트스트랩 값, 최상위 Application, 하위 Application (app-of-apps)
 ├─ docs/
 ├─ src/
 ├─ AGENTS.md, README.md, pyproject.toml (workspace 루트)
@@ -104,5 +105,5 @@ src/
 | `src/libs/core` (enikk_core) | `libs/kernel` 로 이동·이름 변경, pydantic 으로 전환. **완료 (M0)** |
 | `src/libs/platform` (enikk_platform) | `libs/adapters/platform` 으로 이동, pydantic 으로 전환. ops-cli 전용. **완료 (M0)** |
 | `deploy/helm/enikk-agent`, `deploy/docker/claude-agent` | 초기 실험용(Claude Code 상주 Pod). **삭제 완료 (2026-11-21)** |
-| 루트 `enikk.toml` | ops-cli 설정으로 축소하거나 앱별 pydantic-settings 로 대체 |
+| 루트 `enikk.toml` | ops-cli 의 pydantic-settings(`ENIKK_OPS_*`)로 대체하고 삭제. **완료 (M1)** |
 | 클러스터의 `enikk` 릴리스, PVC, 네임스페이스, 로컬 이미지 | **삭제 완료 (2026-11-21)** |

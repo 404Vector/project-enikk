@@ -1,0 +1,24 @@
+[project]
+name = "enikk-ops"
+version = "0.1.0"
+description = "enikk ops CLI: cluster bootstrap and local development tools"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-platform",
+    "typer>=0.15",
+]
+
+[project.scripts]
+enikk-ops = "enikk_ops.cli:main"
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-platform = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_ops"]

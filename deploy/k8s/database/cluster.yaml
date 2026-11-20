@@ -1,0 +1,19 @@
+# PostgreSQL for enikk-core (ADR-0011), managed by CloudNativePG.
+# CNPG generates the application credentials in Secret `enikk-db-app`.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: enikk-db
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instances: 1
+  storage:
+    size: 2Gi
+  bootstrap:
+    initdb:
+      database: enikk
+      owner: enikk
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }

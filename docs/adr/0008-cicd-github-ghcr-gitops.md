@@ -1,6 +1,6 @@
 # ADR-0008: CI/CD — GitHub Actions 빌드, GHCR 레지스트리, GitOps 배포
 
-- 상태: 승인 (일부 미결정)
+- 상태: 승인
 - 날짜: 2026-11-21
 - 관련: ADR-0007, I-07, I-18
 
@@ -50,5 +50,26 @@
 - 근거: 실무 적용 가치와 배포 상태의 가시성을 우선했다. enikk-core(ADR-0010)가 애플리케이션 수준 관리를, Argo CD UI 가 배포·인프라 수준 관리를 맡는다.
 - 이미지 태그 반영: **Argo CD Image Updater** 를 사용해 새 이미지 태그를 git 에 반영한다.
 
-## 미결정
-- Image Updater 가 태그를 기록할 대상(브랜치·파일)과, 그에 필요한 git 쓰기 자격증명의 범위. 브랜치 보호 규칙(I-19)과 충돌하지 않게 정한다.
+## 이미지 태그 반영 방식 (2026-11-21)
+
+### 검토한 대안
+- **A. Image Updater 가 `main` 에 직접 커밋**: 배포 키를 브랜치 보호 예외로 등록해야 한다. 그 키로는 어떤 파일이든 `main` 에 쓸 수 있어 I-19 에 예외 통로가 생긴다. → 기각.
+- **B. Image Updater 가 Argo CD Application 의 helm 파라미터에 기록 (write-back method `argocd`)**: 채택.
+- **C. CI 가 태그 변경 PR 을 만들고 자동 머지**: `GITHUB_TOKEN` 으로 만든 PR 에서는 CI 가 실행되지 않아 GitHub App 이 필요하다. → M7 에서 재검토.
+  참고: Image Updater 1.5 는 GitHub PR 로 기록하는 방식(`writeBackConfig.gitConfig.pullRequest.github`)을 지원한다.
+
+### 결정
+- **B안.** Argo CD Image Updater 1.5 의 `ImageUpdater` CR 로 설정한다 (`deploy/k8s/image-updates/`).
+  - 전략 `newest-build`, 허용 태그 `^sha-[0-9a-f]{40}$`.
+- 최상위 app-of-apps(`deploy/argocd/root.yaml`)는 하위 Application 의 `/spec/source/helm/parameters` 차이를 무시한다(`RespectIgnoreDifferences=true`).
+  그렇지 않으면 Image Updater 가 기록한 태그를 최상위 앱이 git 상태로 되돌린다.
+- 이미지 태그가 아직 없으면 Deployment 는 0개 복제본으로 배포된다.
+
+### 결과
+- 새 자격증명도, 브랜치 보호 예외도 필요 없다.
+- 이미지 태그를 제외한 모든 배포 설정의 원본은 git 이다. 현재 배포된 이미지와 그 이력은 Argo CD 에서 확인한다.
+
+### 알려진 위험 (M7 전에 해결)
+- 같은 저장소의 브랜치에서 열린 PR 워크플로는 PR 브랜치의 워크플로 파일로 실행되므로, 워크플로를 수정해 `packages: write` 권한으로 GHCR 에 `sha-*` 이미지를 올릴 수 있다.
+  Image Updater 는 이를 승인되지 않은 이미지와 구별하지 못한다.
+- 현재는 브랜치를 만들 수 있는 주체가 소유자뿐이라 실제 위험이 없다. 개발 에이전트가 브랜치를 만들기 시작하는 M7 전에 이미지 출처 검증(서명 검증 등) 또는 C안 전환을 결정한다.

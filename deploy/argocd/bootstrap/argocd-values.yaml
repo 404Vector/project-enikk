@@ -1,0 +1,41 @@
+# Helm values for the argo-cd chart, installed by `enikk-ops argocd bootstrap`.
+# Minimal single-node footprint: no HA, no SSO (Dex), no notifications controller.
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+configs:
+  params:
+    # TLS is not terminated in-cluster; the UI is reached via kubectl port-forward.
+    server.insecure: true
+  cm:
+    # Track resources by annotation so app-of-apps children are not mistaken for orphans.
+    application.resourceTrackingMethod: annotation
+
+controller:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+repoServer:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+server:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+applicationSet:
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }

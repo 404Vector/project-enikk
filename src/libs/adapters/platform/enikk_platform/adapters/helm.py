@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 from enikk_platform.adapters.base import CliTool
-from enikk_platform.domain import ReleaseInfo
+from enikk_platform.domain import LocalChart, ReleaseInfo
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from enikk_platform.domain import HelmRelease
+    from enikk_platform.domain import ChartRef, HelmRelease
 
 
 class _HelmStatusInfo(BaseModel):
@@ -39,15 +39,15 @@ class HelmCli(CliTool):
 
     binary = "helm"
 
-    def lint(self, chart: Path) -> str:
-        return self._run("lint", str(chart), mutating=False).stdout
+    def lint(self, chart: ChartRef) -> str:
+        return self._run("lint", *self._chart_args(chart), mutating=False).stdout
 
     def template(self, release: HelmRelease, values: BaseModel) -> str:
         with self._values_file(values) as overrides:
             return self._run(
                 "template",
                 release.name,
-                str(release.chart),
+                *self._chart_args(release.chart),
                 "--namespace",
                 release.target.namespace,
                 *self._values_args(release, overrides),
@@ -67,7 +67,7 @@ class HelmCli(CliTool):
                 "upgrade",
                 "--install",
                 release.name,
-                str(release.chart),
+                *self._chart_args(release.chart),
                 *self._scope(release),
                 "--create-namespace",
                 *self._values_args(release, overrides),
@@ -93,6 +93,12 @@ class HelmCli(CliTool):
             return None
         parsed = _HelmStatus.model_validate_json(result.stdout)
         return ReleaseInfo(name=parsed.name, revision=parsed.version, status=parsed.info.status)
+
+    @staticmethod
+    def _chart_args(chart: ChartRef) -> list[str]:
+        if isinstance(chart, LocalChart):
+            return [str(chart.path)]
+        return [chart.name, "--repo", str(chart.repository), "--version", chart.version]
 
     @staticmethod
     def _scope(release: HelmRelease) -> list[str]:

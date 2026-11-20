@@ -1,0 +1,30 @@
+# Image update policy for enikk services (ADR-0008).
+# New images pushed by GitHub Actions as `sha-<commit>` are written to the matching
+# Application's helm parameters (write-back method "argocd": no git credentials needed).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: image-updates
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/404Vector/project-enikk.git
+    targetRevision: main
+    path: deploy/k8s/image-updates
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # The ImageUpdater CRD is installed by image-updater; retry until it exists.
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

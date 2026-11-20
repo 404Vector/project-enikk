@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from enikk_platform.domain import HelmRelease, ImageRef, KubeTarget, ReleaseInfo
+    from enikk_platform.domain import ChartRef, HelmRelease, ImageRef, KubeTarget, ReleaseInfo
 
 
 class ImageBuilder(Protocol):
@@ -20,7 +20,7 @@ class ImageBuilder(Protocol):
 class ChartManager(Protocol):
     """Helm operations. ``values`` is a pydantic model serialised by alias."""
 
-    def lint(self, chart: Path) -> str: ...
+    def lint(self, chart: ChartRef) -> str: ...
 
     def template(self, release: HelmRelease, values: BaseModel) -> str: ...
 
@@ -39,11 +39,13 @@ class ChartManager(Protocol):
 
 
 class ClusterClient(Protocol):
-    """kubectl operations. Manifests are pydantic models serialised by alias."""
+    """kubectl operations. In-memory manifests are pydantic models serialised by alias."""
 
     def ensure_namespace(self, target: KubeTarget) -> None: ...
 
     def apply(self, target: KubeTarget, manifest: BaseModel) -> None: ...
+
+    def apply_file(self, target: KubeTarget, path: Path) -> None: ...
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool: ...
 
@@ -56,3 +58,7 @@ class ClusterClient(Protocol):
     ) -> int: ...
 
     def logs(self, target: KubeTarget, resource: str, *, follow: bool = True) -> int: ...
+
+    def port_forward(
+        self, target: KubeTarget, resource: str, local_port: int, remote_port: int
+    ) -> int: ...

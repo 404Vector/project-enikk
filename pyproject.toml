@@ -12,6 +12,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "import-linter>=2.1",
+    "httpx>=0.28",
 ]
 
 [tool.uv]
@@ -64,7 +65,7 @@ runtime-evaluated-base-classes = [
 "src/**/tests/**" = ["S101", "S105", "S106", "TID251"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
+known-first-party = ["enikk_kernel", "enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -75,6 +76,8 @@ files = [
     "src/libs/kernel/enikk_kernel",
     "src/libs/contracts/enikk_contracts",
     "src/libs/adapters/platform/enikk_platform",
+    "src/apps/core/enikk_core",
+    "src/apps/ops-cli/enikk_ops",
 ]
 
 [tool.pydantic-mypy]
@@ -85,19 +88,30 @@ warn_required_dynamic_aliases = true
 # ---------------------------------------------------------------- import-linter
 # Dependency rules from docs/architecture/code-structure.md section 4.
 [tool.importlinter]
-root_packages = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
+root_packages = ["enikk_kernel", "enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]
 name = "kernel depends on no other project package"
 type = "forbidden"
 source_modules = ["enikk_kernel"]
-forbidden_modules = ["enikk_contracts", "enikk_platform"]
+forbidden_modules = ["enikk_contracts", "enikk_platform", "enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]
 name = "contracts depend only on kernel"
 type = "forbidden"
 source_modules = ["enikk_contracts"]
-forbidden_modules = ["enikk_platform"]
+forbidden_modules = ["enikk_platform", "enikk_core", "enikk_ops"]
+
+[[tool.importlinter.contracts]]
+name = "libraries never import apps"
+type = "forbidden"
+source_modules = ["enikk_kernel", "enikk_contracts", "enikk_platform"]
+forbidden_modules = ["enikk_core", "enikk_ops"]
+
+[[tool.importlinter.contracts]]
+name = "apps are independent of each other"
+type = "independence"
+modules = ["enikk_core", "enikk_ops"]
 
 [[tool.importlinter.contracts]]
 name = "platform domain and ports never import platform adapters"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, Field
 
@@ -38,9 +38,26 @@ class KubeTarget(FrozenModel):
     namespace: DnsLabel
 
 
+class LocalChart(FrozenModel):
+    kind: Literal["local"] = "local"
+    path: Path
+
+
+class RemoteChart(FrozenModel):
+    """A chart from a Helm repository, pinned to an exact version."""
+
+    kind: Literal["remote"] = "remote"
+    repository: str = Field(pattern=r"^https://\S+$")
+    name: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+
+
+ChartRef = Annotated[LocalChart | RemoteChart, Field(discriminator="kind")]
+
+
 class HelmRelease(FrozenModel):
     name: DnsLabel
-    chart: Path
+    chart: ChartRef
     target: KubeTarget
     values_files: tuple[Path, ...] = ()
 

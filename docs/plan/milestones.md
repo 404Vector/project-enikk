@@ -24,7 +24,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 ---
 
-## M0. 기반 정비
+## M0. 기반 정비 — 완료 (2026-11-21, PR #1)
 
 **목표**: 저장소·도구·CI 를 새 구조에 맞춘다. 기능 코드는 없다.
 
@@ -38,14 +38,14 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 **완료 조건**: PR 에서 검사가 돌고, 계층 위반 코드를 넣으면 CI 가 실패한다.
 **소유자 준비물**: GitHub 저장소 생성(또는 생성 권한), 원격 URL.
 
-## M1. 배포 플랫폼
+## M1. 배포 플랫폼 — 진행 중
 
 **목표**: "git 에 머지하면 클러스터에 반영되는" 경로를 만든다.
 
 - ops-cli 부트스트랩 명령: Argo CD 설치, app-of-apps 등록
 - `deploy/argocd/` Application 정의, CloudNativePG 오퍼레이터 + Postgres 클러스터
 - GitHub Actions: 앱 이미지 빌드 → GHCR 푸시 (커밋 SHA 태그)
-- Argo CD Image Updater: 새 태그 반영 (ADR-0008 미결정 사항 확정 → ADR 갱신)
+- Argo CD Image Updater: 새 태그 반영 (ADR-0008: write-back method `argocd`)
 - 확인용 최소 앱(health 만 있는 core 골격)으로 전체 경로 검증
 
 **완료 조건**: core 골격 코드를 고쳐 머지하면 사람 개입 없이 새 이미지가 클러스터에 배포된다.
