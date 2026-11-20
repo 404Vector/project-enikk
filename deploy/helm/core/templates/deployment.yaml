@@ -16,23 +16,25 @@ spec:
         {{- include "enikk-core.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: enikk-core
-      automountServiceAccountToken: false
+      # core needs its Kubernetes API token for TokenReview only (I-28).
+      automountServiceAccountToken: true
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: RuntimeDefault
+        {{- include "enikk-core.podSecurityContext" . | nindent 8 }}
       containers:
         - name: core
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          image: {{ include "enikk-core.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["enikk-core"]
+          command: ["enikk-core", "serve"]
           env:
             - name: ENIKK_CORE_PORT
               value: {{ .Values.port | quote }}
             - name: ENIKK_CORE_VERSION
               value: {{ .Values.image.tag | default "unset" | quote }}
+            - name: ENIKK_CORE_AGENTS_DIR
+              value: /app/agents
+            - name: ENIKK_CORE_ROLE_BINDINGS
+              value: {{ .Values.roleBindings | toJson | quote }}
+            {{- include "enikk-core.databaseEnv" . | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.port }}
@@ -45,7 +47,4 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ALL]
+            {{- include "enikk-core.containerSecurityContext" . | nindent 12 }}

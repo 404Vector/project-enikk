@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -11,7 +12,7 @@ from enikk_kernel.models import FrozenModel
 from enikk_kernel.process import ProcessResult
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from pathlib import Path
 
 
@@ -58,6 +59,7 @@ class RecordingRunner:
 
     def __init__(self) -> None:
         self.calls: list[RecordedCall] = []
+        self.background_calls: list[tuple[str, ...]] = []
         self._scripted: dict[tuple[str, ...], ProcessResult] = {}
 
     def when(self, *prefix: str, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
@@ -81,6 +83,11 @@ class RecordingRunner:
         if check and not result.ok:
             raise ExternalCommandError(command, result.returncode, result.stderr)
         return result
+
+    @contextmanager
+    def background(self, argv: Sequence[str]) -> Iterator[None]:
+        self.background_calls.append(tuple(argv))
+        yield
 
     @property
     def argvs(self) -> list[tuple[str, ...]]:

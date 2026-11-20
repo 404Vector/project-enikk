@@ -1,0 +1,37 @@
+{{- if .Values.image.tag }}
+# Applies database migrations before every sync (ADR-0012 §5).
+# If it fails, the sync stops and the new core version is not rolled out.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: enikk-core-migrate
+  labels:
+    {{- include "enikk-core.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enikk-core-migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: enikk-core
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "enikk-core.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "enikk-core.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-core", "migrate"]
+          env:
+            {{- include "enikk-core.databaseEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          securityContext:
+            {{- include "enikk-core.containerSecurityContext" . | nindent 12 }}
+{{- end }}

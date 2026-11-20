@@ -22,6 +22,8 @@ FROM ${PYTHON_IMAGE}
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home app
 COPY --from=build /app/.venv /app/.venv
+# Agent definitions are part of the release (ADR-0012 §6).
+COPY --from=build /src/agents /app/agents
 ENV PATH=/app/.venv/bin:${PATH} \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

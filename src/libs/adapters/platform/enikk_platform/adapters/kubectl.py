@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 
 from enikk_kernel.models import FrozenModel
 from enikk_platform.adapters.base import CliTool
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
     from pydantic import BaseModel
@@ -54,6 +55,35 @@ class KubectlCli(CliTool):
             check=False,
         )
         return result.returncode
+
+    def forwarding(
+        self, target: KubeTarget, resource: str, local_port: int, remote_port: int
+    ) -> AbstractContextManager[None]:
+        return self._runner.background(
+            [
+                self._executable,
+                *self._scope(target),
+                "port-forward",
+                resource,
+                f"{local_port}:{remote_port}",
+            ]
+        )
+
+    def create_token(
+        self, target: KubeTarget, service_account: str, *, audience: str, duration: str = "10m"
+    ) -> SecretStr:
+        result = self._run(
+            *self._scope(target),
+            "create",
+            "token",
+            service_account,
+            "--audience",
+            audience,
+            "--duration",
+            duration,
+            mutating=False,
+        )
+        return SecretStr(result.stdout.strip())
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool:
         result = self._run(

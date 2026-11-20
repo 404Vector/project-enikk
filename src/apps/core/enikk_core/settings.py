@@ -2,9 +2,88 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+from datetime import timedelta
+from pathlib import Path
+from typing import Literal, Self
 
-from enikk_kernel.settings import ServiceSettings
+from pydantic import Field, SecretStr, model_validator
+
+from enikk_contracts.common import ConnectorKind, Engine
+from enikk_core_domain.auth import (
+    ConnectorRole,
+    DevAgentRole,
+    Role,
+    RoleBinding,
+    RuntimeRole,
+    ServiceIdentity,
+)
+from enikk_kernel.settings import ServiceSettings, SettingsModel
+from enikk_persistence_sql.engine import DatabaseConfig
+
+
+class DatabaseSettings(SettingsModel):
+    """Filled from the CloudNativePG application Secret (``enikk-db-app``)."""
+
+    host: str = "localhost"
+    port: int = Field(default=5432, ge=1, le=65535)
+    name: str = "enikk"
+    user: str = "enikk"
+    password: SecretStr = SecretStr("")
+    pool_size: int = Field(default=5, ge=1, le=50)
+
+    def to_config(self) -> DatabaseConfig:
+        return DatabaseConfig(
+            host=self.host,
+            port=self.port,
+            name=self.name,
+            user=self.user,
+            password=self.password,
+            pool_size=self.pool_size,
+        )
+
+
+class RoleBindingSettings(SettingsModel):
+    namespace: str
+    service_account: str
+    role: Literal["connector", "runtime", "dev-agent"]
+    connector: ConnectorKind | None = None
+    engine: Engine | None = None
+
+    @model_validator(mode="after")
+    def _role_fields(self) -> Self:
+        if (self.role == "connector") != (self.connector is not None):
+            raise ValueError("'connector' is required exactly for the connector role")
+        if (self.role == "runtime") != (self.engine is not None):
+            raise ValueError("'engine' is required exactly for the runtime role")
+        return self
+
+    def to_binding(self) -> RoleBinding:
+        role: Role
+        if self.connector is not None:
+            role = ConnectorRole(connector=self.connector)
+        elif self.engine is not None:
+            role = RuntimeRole(engine=self.engine)
+        else:
+            role = DevAgentRole()
+        identity = ServiceIdentity(namespace=self.namespace, name=self.service_account)
+        return RoleBinding(identity=identity, role=role)
+
+
+class TaskSettings(SettingsModel):
+    lease_seconds: int = Field(default=120, ge=10, le=3600)
+    max_attempts: int = Field(default=3, ge=1, le=10)
+    poll_interval_seconds: float = Field(default=1.0, gt=0, le=5)
+    reaper_interval_seconds: float = Field(default=10.0, gt=0, le=300)
+    reaper_batch: int = Field(default=50, ge=1, le=1000)
+
+    @property
+    def lease_duration(self) -> timedelta:
+        return timedelta(seconds=self.lease_seconds)
+
+
+class TokenReviewSettings(SettingsModel):
+    api_url: str = "https://kubernetes.default.svc"
+    cache_seconds: int = Field(default=90, ge=1, le=300)
 
 
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
@@ -12,3 +91,9 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     port: int = Field(default=8000, ge=1, le=65535)
     version: str = "dev"
     verbose: bool = False
+    agents_dir: Path = Path("agents")
+    database: DatabaseSettings = DatabaseSettings()
+    tasks: TaskSettings = TaskSettings()
+    token_review: TokenReviewSettings = TokenReviewSettings()
+    # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
+    role_bindings: tuple[RoleBindingSettings, ...] = ()

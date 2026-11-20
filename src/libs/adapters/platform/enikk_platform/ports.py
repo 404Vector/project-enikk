@@ -6,9 +6,10 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from contextlib import AbstractContextManager
     from pathlib import Path
 
-    from pydantic import BaseModel
+    from pydantic import BaseModel, SecretStr
 
     from enikk_platform.domain import ChartRef, HelmRelease, ImageRef, KubeTarget, ReleaseInfo
 
@@ -62,3 +63,15 @@ class ClusterClient(Protocol):
     def port_forward(
         self, target: KubeTarget, resource: str, local_port: int, remote_port: int
     ) -> int: ...
+
+    def forwarding(
+        self, target: KubeTarget, resource: str, local_port: int, remote_port: int
+    ) -> AbstractContextManager[None]:
+        """Keep a port-forward open while the ``with`` block runs."""
+        ...
+
+    def create_token(
+        self, target: KubeTarget, service_account: str, *, audience: str, duration: str = "10m"
+    ) -> SecretStr:
+        """Issue a short-lived ServiceAccount token (TokenRequest). Changes no resources."""
+        ...

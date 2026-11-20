@@ -14,6 +14,8 @@ from enikk_ops.container import Container
 app = typer.Typer(no_args_is_help=True, help="enikk ops: cluster bootstrap and local tools.")
 argocd_app = typer.Typer(no_args_is_help=True, help="Argo CD (GitOps controller).")
 app.add_typer(argocd_app, name="argocd")
+smoke_app = typer.Typer(no_args_is_help=True, help="End-to-end checks of deployed services.")
+app.add_typer(smoke_app, name="smoke")
 
 DryRun = Annotated[bool, typer.Option("--dry-run", help="Print mutating commands only.")]
 Verbose = Annotated[bool, typer.Option("--verbose", "-v", help="Debug logging.")]
@@ -57,6 +59,14 @@ def argocd_ui(ctx: typer.Context) -> None:
         "-o jsonpath='{.data.password}' | base64 -d"
     )
     raise typer.Exit(container.argocd.open_ui())
+
+
+@smoke_app.command("core")
+def smoke_core(ctx: typer.Context) -> None:
+    """Drive event -> task -> result -> outbox against the deployed core with real tokens."""
+    typer.echo("enikk-core smoke test")
+    _container(ctx).core_smoke.run()
+    typer.echo("all checks passed")
 
 
 def main() -> None:

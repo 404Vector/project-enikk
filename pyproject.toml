@@ -14,6 +14,7 @@ dev = [
     "import-linter>=2.1",
     "httpx>=0.28",
     "testcontainers[postgres]>=4.15",
+    "types-pyyaml>=6.0",
 ]
 
 [tool.uv]
@@ -56,6 +57,7 @@ runtime-evaluated-base-classes = [
     "enikk_kernel.settings.ServiceSettings",
     "enikk_contracts.base.Contract",
     "enikk_core_domain.model.Entity",
+    "enikk_kernel.settings.SettingsModel",
     "sqlalchemy.orm.DeclarativeBase",
     "enikk_persistence_sql.tables.Base",
 ]
@@ -95,6 +97,7 @@ files = [
     "src/libs/adapters/k8s-auth/enikk_k8s_auth",
     "src/libs/adapters/platform/enikk_platform",
     "src/apps/core/enikk_core",
+    "src/apps/core/tests",
     "src/apps/ops-cli/enikk_ops",
 ]
 

@@ -7,6 +7,7 @@ from functools import cached_property
 from enikk_kernel.process import SubprocessRunner
 from enikk_ops.bootstrap import ArgoCdService
 from enikk_ops.settings import OpsSettings
+from enikk_ops.smoke import CoreSmokeTest
 from enikk_platform.adapters import HelmCli, KubectlCli
 
 
@@ -26,3 +27,9 @@ class Container:
     @cached_property
     def argocd(self) -> ArgoCdService:
         return ArgoCdService(self.settings, HelmCli(self.runner), KubectlCli(self.runner))
+
+    @cached_property
+    def core_smoke(self) -> CoreSmokeTest:
+        return CoreSmokeTest(
+            self.settings.smoke, self.settings.kube_context, KubectlCli(self.runner)
+        )

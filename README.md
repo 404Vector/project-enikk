@@ -41,14 +41,14 @@ Slack ─► Slack 커넥터 ─► enikk-core (제어) ─┬─► Claude 런�
 
 ```
 project-enikk/
+├─ agents/      에이전트 정의 (YAML, 프롬프트 본문 없음)
 ├─ docs/        설계 문서 — 아키텍처, 원칙, 불변식, ADR
-├─ deploy/      배포 자산 — Dockerfile, Helm 차트
+├─ deploy/      배포 자산 — Dockerfile, Helm 차트, 매니페스트, Argo CD Application
 ├─ src/         Python 소스 (uv workspace 멤버들)
-├─ enikk.toml   런타임 설정
 └─ pyproject.toml
 ```
 
-`src/` 내부 구조는 [docs/architecture/code-structure.md](docs/architecture/code-structure.md) 에서 확정 중입니다.
+`src/` 내부 구조는 [docs/architecture/code-structure.md](docs/architecture/code-structure.md) 를 참고하세요.
 
 ## 시작하기
 
@@ -75,6 +75,12 @@ uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
 ```
 
 이후에는 `main` 에 머지된 변경이 Argo CD 를 통해 자동으로 배포됩니다.
+
+### 배포 확인
+
+```bash
+uv run enikk-ops smoke core         # 실제 ServiceAccount 토큰으로 core 의 전체 흐름과 인증을 점검
+```
 
 ## 문서
 
