@@ -112,6 +112,14 @@ def smoke_core(ctx: typer.Context) -> None:
     typer.echo("all checks passed")
 
 
+@smoke_app.command("claude")
+def smoke_claude(ctx: typer.Context) -> None:
+    """Hold a two-message conversation with the deployed Claude runtime (uses the model)."""
+    typer.echo("Claude runtime smoke test")
+    _container(ctx).claude_smoke.run()
+    typer.echo("all checks passed")
+
+
 def main() -> None:
     try:
         app()

@@ -51,4 +51,5 @@ uv run pytest                    # 영속성 통합 테스트는 Docker 로 Post
 - Argo CD Application: `deploy/argocd/` (클러스터는 `main` 의 이 디렉토리를 따른다)
 - 대상 클러스터: kube context `docker-desktop`
 - 운영 리소스를 `helm`/`kubectl` 로 직접 바꾸지 않는다. 최초 설치만 `uv run enikk-ops argocd bootstrap` 으로 한다.
-- 배포 후 확인: `uv run enikk-ops smoke core` (리소스를 만들지 않는다)
+- 배포 후 확인: `uv run enikk-ops smoke core` (리소스를 만들지 않는다). Claude 런타임은 `smoke claude` 로 확인한다 (모델을 실제로 호출한다).
+- Claude Agent SDK 는 `engine-claude` 패키지에서만 import 한다 (import-linter 가 막는다).

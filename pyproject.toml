@@ -83,8 +83,10 @@ known-first-party = [
     "enikk_platform",
     "enikk_runtime",
     "enikk_langfuse",
+    "enikk_engine_claude",
     "enikk_core",
     "enikk_ops",
+    "enikk_runtime_claude",
 ]
 
 # ---------------------------------------------------------------- mypy
@@ -104,9 +106,13 @@ files = [
     "src/libs/runtime/tests",
     "src/libs/adapters/langfuse/enikk_langfuse",
     "src/libs/adapters/langfuse/tests",
+    "src/libs/adapters/engine-claude/enikk_engine_claude",
+    "src/libs/adapters/engine-claude/tests",
     "src/apps/core/enikk_core",
     "src/apps/core/tests",
     "src/apps/ops-cli/enikk_ops",
+    "src/apps/runtime-claude/enikk_runtime_claude",
+    "src/apps/runtime-claude/tests",
 ]
 
 [tool.pydantic-mypy]
@@ -127,8 +133,10 @@ root_packages = [
     "enikk_platform",
     "enikk_runtime",
     "enikk_langfuse",
+    "enikk_engine_claude",
     "enikk_core",
     "enikk_ops",
+    "enikk_runtime_claude",
 ]
 include_external_packages = true
 
@@ -138,7 +146,7 @@ type = "forbidden"
 source_modules = ["enikk_kernel"]
 forbidden_modules = [
     "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql",
-    "enikk_k8s_auth", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_k8s_auth", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
 ]
 
 [[tool.importlinter.contracts]]
@@ -147,7 +155,7 @@ type = "forbidden"
 source_modules = ["enikk_contracts"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth",
-    "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
 ]
 
 [[tool.importlinter.contracts]]
@@ -156,7 +164,7 @@ type = "forbidden"
 source_modules = ["enikk_core_domain"]
 forbidden_modules = [
     "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
-    "enikk_runtime", "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
     "fastapi", "starlette", "uvicorn", "httpx", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
 ]
 
@@ -166,7 +174,7 @@ type = "forbidden"
 source_modules = ["enikk_core_client"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
-    "enikk_runtime", "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
 ]
 
 [[tool.importlinter.contracts]]
@@ -175,7 +183,7 @@ type = "forbidden"
 source_modules = ["enikk_runtime"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform",
-    "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
     "fastapi", "starlette", "uvicorn", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
 ]
 
@@ -185,21 +193,24 @@ type = "forbidden"
 source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_runtime",
-    "enikk_langfuse",
+    "enikk_langfuse", "enikk_engine_claude",
 ]
-forbidden_modules = ["enikk_core", "enikk_ops"]
+forbidden_modules = ["enikk_core", "enikk_ops", "enikk_runtime_claude"]
 
 [[tool.importlinter.contracts]]
 name = "adapters do not import each other"
 type = "independence"
-modules = ["enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_langfuse"]
+modules = [
+    "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_langfuse",
+    "enikk_engine_claude",
+]
 
 [[tool.importlinter.contracts]]
 name = "database libraries only in persistence-sql (I-26)"
 type = "forbidden"
 source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_k8s_auth",
-    "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_core", "enikk_ops",
+    "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
 ]
 forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
 allow_indirect_imports = true
@@ -207,7 +218,7 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "apps are independent of each other"
 type = "independence"
-modules = ["enikk_core", "enikk_ops"]
+modules = ["enikk_core", "enikk_ops", "enikk_runtime_claude"]
 
 [[tool.importlinter.contracts]]
 name = "kernel and contracts import no frameworks or SDKs"
@@ -220,3 +231,15 @@ name = "platform domain and ports never import platform adapters"
 type = "forbidden"
 source_modules = ["enikk_platform.domain", "enikk_platform.ports"]
 forbidden_modules = ["enikk_platform.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "Claude Agent SDK only in engine-claude (I-08)"
+type = "forbidden"
+source_modules = [
+    "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
+    "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_runtime",
+    "enikk_langfuse", "enikk_core", "enikk_ops", "enikk_runtime_claude",
+]
+forbidden_modules = ["claude_agent_sdk"]
+# The runtime app assembles engine-claude; only direct SDK imports are forbidden.
+allow_indirect_imports = true

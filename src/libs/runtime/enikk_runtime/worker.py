@@ -14,6 +14,7 @@ from enikk_core_client.errors import CoreConflictError, CoreNotFoundError, CoreU
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.errors import IncompatibleModelError, TaskFailedError
 from enikk_runtime.model import EngineJob
+from enikk_runtime.observing import NullObserver
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from enikk_contracts.tasks import TaskAssignment
     from enikk_kernel.clock import Clock
     from enikk_runtime.model import EngineResult
-    from enikk_runtime.ports import ModelEngine, PromptStore, TaskSource
+    from enikk_runtime.ports import ModelEngine, PromptStore, RunObserver, TaskSource
 
     Sleep = Callable[[float], Awaitable[None]]
 
@@ -52,11 +53,13 @@ class TaskWorker:
         engine: ModelEngine,
         clock: Clock,
         policy: WorkerPolicy,
+        observer: RunObserver | None = None,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self._core = core
         self._prompts = prompts
         self._engine = engine
+        self._observer: RunObserver = observer or NullObserver()
         self._clock = clock
         self._policy = policy
         self._sleep = sleep
@@ -186,7 +189,17 @@ class TaskWorker:
             prompt=prompt,
             input=assignment.input,
         )
-        return await self._engine.run(job)
+        async with self._observer.observe(job) as observation:
+            try:
+                result = await self._engine.run(job)
+            except TaskFailedError as failure:
+                observation.failed(failure.reason)
+                raise
+            except Exception:
+                observation.failed(INTERNAL_FAILURE)
+                raise
+            observation.succeeded(result)
+        return result
 
     # ------------------------------------------------------------ reporting
 

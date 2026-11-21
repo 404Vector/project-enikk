@@ -1,0 +1,31 @@
+[project]
+name = "enikk-runtime-claude"
+version = "0.1.0"
+description = "Claude engine runtime: leases tasks from enikk-core and runs them on the Claude Agent SDK"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
+    "enikk-runtime",
+    "enikk-langfuse",
+    "enikk-engine-claude",
+]
+
+[project.scripts]
+enikk-runtime-claude = "enikk_runtime_claude.main:main"
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
+enikk-runtime = { workspace = true }
+enikk-langfuse = { workspace = true }
+enikk-engine-claude = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_runtime_claude"]

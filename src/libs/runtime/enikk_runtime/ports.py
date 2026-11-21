@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     import uuid
+    from contextlib import AbstractAsyncContextManager
 
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.common import Engine
@@ -45,3 +46,14 @@ class ModelEngine(Protocol):
     async def run(self, job: EngineJob) -> EngineResult:
         """Run one task. Raises ``EngineError`` for failures the owner should see."""
         ...
+
+
+class RunObservation(Protocol):
+    def succeeded(self, result: EngineResult) -> None: ...
+    def failed(self, reason: str) -> None: ...
+
+
+class RunObserver(Protocol):
+    """Records each engine run (traces, ADR-0016). Must never fail the task."""
+
+    def observe(self, job: EngineJob) -> AbstractAsyncContextManager[RunObservation]: ...

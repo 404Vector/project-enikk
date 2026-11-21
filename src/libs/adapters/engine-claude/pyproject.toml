@@ -1,0 +1,25 @@
+[project]
+name = "enikk-engine-claude"
+version = "0.1.0"
+description = "ModelEngine on the Claude Agent SDK"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
+    "enikk-runtime",
+    "claude-agent-sdk>=0.2.186",
+]
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
+enikk-runtime = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_engine_claude"]

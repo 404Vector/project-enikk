@@ -8,6 +8,8 @@ dependencies = [
     "enikk-contracts",
     "enikk-runtime",
     "httpx>=0.28",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
 ]
 
 [tool.uv.sources]

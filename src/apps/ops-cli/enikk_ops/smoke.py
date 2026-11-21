@@ -13,7 +13,7 @@ from pydantic import SecretStr
 
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
-from enikk_contracts.outbox import OutboxAck, OutboxPoll
+from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
 from enikk_contracts.routes import AUDIENCE
 from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport, Succeeded
 from enikk_core_client import (
@@ -140,6 +140,91 @@ class CoreSmokeTest:
 
     def _ok(self, text: str) -> None:
         self._report(f"  ok  {text}")
+
+
+class ClaudeSmokeTest:
+    """Talks to the deployed Claude runtime through core, as the Slack connector would.
+
+    Sends two messages in one new thread; the second must recall a codeword from the
+    first, which proves transcripts are stored in core and resumed (ADR-0014).
+    """
+
+    def __init__(
+        self,
+        settings: SmokeSettings,
+        kube_context: str,
+        cluster: ClusterClient,
+        client: ClientFactory = default_client,
+        report: Callable[[str], None] = print,
+    ) -> None:
+        self._settings = settings
+        self._cluster = cluster
+        self._client = client
+        self._report = report
+        self._target = KubeTarget(context=kube_context, namespace=settings.namespace)
+
+    def run(self) -> None:
+        s = self._settings
+        token = self._cluster.create_token(self._target, s.connector_account, audience=AUDIENCE)
+        with self._cluster.forwarding(self._target, s.service, s.local_port, s.service_port):
+            asyncio.run(self._conversation(f"http://127.0.0.1:{s.local_port}", token))
+
+    async def _conversation(self, base_url: str, token: SecretStr) -> None:
+        async with self._client(base_url, token) as connector:
+            await _until_ready(connector)
+            thread = uuid.uuid4().hex
+            codeword = f"enikk-{uuid.uuid4().hex[:6]}"
+            first = await self._ask(
+                connector,
+                thread,
+                f"Remember this codeword for later: {codeword}. Reply with just OK.",
+            )
+            self._report(f"  ok  first reply: {first[:200]}")
+            second = await self._ask(
+                connector,
+                thread,
+                "What was the codeword I gave you? Reply with only the codeword.",
+            )
+            if codeword not in second:
+                raise SmokeTestError(
+                    f"the second reply did not recall the codeword: {second[:200]}"
+                )
+            self._report(f"  ok  second reply recalled the codeword: {second[:200]}")
+
+    async def _ask(self, connector: CoreClient, thread: str, text: str) -> str:
+        accepted = await connector.submit_event(
+            InboundEvent(
+                event_id=f"smoke-{uuid.uuid4().hex}",
+                conversation=ConversationRef(
+                    connector=ConnectorKind.SLACK, channel=SMOKE_CHANNEL, thread=thread
+                ),
+                user="enikk-smoke",
+                text=text,
+                agent="assistant",
+            )
+        )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._settings.reply_timeout_seconds
+        while loop.time() < deadline:
+            batch = await connector.poll_outbox(OutboxPoll(wait_seconds=20, limit=100))
+            stale = tuple(
+                m.message_id
+                for m in batch.messages
+                if m.conversation.channel == SMOKE_CHANNEL and m.task_id != accepted.task_id
+            )
+            if stale:
+                await connector.ack_outbox(OutboxAck(message_ids=stale))
+            for message in batch.messages:
+                if message.task_id == accepted.task_id:
+                    await connector.ack_outbox(OutboxAck(message_ids=(message.message_id,)))
+                    if message.kind is OutboundKind.FAILURE:
+                        raise SmokeTestError(f"the agent failed: {message.text}")
+                    return message.text
+            if batch.messages:
+                await asyncio.sleep(1)
+        raise SmokeTestError(
+            f"no reply for task {accepted.task_id} within {self._settings.reply_timeout_seconds}s"
+        )
 
 
 def _smoke_event() -> InboundEvent:
