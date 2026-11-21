@@ -5,7 +5,19 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from pydantic import JsonValue
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -71,3 +83,36 @@ class OutboxRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime]
     delivered_at: Mapped[datetime | None]
+
+
+class TranscriptEntryRow(Base):
+    """One engine transcript entry, stored as opaque JSON (ADR-0014)."""
+
+    __tablename__ = "transcript_entries"
+    __table_args__ = (
+        Index(
+            "ix_transcript_entries_key",
+            "session_id",
+            "project_key",
+            "engine_session_id",
+            "subpath",
+            "id",
+        ),
+        Index(
+            "uq_transcript_entries_uuid",
+            "session_id",
+            "project_key",
+            "engine_session_id",
+            "subpath",
+            "entry_uuid",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"))
+    project_key: Mapped[str] = mapped_column(String(255))
+    engine_session_id: Mapped[str] = mapped_column(String(255))
+    subpath: Mapped[str] = mapped_column(String(255))
+    entry_uuid: Mapped[str | None] = mapped_column(String(255))
+    entry: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)

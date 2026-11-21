@@ -12,6 +12,7 @@ from enikk_persistence_sql.repositories import (
     SqlOutboxRepository,
     SqlSessionRepository,
     SqlTaskRepository,
+    SqlTranscriptRepository,
 )
 
 if TYPE_CHECKING:
@@ -26,6 +27,7 @@ class SqlUnitOfWork:
         self.sessions = SqlSessionRepository(self._db)
         self.tasks = SqlTaskRepository(self._db)
         self.outbox = SqlOutboxRepository(self._db)
+        self.transcripts = SqlTranscriptRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

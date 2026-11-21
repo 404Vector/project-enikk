@@ -11,17 +11,20 @@ from sqlalchemy.orm import aliased
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import OutboxStatus
+from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
-from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow
+from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow, TranscriptEntryRow
 
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
     from datetime import datetime
 
+    from sqlalchemy import ColumnElement
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+    from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.model import OutboxMessage, Session, Task
 
 
@@ -127,6 +130,76 @@ class SqlOutboxRepository:
             raise NotFoundError(f"outbox message {message.id} does not exist")
         mappers.outbox_to_row(message, row)
         await _flush(self._db, f"outbox message {message.id}")
+
+
+class SqlTranscriptRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def append(
+        self, session_id: uuid.UUID, key: TranscriptKey, entries: Sequence[TranscriptEntry]
+    ) -> int:
+        subpath = key.subpath or MAIN_SUBPATH
+        scope = _transcript(session_id, key.project_key, key.engine_session_id, subpath)
+        markers = [m for e in entries if (m := entry_uuid(e)) is not None]
+        stored: list[str] = []
+        if markers:
+            found = await self._db.scalars(
+                select(TranscriptEntryRow.entry_uuid).where(
+                    *scope, TranscriptEntryRow.entry_uuid.in_(markers)
+                )
+            )
+            stored = [m for m in found if m is not None]
+        added = new_entries(entries, stored)
+        self._db.add_all(
+            TranscriptEntryRow(
+                session_id=session_id,
+                project_key=key.project_key,
+                engine_session_id=key.engine_session_id,
+                subpath=subpath,
+                entry_uuid=entry_uuid(entry),
+                entry=entry,
+            )
+            for entry in added
+        )
+        await _flush(self._db, f"transcript of session {session_id}")
+        return len(added)
+
+    async def load(self, session_id: uuid.UUID, key: TranscriptKey) -> Sequence[TranscriptEntry]:
+        subpath = key.subpath or MAIN_SUBPATH
+        rows = await self._db.scalars(
+            select(TranscriptEntryRow.entry)
+            .where(*_transcript(session_id, key.project_key, key.engine_session_id, subpath))
+            .order_by(TranscriptEntryRow.id)
+        )
+        return list(rows)
+
+    async def subpaths(
+        self, session_id: uuid.UUID, project_key: str, engine_session_id: str
+    ) -> Sequence[str]:
+        rows = await self._db.scalars(
+            select(TranscriptEntryRow.subpath)
+            .where(
+                TranscriptEntryRow.session_id == session_id,
+                TranscriptEntryRow.project_key == project_key,
+                TranscriptEntryRow.engine_session_id == engine_session_id,
+                TranscriptEntryRow.subpath != MAIN_SUBPATH,
+            )
+            .distinct()
+            .order_by(TranscriptEntryRow.subpath)
+        )
+        return list(rows)
+
+
+def _transcript(
+    session_id: uuid.UUID, project_key: str, engine_session_id: str, subpath: str
+) -> tuple[ColumnElement[bool], ...]:
+    return (
+        TranscriptEntryRow.session_id == session_id,
+        TranscriptEntryRow.project_key == project_key,
+        TranscriptEntryRow.engine_session_id == engine_session_id,
+        TranscriptEntryRow.subpath == subpath,
+    )
 
 
 class SqlJobQueue:

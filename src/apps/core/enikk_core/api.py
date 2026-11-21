@@ -27,6 +27,14 @@ from enikk_contracts.tasks import (
     ResultAccepted,
     ResultReport,
 )
+from enikk_contracts.transcripts import (
+    SubpathQuery,
+    TranscriptAppend,
+    TranscriptAppended,
+    TranscriptLoaded,
+    TranscriptQuery,
+    TranscriptSubpaths,
+)
 from enikk_core.security import declared_roles, requires
 from enikk_core_domain.auth import ConnectorRole, RuntimeRole
 from enikk_core_domain.errors import (
@@ -148,6 +156,27 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         role = _runtime(await gate.admit(request))
         report = await _parse(request, ResultReport)
         return _json(await usecases.report_result(role.engine, task_id, report))
+
+    @app.post(routes.TRANSCRIPT_APPEND, responses={200: {"model": TranscriptAppended}})
+    @requires("runtime")
+    async def append_transcript(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        body = await _parse(request, TranscriptAppend)
+        return _json(await usecases.append_transcript(role.engine, task_id, body))
+
+    @app.post(routes.TRANSCRIPT_LOAD, responses={200: {"model": TranscriptLoaded}})
+    @requires("runtime")
+    async def load_transcript(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        query = await _parse(request, TranscriptQuery)
+        return _json(await usecases.load_transcript(role.engine, task_id, query))
+
+    @app.post(routes.TRANSCRIPT_SUBPATHS, responses={200: {"model": TranscriptSubpaths}})
+    @requires("runtime")
+    async def transcript_subpaths(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        query = await _parse(request, SubpathQuery)
+        return _json(await usecases.transcript_subpaths(role.engine, task_id, query))
 
     @app.post(routes.CREDENTIALS, responses={200: {"model": Credentials}})
     @requires("connector", "runtime", "dev-agent")
