@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
+
+from pydantic import SecretStr
 
 from enikk_kernel.models import FrozenModel
 from enikk_kernel.testing import RecordingRunner
@@ -119,3 +122,22 @@ def test_kubectl_exists() -> None:
         "kubectl", "--context", "docker-desktop", "--namespace", "enikk", "get", returncode=1
     )
     assert KubectlCli(runner).exists(TARGET, "secret", "x") is False
+
+
+def test_secret_is_server_side_applied_through_stdin() -> None:
+    runner = RecordingRunner()
+    data = {"slack.bot-token": SecretStr("xoxb-secret")}
+    KubectlCli(runner).apply_secret(TARGET, "creds", data, manager="enikk-ops")
+    call = runner.calls[0]
+    assert "--server-side" in call.argv
+    assert "--field-manager=enikk-ops" in call.argv
+    assert not any("xoxb" in arg for arg in call.argv)
+    assert call.stdin is not None
+    manifest = _Manifest.model_validate_json(call.stdin)
+    assert manifest.kind == "Secret"
+    assert base64.b64decode(manifest.data["slack.bot-token"]) == b"xoxb-secret"
+
+
+class _Manifest(FrozenModel, extra="ignore"):
+    kind: str
+    data: dict[str, str]

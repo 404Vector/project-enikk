@@ -76,6 +76,21 @@ uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
 
 이후에는 `main` 에 머지된 변경이 Argo CD 를 통해 자동으로 배포됩니다.
 
+### 비밀값
+
+비밀값(Slack, Claude, Langfuse 토큰)은 이 PC 의 `~/.config/enikk/secrets.yaml` 에 보관하고,
+클러스터에는 core 만 읽는 Secret 으로 반영합니다. 다른 서비스는 core 에서 필요한 값만 받습니다.
+
+```bash
+uv run enikk-ops secret set slack.bot-token   # 숨김 입력으로 저장
+uv run enikk-ops secret list                  # 설정 여부만 표시 (값은 출력하지 않음)
+uv run enikk-ops secret unset slack.bot-token
+uv run enikk-ops secret sync                  # 파일 내용을 클러스터에 반영
+```
+
+파일은 평문입니다. 권한(0600)을 유지하고, 백업 매체도 같은 수준으로 보관하세요.
+클러스터를 초기화했다면 `secret sync` 를 다시 실행하면 됩니다.
+
 ### 배포 확인
 
 ```bash

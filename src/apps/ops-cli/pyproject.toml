@@ -9,6 +9,7 @@ dependencies = [
     "enikk-core-client",
     "enikk-platform",
     "typer>=0.15",
+    "pyyaml>=6.0.2",
 ]
 
 [project.scripts]

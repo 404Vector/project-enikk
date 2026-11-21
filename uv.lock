@@ -416,6 +416,7 @@ dependencies = [
     { name = "enikk-core-client" },
     { name = "enikk-kernel" },
     { name = "enikk-platform" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 
@@ -425,6 +426,7 @@ requires-dist = [
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-platform", editable = "src/libs/adapters/platform" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "typer", specifier = ">=0.15" },
 ]
 

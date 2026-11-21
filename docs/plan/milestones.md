@@ -76,6 +76,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 **목표**: Slack 에 말을 걸면 Claude 에이전트가 답한다.
 
+- 비밀값 관리 ([ADR-0013](../adr/0013-credentials-local-file-core-broker.md)): `enikk-ops secret`, core 의 비밀값 API
 - `connector-slack`: Socket Mode, 소유자 확인(I-01), 연결 규칙(`config/`), 진행 상태 표시
 - `runtime` 프레임워크: 작업 가져오기 루프, 임대 연장, 프롬프트 조회(캐시·실패 시 거부, I-13)
 - `engine-claude`: Claude Agent SDK, 내장 도구 전부 차단(I-14), 세션 유지(I-11)
@@ -83,7 +84,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 - 에이전트 정의 1개 (도구 없음), Langfuse 프롬프트 1개
 
 **완료 조건**: Slack 스레드에서 대화가 이어지고, Langfuse 에 프롬프트 버전과 연결된 트레이스가 남는다. 다른 사용자의 메시지는 무시된다.
-**소유자 준비물**: Slack 앱(Socket Mode, 봇·앱 토큰), `claude setup-token` 토큰, Langfuse 프로젝트 키와 프롬프트.
+**소유자 준비물**: Slack 앱(Socket Mode, 봇·앱 토큰), `claude setup-token` 토큰, Langfuse 프로젝트 키와 프롬프트. 토큰과 키는 `enikk-ops secret set` 으로 등록한다.
 
 ## M4. MCP 도구
 

@@ -14,6 +14,7 @@ from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
 from enikk_contracts import routes
+from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
 from enikk_contracts.health import HealthResponse
@@ -26,7 +27,7 @@ from enikk_contracts.tasks import (
     ResultAccepted,
     ResultReport,
 )
-from enikk_core.security import declared_role, requires
+from enikk_core.security import declared_roles, requires
 from enikk_core_domain.auth import ConnectorRole, RuntimeRole
 from enikk_core_domain.errors import (
     AuthenticationError,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from enikk_contracts.base import Contract
+    from enikk_core.credentials import CredentialIssuer
     from enikk_core.security import Gatekeeper
     from enikk_core.usecases import CoreUseCases
     from enikk_core_domain.auth import Principal
@@ -70,11 +72,13 @@ class CoreServices:
         *,
         version: str,
         usecases: CoreUseCases,
+        credentials: CredentialIssuer,
         gatekeeper: Gatekeeper,
         reaper_interval_seconds: float,
     ) -> None:
         self.version = version
         self.usecases = usecases
+        self.credentials = credentials
         self.gatekeeper = gatekeeper
         self.reaper_interval_seconds = reaper_interval_seconds
 
@@ -145,6 +149,15 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         report = await _parse(request, ResultReport)
         return _json(await usecases.report_result(role.engine, task_id, report))
 
+    @app.post(routes.CREDENTIALS, responses={200: {"model": Credentials}})
+    @requires("connector", "runtime", "dev-agent")
+    async def fetch_credentials(request: Request) -> Response:
+        principal = await gate.admit(request)
+        wanted = await _parse(request, CredentialRequest)
+        response = _json(services.credentials.issue(principal, wanted))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     verify_declared_roles(app)
     return app
 
@@ -156,7 +169,7 @@ def verify_declared_roles(app: FastAPI) -> None:
         for route in app.routes
         if isinstance(route, APIRoute)
         and route.path != routes.HEALTH
-        and declared_role(route.endpoint) is None
+        and not declared_roles(route.endpoint)
     ]
     if undeclared:
         raise ConfigurationError(f"endpoints without a declared role: {undeclared}")

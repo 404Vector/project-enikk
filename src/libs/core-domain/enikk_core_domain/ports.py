@@ -10,8 +10,11 @@ if TYPE_CHECKING:
     from datetime import datetime
     from types import TracebackType
 
+    from pydantic import SecretStr
+
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+    from enikk_contracts.credentials import CredentialName
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.model import OutboxMessage, Session, Task
 
@@ -93,6 +96,14 @@ class UnitOfWorkFactory(Protocol):
 class AgentCatalog(Protocol):
     def get(self, name: str) -> AgentDefinition | None: ...
     def names(self) -> tuple[str, ...]: ...
+
+
+class CredentialStore(Protocol):
+    """Credential values core hands out (ADR-0013). Read on every call, so rotation applies."""
+
+    def get(self, name: CredentialName) -> SecretStr | None:
+        """The current value, or ``None`` when it is not set."""
+        ...
 
 
 class Authenticator(Protocol):

@@ -9,7 +9,9 @@ import pytest
 from pydantic import SecretStr
 
 from enikk_contracts.common import ConnectorKind, Engine
+from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
+from enikk_core.credentials import CredentialIssuer
 from enikk_core.security import Gatekeeper
 from enikk_core.settings import TaskSettings
 from enikk_core.usecases import CoreUseCases
@@ -25,6 +27,7 @@ from enikk_core_domain.testing import (
     InMemoryDatabase,
     StaticAgentCatalog,
     StaticAuthenticator,
+    StaticCredentialStore,
     agent,
 )
 from enikk_kernel.testing import ManualClock, SequentialIds
@@ -77,14 +80,31 @@ def harness() -> Harness:
     )
     directory = RoleDirectory(
         (
-            RoleBinding(identity=SLACK, role=ConnectorRole(connector=ConnectorKind.SLACK)),
-            RoleBinding(identity=CLAUDE, role=RuntimeRole(engine=Engine.CLAUDE)),
+            RoleBinding(
+                identity=SLACK,
+                role=ConnectorRole(connector=ConnectorKind.SLACK),
+                credentials=frozenset(
+                    {CredentialName.SLACK_BOT_TOKEN, CredentialName.SLACK_APP_TOKEN}
+                ),
+            ),
+            RoleBinding(
+                identity=CLAUDE,
+                role=RuntimeRole(engine=Engine.CLAUDE),
+                credentials=frozenset({CredentialName.CLAUDE_OAUTH_TOKEN}),
+            ),
             RoleBinding(identity=GEMINI, role=RuntimeRole(engine=Engine.GEMINI)),
         )
+    )
+    store = StaticCredentialStore(
+        {
+            CredentialName.SLACK_BOT_TOKEN: SecretStr("xoxb-test"),
+            CredentialName.SLACK_APP_TOKEN: SecretStr("xapp-test"),
+        }
     )
     services = CoreServices(
         version="test",
         usecases=usecases,
+        credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(StaticAuthenticator(TOKENS), directory),
         reaper_interval_seconds=60,
     )

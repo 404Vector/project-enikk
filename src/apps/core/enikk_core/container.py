@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from enikk_core.api import CoreServices
 from enikk_core.catalog import YamlAgentCatalog
+from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
@@ -43,6 +44,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     return CoreServices(
         version=settings.version,
         usecases=usecases,
+        credentials=CredentialIssuer(DirectoryCredentialStore(settings.credentials_dir)),
         gatekeeper=Gatekeeper(authenticator, directory),
         reaper_interval_seconds=settings.tasks.reaper_interval_seconds,
     )

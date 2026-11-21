@@ -32,6 +32,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 runAsNonRoot: true
 runAsUser: 10001
 runAsGroup: 10001
+fsGroup: 10001
 seccompProfile:
   type: RuntimeDefault
 {{- end -}}

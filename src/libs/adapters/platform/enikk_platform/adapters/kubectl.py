@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, SecretStr
@@ -8,7 +9,7 @@ from enikk_kernel.models import FrozenModel
 from enikk_platform.adapters.base import CliTool
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from contextlib import AbstractContextManager
     from pathlib import Path
 
@@ -19,12 +20,21 @@ if TYPE_CHECKING:
 
 class _ObjectMeta(FrozenModel):
     name: str
+    labels: dict[str, str] | None = None
 
 
 class _Namespace(FrozenModel):
     api_version: Literal["v1"] = Field(default="v1", serialization_alias="apiVersion")
     kind: Literal["Namespace"] = "Namespace"
     metadata: _ObjectMeta
+
+
+class _Secret(FrozenModel):
+    api_version: Literal["v1"] = Field(default="v1", serialization_alias="apiVersion")
+    kind: Literal["Secret"] = "Secret"
+    metadata: _ObjectMeta
+    type: Literal["Opaque"] = "Opaque"
+    data: dict[str, str]
 
 
 class KubectlCli(CliTool):
@@ -41,6 +51,27 @@ class KubectlCli(CliTool):
 
     def apply_file(self, target: KubeTarget, path: Path) -> None:
         self._run(*self._scope(target), "apply", "-f", str(path))
+
+    def apply_secret(
+        self, target: KubeTarget, name: str, data: Mapping[str, SecretStr], *, manager: str
+    ) -> None:
+        manifest = _Secret(
+            metadata=_ObjectMeta(name=name, labels={"app.kubernetes.io/managed-by": manager}),
+            data={
+                key: base64.b64encode(value.get_secret_value().encode()).decode()
+                for key, value in sorted(data.items())
+            },
+        )
+        self._run(
+            *self._scope(target),
+            "apply",
+            "--server-side",
+            "--force-conflicts",
+            f"--field-manager={manager}",
+            "-f",
+            "-",
+            stdin=self._serialise(manifest),
+        )
 
     def port_forward(
         self, target: KubeTarget, resource: str, local_port: int, remote_port: int
