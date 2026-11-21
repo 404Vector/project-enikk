@@ -17,6 +17,7 @@ members = [
     "enikk-ops",
     "enikk-persistence-sql",
     "enikk-platform",
+    "enikk-runtime",
     "project-enikk",
 ]
 
@@ -463,6 +464,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "enikk-kernel", editable = "src/libs/kernel" }]
+
+[[package]]
+name = "enikk-runtime"
+version = "0.1.0"
+source = { editable = "src/libs/runtime" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-core-client" },
+    { name = "enikk-kernel" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-client", editable = "src/libs/core-client" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+]
 
 [[package]]
 name = "fastapi"

@@ -136,22 +136,34 @@ class CoreUseCases:
             session = await uow.sessions.get(queued.session_id)
             if session is None:
                 raise NotFoundError(f"session {queued.session_id} of task {queued.id} is missing")
+            now = self._clock.now()
             leased = queued.grant_lease(
-                lease_id=self._ids.new(),
-                now=self._clock.now(),
-                duration=self._policy.lease_duration,
+                lease_id=self._ids.new(), now=now, duration=self._policy.lease_duration
             )
+            if leased.lease is None or leased.last_lease_id is None:
+                raise RuntimeError("leased task without a lease")
+            definition = self._catalog.get(leased.agent)
+            if definition is None or definition.engine is not engine:
+                failed = leased.fail(
+                    lease_id=leased.last_lease_id,
+                    reason=f"agent '{leased.agent}' is no longer defined for engine {engine}",
+                    retryable=False,
+                    now=now,
+                )
+                await uow.tasks.update(failed)
+                await self._publish_outcome(uow, failed)
+                await uow.commit()
+                _log.warning("task %s failed: agent %s is not defined", failed.id, failed.agent)
+                return None
             await uow.tasks.update(leased)
             await uow.commit()
-        if leased.lease is None or leased.last_lease_id is None:
-            raise RuntimeError("leased task without a lease")
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
         return TaskAssignment(
             task_id=leased.id,
             lease_id=leased.last_lease_id,
             lease_expires_at=leased.lease.expires_at,
             attempt=leased.attempt,
-            agent=leased.agent,
+            definition=definition,
             session_id=session.id,
             engine_session_id=session.engine_session_id,
             input=leased.input,

@@ -97,6 +97,15 @@ def test_lease_request_bounds_wait() -> None:
         LeaseRequest(wait_seconds=60)
 
 
+def _definition() -> AgentDefinition:
+    return AgentDefinition(
+        name="assistant",
+        description="d",
+        engine=Engine.CLAUDE,
+        prompt=PromptRef(name="assistant", label="production"),
+    )
+
+
 def test_assignment_requires_aware_datetime() -> None:
     with pytest.raises(ValidationError):
         TaskAssignment(
@@ -104,7 +113,7 @@ def test_assignment_requires_aware_datetime() -> None:
             lease_id=uuid.uuid4(),
             lease_expires_at=datetime(2026, 1, 1),
             attempt=1,
-            agent="assistant",
+            definition=_definition(),
             session_id=uuid.uuid4(),
             engine_session_id=None,
             input="hi",
@@ -114,7 +123,7 @@ def test_assignment_requires_aware_datetime() -> None:
         lease_id=uuid.uuid4(),
         lease_expires_at=datetime(2026, 1, 1, tzinfo=UTC),
         attempt=1,
-        agent="assistant",
+        definition=_definition(),
         session_id=uuid.uuid4(),
         engine_session_id=None,
         input="hi",

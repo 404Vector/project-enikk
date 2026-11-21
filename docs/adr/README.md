@@ -18,6 +18,7 @@
 | [0012](0012-core-skeleton-implementation.md) | enikk-core 골격 구현 세부 결정 | 승인 | 2026-11-21 |
 | [0013](0013-credentials-local-file-core-broker.md) | 비밀값은 소유자 PC 의 파일이 원본이고, core 가 서비스에 나눠 준다 | 승인 | 2026-11-22 |
 | [0014](0014-engine-transcripts-in-core.md) | 엔진 대화 이력(트랜스크립트)은 core 가 저장한다 | 승인 | 2026-11-22 |
+| [0015](0015-runtime-worker.md) | 런타임 공통 작업 처리 흐름 | 승인 | 2026-11-22 |
 
 ## 상태 정의
 
