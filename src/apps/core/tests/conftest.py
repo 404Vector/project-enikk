@@ -51,6 +51,7 @@ class Harness:
     db: InMemoryDatabase
     clock: ManualClock
     usecases: CoreUseCases
+    catalog: StaticAgentCatalog
 
     def client(self, token: str) -> CoreClient:
         return CoreClient.connect(
@@ -68,11 +69,10 @@ def harness() -> Harness:
     async def sleep(seconds: float) -> None:
         clock.advance(timedelta(seconds=seconds))
 
+    catalog = StaticAgentCatalog(agent("assistant", Engine.CLAUDE), agent("painter", Engine.GEMINI))
     usecases = CoreUseCases(
         uow=db.unit_of_work,
-        catalog=StaticAgentCatalog(
-            agent("assistant", Engine.CLAUDE), agent("painter", Engine.GEMINI)
-        ),
+        catalog=catalog,
         clock=clock,
         ids=SequentialIds(),
         policy=TaskSettings(lease_seconds=60, max_attempts=2),
@@ -109,7 +109,11 @@ def harness() -> Harness:
         reaper_interval_seconds=60,
     )
     return Harness(
-        app=create_app(services, run_reaper=False), db=db, clock=clock, usecases=usecases
+        app=create_app(services, run_reaper=False),
+        db=db,
+        clock=clock,
+        usecases=usecases,
+        catalog=catalog,
     )
 
 

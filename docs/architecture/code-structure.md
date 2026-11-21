@@ -82,7 +82,8 @@ src/
 |---|---|---|
 | kernel | (외부 라이브러리만) | 프로젝트 내 모든 패키지 |
 | contracts | kernel, pydantic | 그 외 전부 |
-| core-domain, runtime | contracts, kernel | adapters, apps, 외부 SDK(SQLAlchemy, Anthropic, Google, Langfuse, Slack) |
+| core-domain | contracts, kernel | adapters, apps, 외부 SDK(SQLAlchemy, Anthropic, Google, Langfuse, Slack) |
+| runtime | contracts, kernel, core-client (core 호출과 그 오류 타입) | core-domain, adapters, apps, 외부 SDK(Anthropic, Google, Langfuse, Slack) |
 | core-client | contracts, kernel, httpx | core-domain, adapters, apps |
 | adapters/* | 자신이 구현하는 포트의 패키지, contracts, kernel, 해당 외부 SDK | 다른 adapters, apps |
 | apps/* | 위 전부 (조립 목적) | 다른 apps |

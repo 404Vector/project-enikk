@@ -302,6 +302,9 @@ class StaticAgentCatalog:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._by_name))
 
+    def remove(self, name: str) -> None:
+        del self._by_name[name]
+
 
 class StaticCredentialStore:
     def __init__(self, values: dict[CredentialName, SecretStr]) -> None:

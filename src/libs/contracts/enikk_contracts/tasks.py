@@ -8,8 +8,9 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, StringConstraints
 
+from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.base import Contract
-from enikk_contracts.common import AgentName, Identifier, NonEmptyText
+from enikk_contracts.common import Identifier, NonEmptyText
 
 MAX_WAIT_SECONDS = 25
 
@@ -33,11 +34,13 @@ class LeaseRequest(Contract):
 
 
 class TaskAssignment(Contract):
+    """A leased task with the agent definition it runs under (core reads ``agents/``)."""
+
     task_id: uuid.UUID
     lease_id: uuid.UUID
     lease_expires_at: AwareDatetime
     attempt: Annotated[int, Field(ge=1)]
-    agent: AgentName
+    definition: AgentDefinition
     session_id: uuid.UUID
     engine_session_id: Identifier | None
     input: NonEmptyText

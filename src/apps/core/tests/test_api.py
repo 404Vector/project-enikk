@@ -99,6 +99,26 @@ async def test_event_to_outbox_flow(slack: CoreClient, claude: CoreClient) -> No
     assert (await _lease(claude)).engine_session_id == "es-1"
 
 
+async def test_assignment_carries_the_agent_definition(
+    slack: CoreClient, claude: CoreClient
+) -> None:
+    await slack.submit_event(_event())
+    definition = (await _lease(claude)).definition
+    assert definition.name == "assistant"
+    assert definition.prompt.label == "production"
+
+
+async def test_task_of_a_removed_agent_fails_instead_of_leasing(
+    harness: Harness, slack: CoreClient, claude: CoreClient
+) -> None:
+    await slack.submit_event(_event())
+    harness.catalog.remove("assistant")
+    assert (await claude.lease_task(NOW)).assignment is None
+    batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
+    assert [m.kind for m in batch.messages] == [OutboundKind.FAILURE]
+    assert "no longer defined" in batch.messages[0].text
+
+
 async def test_long_poll_waits_then_returns_empty(harness: Harness, claude: CoreClient) -> None:
     start = harness.clock.now()
     response = await claude.lease_task(LeaseRequest(wait_seconds=5))
