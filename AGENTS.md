@@ -39,6 +39,7 @@ uv run pytest                    # 영속성 통합 테스트는 Docker 로 Post
 - `json`, `subprocess` 모듈은 직접 쓰지 않는다 (ruff 가 막는다). pydantic 과 `ProcessRunner` 를 쓴다.
 - 코드 주석에는 "무엇을 하는지"만 쓴다. "왜 이렇게 설계했는지"는 `docs/` 에 쓴다.
 - 비밀값을 코드, 테스트 픽스처, 명령 인자, 로그에 넣지 않는다.
+- 서비스는 비밀값을 `CoreClient.fetch_credentials` 로만 받는다. 새 비밀값은 `CredentialName` 과 core values 의 `roleBindings[].credentials` 에 함께 추가한다. `~/.config/enikk/secrets.yaml` 은 읽거나 쓰지 않는다.
 - DB 스키마는 `enikk_persistence_sql/tables.py` 와 Alembic 리비전(`migrations/versions/`)을 함께 바꾼다. 둘이 어긋나면 테스트가 실패한다.
 - 새 core API 엔드포인트는 `@requires(<역할>)` 로 허용 역할을 선언한다. 선언이 없으면 앱이 시작되지 않는다.
 - 에이전트 정의(`agents/*.yaml`)는 core 테스트가 검증한다. 프롬프트 본문은 넣지 않는다.

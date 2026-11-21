@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from functools import cached_property
 
+from enikk_kernel.clock import SystemClock
 from enikk_kernel.process import SubprocessRunner
 from enikk_ops.bootstrap import ArgoCdService
+from enikk_ops.secrets import CredentialSync, SecretFile
 from enikk_ops.settings import OpsSettings
 from enikk_ops.smoke import CoreSmokeTest
 from enikk_platform.adapters import HelmCli, KubectlCli
@@ -27,6 +29,19 @@ class Container:
     @cached_property
     def argocd(self) -> ArgoCdService:
         return ArgoCdService(self.settings, HelmCli(self.runner), KubectlCli(self.runner))
+
+    @cached_property
+    def secret_file(self) -> SecretFile:
+        return SecretFile(self.settings.secrets.file, SystemClock())
+
+    @cached_property
+    def credential_sync(self) -> CredentialSync:
+        return CredentialSync(
+            self.settings.secrets,
+            self.settings.kube_context,
+            self.secret_file,
+            KubectlCli(self.runner),
+        )
 
     @cached_property
     def core_smoke(self) -> CoreSmokeTest:

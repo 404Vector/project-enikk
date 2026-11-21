@@ -32,8 +32,20 @@ class SmokeSettings(SettingsModel):
     max_foreign_tasks: int = Field(default=5, ge=0, le=50)
 
 
+def _default_secret_file() -> Path:
+    return Path.home() / ".config" / "enikk" / "secrets.yaml"
+
+
+class SecretsSettings(SettingsModel):
+    file: Path = Field(default_factory=_default_secret_file)
+    namespace: str = "enikk"
+    secret_name: str = "enikk-core-credentials"  # noqa: S105 - a resource name, not a value
+
+
 class OpsSettings(ServiceSettings, env_prefix="ENIKK_OPS_"):
     kube_context: str = "docker-desktop"
     repo_root: Path = Path()
     argocd: ArgoCdSettings = ArgoCdSettings()
     smoke: SmokeSettings = SmokeSettings()
+    # Built per instance so the home directory is resolved when settings load.
+    secrets: SecretsSettings = Field(default_factory=SecretsSettings)

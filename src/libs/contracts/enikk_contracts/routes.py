@@ -11,6 +11,7 @@ TASK_HEARTBEAT: Final = "/v1/tasks/{task_id}/heartbeat"
 TASK_RESULT: Final = "/v1/tasks/{task_id}/result"
 OUTBOX_POLL: Final = "/v1/outbox/poll"
 OUTBOX_ACK: Final = "/v1/outbox/ack"
+CREDENTIALS: Final = "/v1/credentials"
 
 AUDIENCE: Final = "enikk-core"
 """Audience of the ServiceAccount tokens that core accepts (ADR-0011)."""

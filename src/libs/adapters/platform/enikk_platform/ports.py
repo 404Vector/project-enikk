@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from contextlib import AbstractContextManager
     from pathlib import Path
 
@@ -47,6 +47,13 @@ class ClusterClient(Protocol):
     def apply(self, target: KubeTarget, manifest: BaseModel) -> None: ...
 
     def apply_file(self, target: KubeTarget, path: Path) -> None: ...
+
+    def apply_secret(
+        self, target: KubeTarget, name: str, data: Mapping[str, SecretStr], *, manager: str
+    ) -> None:
+        """Make Secret ``name`` hold exactly ``data``. Values travel on stdin only and are
+        not copied into annotations (server-side apply)."""
+        ...
 
     def exists(self, target: KubeTarget, kind: str, name: str) -> bool: ...
 

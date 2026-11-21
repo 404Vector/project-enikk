@@ -36,7 +36,13 @@ spec:
               value: /app/agents
             - name: ENIKK_CORE_ROLE_BINDINGS
               value: {{ .Values.roleBindings | toJson | quote }}
+            - name: ENIKK_CORE_CREDENTIALS_DIR
+              value: {{ .Values.credentials.mountPath | quote }}
             {{- include "enikk-core.databaseEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: credentials
+              mountPath: {{ .Values.credentials.mountPath }}
+              readOnly: true
           ports:
             - name: http
               containerPort: {{ .Values.port }}
@@ -50,3 +56,9 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- include "enikk-core.containerSecurityContext" . | nindent 12 }}
+      volumes:
+        - name: credentials
+          secret:
+            secretName: {{ .Values.credentials.secret }}
+            optional: true
+            defaultMode: 0440

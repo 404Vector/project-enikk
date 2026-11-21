@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from types import TracebackType
 
+    from pydantic import SecretStr
+
+    from enikk_contracts.credentials import CredentialName
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.ports import UnitOfWorkFactory
 
@@ -260,6 +263,14 @@ class StaticAgentCatalog:
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._by_name))
+
+
+class StaticCredentialStore:
+    def __init__(self, values: dict[CredentialName, SecretStr]) -> None:
+        self.values = values
+
+    def get(self, name: CredentialName) -> SecretStr | None:
+        return self.values.get(name)
 
 
 class StaticAuthenticator:

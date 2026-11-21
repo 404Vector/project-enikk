@@ -9,6 +9,7 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, model_validator
 
 from enikk_contracts.common import ConnectorKind, Engine
+from enikk_contracts.credentials import CredentialName
 from enikk_core_domain.auth import (
     ConnectorRole,
     DevAgentRole,
@@ -48,6 +49,7 @@ class RoleBindingSettings(SettingsModel):
     role: Literal["connector", "runtime", "dev-agent"]
     connector: ConnectorKind | None = None
     engine: Engine | None = None
+    credentials: tuple[CredentialName, ...] = ()
 
     @model_validator(mode="after")
     def _role_fields(self) -> Self:
@@ -66,7 +68,7 @@ class RoleBindingSettings(SettingsModel):
         else:
             role = DevAgentRole()
         identity = ServiceIdentity(namespace=self.namespace, name=self.service_account)
-        return RoleBinding(identity=identity, role=role)
+        return RoleBinding(identity=identity, role=role, credentials=frozenset(self.credentials))
 
 
 class TaskSettings(SettingsModel):
@@ -92,6 +94,7 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     version: str = "dev"
     verbose: bool = False
     agents_dir: Path = Path("agents")
+    credentials_dir: Path = Path("/var/run/secrets/enikk/credentials")
     database: DatabaseSettings = DatabaseSettings()
     tasks: TaskSettings = TaskSettings()
     token_review: TokenReviewSettings = TokenReviewSettings()

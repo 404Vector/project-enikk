@@ -8,6 +8,7 @@ import httpx
 from pydantic import ValidationError
 
 from enikk_contracts import routes
+from enikk_contracts.credentials import Credentials
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.health import HealthResponse
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from enikk_contracts.base import Contract
+    from enikk_contracts.credentials import CredentialRequest
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
@@ -91,6 +93,10 @@ class CoreClient:
 
     async def ack_outbox(self, ack: OutboxAck) -> OutboxAcked:
         return _parse(OutboxAcked, await self._post(routes.OUTBOX_ACK, ack))
+
+    async def fetch_credentials(self, request: CredentialRequest) -> Credentials:
+        """Credentials granted to this caller. Keep them in memory only (ADR-0013)."""
+        return _parse(Credentials, await self._post(routes.CREDENTIALS, request))
 
     # ------------------------------------------------------------ transport
 
