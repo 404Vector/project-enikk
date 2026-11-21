@@ -21,6 +21,13 @@ class PromptUnavailableError(TaskFailedError):
         super().__init__(reason, retryable=True)
 
 
+class PromptInvalidError(TaskFailedError):
+    """The prompt exists but cannot be used (missing, wrong type, no model). Retrying won't help."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason, retryable=False)
+
+
 class IncompatibleModelError(TaskFailedError):
     """The prompt's model cannot run on this engine (I-16)."""
 

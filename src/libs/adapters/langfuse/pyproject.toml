@@ -1,0 +1,23 @@
+[project]
+name = "enikk-langfuse"
+version = "0.1.0"
+description = "Langfuse integration: PromptStore over the public API and OTLP export settings"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-runtime",
+    "httpx>=0.28",
+]
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-runtime = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_langfuse"]
