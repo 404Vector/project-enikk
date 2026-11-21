@@ -23,3 +23,11 @@ spec:
             helm:
               name: image.repository
               tag: image.tag
+    - namePattern: enikk-runtime-claude
+      images:
+        - alias: runtime-claude
+          imageName: ghcr.io/404vector/enikk-runtime-claude
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag

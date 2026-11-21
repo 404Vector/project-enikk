@@ -1,0 +1,24 @@
+image:
+  repository: ghcr.io/404vector/enikk-runtime-claude
+  # Set by Argo CD Image Updater. While empty, the Deployment runs no replicas.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Credentials (Claude token, Langfuse keys) come from enikk-core at startup
+# (ADR-0013); this chart mounts no Secret.
+coreUrl: http://enikk-core.enikk.svc
+langfuseUrl: https://jp.cloud.langfuse.com
+
+# Lifetime of the audience=enikk-core projected token. kubelet rotates it.
+coreTokenSeconds: 3600
+
+# The Claude Code CLI child process needs most of the memory.
+resources:
+  requests: { cpu: 100m, memory: 384Mi }
+  limits: { memory: 1536Mi }
+
+# Scratch space for the CLI's per-task config directory and its working directory.
+scratch:
+  sizeLimit: 1Gi

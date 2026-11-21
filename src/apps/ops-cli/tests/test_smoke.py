@@ -6,7 +6,7 @@ import pytest
 
 from enikk_kernel.testing import RecordingRunner
 from enikk_ops.settings import SmokeSettings
-from enikk_ops.smoke import CoreSmokeTest, SmokeTestError
+from enikk_ops.smoke import ClaudeSmokeTest, CoreSmokeTest, SmokeTestError
 from enikk_platform.adapters import KubectlCli
 from enikk_platform.domain import KubeTarget
 
@@ -68,3 +68,16 @@ def test_create_token_returns_secret() -> None:
 
 def test_smoke_error_is_project_error() -> None:
     assert SmokeTestError("x").exit_code == 1
+
+
+def test_claude_smoke_uses_only_the_connector_token() -> None:
+    runner = RecordingRunner()
+    runner.when("kubectl", stdout="token-value\n")
+    smoke = ClaudeSmokeTest(
+        SmokeSettings(), "docker-desktop", KubectlCli(runner), client=_refuse, report=lambda _: None
+    )
+    with pytest.raises(_UnreachableError):
+        smoke.run()
+    created = [argv for argv in runner.argvs if "create" in argv]
+    assert [argv[argv.index("token") + 1] for argv in created] == ["enikk-connector-slack"]
+    assert all(not call.mutating for call in runner.calls)

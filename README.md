@@ -95,6 +95,7 @@ uv run enikk-ops secret sync                  # 파일 내용을 클러스터에
 
 ```bash
 uv run enikk-ops smoke core         # 실제 ServiceAccount 토큰으로 core 의 전체 흐름과 인증을 점검
+uv run enikk-ops smoke claude       # Claude 런타임과 두 메시지 대화 (실제 모델 호출, 구독 사용량 소모)
 ```
 
 ## 문서

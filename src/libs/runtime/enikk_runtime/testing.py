@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -21,7 +22,7 @@ from enikk_runtime.errors import PromptUnavailableError
 from enikk_runtime.model import EngineResult, ResolvedPrompt
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_kernel.clock import Clock
@@ -133,3 +134,24 @@ class ScriptedEngine:
     async def run(self, job: EngineJob) -> EngineResult:
         self.jobs.append(job)
         return await self._respond(job)
+
+
+class _Recorded:
+    def __init__(self, events: list[tuple[str, str]]) -> None:
+        self._events = events
+
+    def succeeded(self, result: EngineResult) -> None:
+        self._events.append(("succeeded", result.text))
+
+    def failed(self, reason: str) -> None:
+        self._events.append(("failed", reason))
+
+
+class RecordingObserver:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    @asynccontextmanager
+    async def observe(self, job: EngineJob) -> AsyncIterator[_Recorded]:
+        self.events.append(("started", str(job.task_id)))
+        yield _Recorded(self.events)

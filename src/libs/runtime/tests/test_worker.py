@@ -11,7 +11,14 @@ from enikk_core_client.errors import CoreUnavailableError
 from enikk_kernel.testing import ManualClock
 from enikk_runtime.errors import EngineError
 from enikk_runtime.model import EngineResult
-from enikk_runtime.testing import FakeCore, ScriptedEngine, StaticPromptStore, definition, prompt
+from enikk_runtime.testing import (
+    FakeCore,
+    RecordingObserver,
+    ScriptedEngine,
+    StaticPromptStore,
+    definition,
+    prompt,
+)
 from enikk_runtime.worker import INTERNAL_FAILURE, TaskWorker, WorkerPolicy
 
 if TYPE_CHECKING:
@@ -219,3 +226,33 @@ async def test_run_forever_backs_off_while_core_is_down_and_stops() -> None:
     worker = _worker(core, sleep=record)
     await worker.run_forever()
     assert pauses == [1.0, 2.0, 4.0]
+
+
+async def test_observer_records_success_and_failure() -> None:
+    core = FakeCore(ManualClock())
+    first = core.assign(text="one")
+    observer = RecordingObserver()
+
+    async def second_fails(job: EngineJob) -> EngineResult:
+        if job.input == "two":
+            raise EngineError("busy", retryable=True)
+        return EngineResult(text="done")
+
+    worker = TaskWorker(
+        core=core,
+        prompts=StaticPromptStore(prompt()),
+        engine=ScriptedEngine(second_fails),
+        clock=ManualClock(),
+        policy=WorkerPolicy(),
+        observer=observer,
+        sleep=_tick,
+    )
+    await worker.run_once()
+    core.assign(text="two")
+    await worker.run_once()
+    assert observer.events == [
+        ("started", str(first.task_id)),
+        ("succeeded", "done"),
+        observer.events[2],
+        ("failed", "busy"),
+    ]

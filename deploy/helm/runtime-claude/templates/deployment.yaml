@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enikk-runtime-claude
+  labels:
+    app.kubernetes.io/name: enikk-runtime-claude
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  # No image has been published yet until Image Updater sets image.tag.
+  replicas: {{ if .Values.image.tag }}{{ .Values.replicas }}{{ else }}0{{ end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: enikk-runtime-claude
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enikk-runtime-claude
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: enikk-runtime-claude
+      # Only the audience=enikk-core projected token below; no Kubernetes API token (I-28).
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # A running task finishes or loses its lease; core re-queues it either way.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runtime
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-runtime-claude"]
+          env:
+            - name: ENIKK_RUNTIME_CORE_URL
+              value: {{ .Values.coreUrl | quote }}
+            - name: ENIKK_RUNTIME_LANGFUSE_URL
+              value: {{ .Values.langfuseUrl | quote }}
+            - name: ENIKK_RUNTIME_WORKDIR
+              value: /work
+            - name: ENIKK_RUNTIME_SCRATCH_DIR
+              value: /tmp/enikk
+          volumeMounts:
+            - name: core-token
+              mountPath: /var/run/secrets/enikk/core
+              readOnly: true
+            - name: scratch
+              mountPath: /tmp
+            - name: work
+              mountPath: /work
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: enikk-core
+                  expirationSeconds: {{ .Values.coreTokenSeconds }}
+                  path: token
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ .Values.scratch.sizeLimit }}
+        - name: work
+          emptyDir:
+            sizeLimit: 64Mi

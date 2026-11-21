@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core]
+        app: [core, runtime-claude]
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
       PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
