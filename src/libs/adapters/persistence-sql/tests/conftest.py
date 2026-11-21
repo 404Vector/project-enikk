@@ -9,7 +9,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from enikk_persistence_sql.engine import DatabaseConfig, create_engine, create_session_factory
 from enikk_persistence_sql.migrate import upgrade
-from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow
+from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow, TranscriptEntryRow
 from enikk_persistence_sql.uow import SqlUnitOfWorkFactory
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ def database() -> Iterator[DatabaseConfig]:
 async def uow_factory(database: DatabaseConfig) -> AsyncIterator[SqlUnitOfWorkFactory]:
     engine = create_engine(database)
     async with engine.begin() as connection:
-        for table in (OutboxRow, TaskRow, SessionRow):
+        for table in (TranscriptEntryRow, OutboxRow, TaskRow, SessionRow):
             await connection.execute(delete(table))
     try:
         yield SqlUnitOfWorkFactory(create_session_factory(engine))

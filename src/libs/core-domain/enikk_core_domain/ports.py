@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.credentials import CredentialName
+    from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.model import OutboxMessage, Session, Task
 
@@ -52,6 +53,29 @@ class OutboxRepository(Protocol):
     async def update(self, message: OutboxMessage) -> None: ...
 
 
+class TranscriptRepository(Protocol):
+    """Engine transcripts, scoped to the session that owns them (ADR-0014)."""
+
+    async def append(
+        self, session_id: uuid.UUID, key: TranscriptKey, entries: Sequence[TranscriptEntry]
+    ) -> int:
+        """Append in order and return how many were stored.
+
+        Entries whose ``uuid`` is already stored under ``key`` are skipped.
+        """
+        ...
+
+    async def load(self, session_id: uuid.UUID, key: TranscriptKey) -> Sequence[TranscriptEntry]:
+        """Entries in append order; empty when nothing was stored."""
+        ...
+
+    async def subpaths(
+        self, session_id: uuid.UUID, project_key: str, engine_session_id: str
+    ) -> Sequence[str]:
+        """Distinct non-empty subpaths stored under the main transcript, sorted."""
+        ...
+
+
 class JobQueue(Protocol):
     async def claim_next(self, engine: Engine) -> Task | None:
         """Lock and return the next ``QUEUED`` task for ``engine``.
@@ -76,6 +100,8 @@ class UnitOfWork(Protocol):
     def tasks(self) -> TaskRepository: ...
     @property
     def outbox(self) -> OutboxRepository: ...
+    @property
+    def transcripts(self) -> TranscriptRepository: ...
     @property
     def queue(self) -> JobQueue: ...
 

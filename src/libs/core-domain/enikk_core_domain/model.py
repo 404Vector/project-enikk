@@ -165,6 +165,10 @@ class Task(Entity):
             updated_at=now,
         )
 
+    def verify_lease(self, lease_id: uuid.UUID, now: datetime) -> None:
+        """Raise ``LeaseLostError`` unless ``lease_id`` is the active, unexpired lease."""
+        self._active_lease(lease_id, now)
+
     def already_reported(self, lease_id: uuid.UUID) -> bool:
         """True when the result for ``lease_id`` was applied before (idempotent retry)."""
         return self.status is not TaskStatus.LEASED and self.last_lease_id == lease_id

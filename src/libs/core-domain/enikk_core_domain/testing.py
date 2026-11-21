@@ -14,8 +14,10 @@ from enikk_contracts.agents import AgentDefinition, PromptRef
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
+from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
 from enikk_core_domain.model import OutboxMessage, OutboxStatus, Session, Task
+from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from enikk_contracts.credentials import CredentialName
+    from enikk_contracts.transcripts import TranscriptEntry
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.ports import UnitOfWorkFactory
 
@@ -86,6 +89,7 @@ class InMemoryDatabase:
         self.sessions: dict[uuid.UUID, Session] = {}
         self.tasks: dict[uuid.UUID, Task] = {}
         self.outbox: dict[uuid.UUID, OutboxMessage] = {}
+        self.transcripts: dict[_Slot, tuple[TranscriptEntry, ...]] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -97,6 +101,7 @@ class _Staged:
         self.sessions = dict(db.sessions)
         self.tasks = dict(db.tasks)
         self.outbox = dict(db.outbox)
+        self.transcripts = dict(db.transcripts)
 
 
 class _Sessions:
@@ -162,6 +167,37 @@ class _Outbox:
         self._s.outbox[message.id] = message
 
 
+type _Slot = tuple[uuid.UUID, str, str, str]
+
+
+def _slot(session_id: uuid.UUID, key: TranscriptKey) -> _Slot:
+    return (session_id, key.project_key, key.engine_session_id, key.subpath or MAIN_SUBPATH)
+
+
+class _Transcripts:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def append(
+        self, session_id: uuid.UUID, key: TranscriptKey, entries: Sequence[TranscriptEntry]
+    ) -> int:
+        slot = _slot(session_id, key)
+        stored = self._s.transcripts.get(slot, ())
+        markers = (m for e in stored if (m := entry_uuid(e)) is not None)
+        added = new_entries(entries, markers)
+        self._s.transcripts[slot] = (*stored, *added)
+        return len(added)
+
+    async def load(self, session_id: uuid.UUID, key: TranscriptKey) -> Sequence[TranscriptEntry]:
+        return self._s.transcripts.get(_slot(session_id, key), ())
+
+    async def subpaths(
+        self, session_id: uuid.UUID, project_key: str, engine_session_id: str
+    ) -> Sequence[str]:
+        owner = (session_id, project_key, engine_session_id)
+        return sorted({s[3] for s in self._s.transcripts if s[:3] == owner and s[3]})
+
+
 class _Queue:
     def __init__(self, db: InMemoryDatabase, staged: _Staged, owner: object) -> None:
         self._db = db
@@ -219,6 +255,7 @@ class InMemoryUnitOfWork:
         self.sessions = _Sessions(self._staged)
         self.tasks = _Tasks(self._staged)
         self.outbox = _Outbox(self._staged)
+        self.transcripts = _Transcripts(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -239,6 +276,7 @@ class InMemoryUnitOfWork:
         self._db.sessions = dict(self._staged.sessions)
         self._db.tasks = dict(self._staged.tasks)
         self._db.outbox = dict(self._staged.outbox)
+        self._db.transcripts = dict(self._staged.transcripts)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -453,6 +491,39 @@ async def check_claim_expired(new_uow: UnitOfWorkFactory) -> None:
         _expect([t.id for t in expired] == [short.id], "only the expired lease")
 
 
+async def check_transcripts(new_uow: UnitOfWorkFactory) -> None:
+    owner, other = session(thread="1"), session(thread="2")
+    main = TranscriptKey(project_key="p", engine_session_id="s1")
+    sub = TranscriptKey(project_key="p", engine_session_id="s1", subpath="subagents/agent-1")
+    first: tuple[TranscriptEntry, ...] = (
+        {"uuid": "a", "type": "user"},
+        {"type": "meta"},
+        {"uuid": "b", "nested": {"values": [1, 2.5, None, True, "x"]}},
+    )
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.sessions.add(other)
+        _expect(await uow.transcripts.append(owner.id, main, first) == 3, "first batch stored")
+        await uow.commit()
+    async with new_uow() as uow:
+        again: tuple[TranscriptEntry, ...] = ({"uuid": "b"}, {"uuid": "c"}, {"uuid": "c"})
+        _expect(await uow.transcripts.append(owner.id, main, again) == 1, "duplicates skipped")
+        await uow.transcripts.append(owner.id, sub, ({"uuid": "a"},))
+        await uow.transcripts.append(other.id, main, ({"uuid": "z"},))
+        await uow.commit()
+    async with new_uow() as uow:
+        await uow.transcripts.append(owner.id, main, ({"uuid": "rolled-back"},))
+    async with new_uow() as uow:
+        loaded = list(await uow.transcripts.load(owner.id, main))
+        _expect(loaded == [*first, {"uuid": "c"}], "append order without duplicates")
+        _expect(list(await uow.transcripts.load(owner.id, sub)) == [{"uuid": "a"}], "subpath")
+        _expect(list(await uow.transcripts.load(other.id, main)) == [{"uuid": "z"}], "per session")
+        subpaths = list(await uow.transcripts.subpaths(owner.id, "p", "s1"))
+        _expect(subpaths == ["subagents/agent-1"], "subpaths")
+        missing = TranscriptKey(project_key="p", engine_session_id="missing")
+        _expect(not await uow.transcripts.load(owner.id, missing), "unknown transcript is empty")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -463,4 +534,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_claim_skips_locked,
     check_claim_skips_locked_session,
     check_claim_expired,
+    check_transcripts,
 )

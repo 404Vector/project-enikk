@@ -14,6 +14,7 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import LeaseExtended, LeaseResponse, ResultAccepted
+from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
 from enikk_core_client.tokens import BearerAuth
 
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
 
 DEFAULT_TIMEOUT: Final = 10.0
@@ -93,6 +95,22 @@ class CoreClient:
 
     async def ack_outbox(self, ack: OutboxAck) -> OutboxAcked:
         return _parse(OutboxAcked, await self._post(routes.OUTBOX_ACK, ack))
+
+    async def append_transcript(
+        self, task_id: uuid.UUID, request: TranscriptAppend
+    ) -> TranscriptAppended:
+        path = routes.TRANSCRIPT_APPEND.format(task_id=task_id)
+        return _parse(TranscriptAppended, await self._post(path, request))
+
+    async def load_transcript(self, task_id: uuid.UUID, query: TranscriptQuery) -> TranscriptLoaded:
+        path = routes.TRANSCRIPT_LOAD.format(task_id=task_id)
+        return _parse(TranscriptLoaded, await self._post(path, query))
+
+    async def transcript_subpaths(
+        self, task_id: uuid.UUID, query: SubpathQuery
+    ) -> TranscriptSubpaths:
+        path = routes.TRANSCRIPT_SUBPATHS.format(task_id=task_id)
+        return _parse(TranscriptSubpaths, await self._post(path, query))
 
     async def fetch_credentials(self, request: CredentialRequest) -> Credentials:
         """Credentials granted to this caller. Keep them in memory only (ADR-0013)."""

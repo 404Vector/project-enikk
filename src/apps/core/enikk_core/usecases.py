@@ -16,6 +16,7 @@ from enikk_contracts.tasks import (
     TaskAssignment,
     TaskStatus,
 )
+from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_domain.errors import NotFoundError, UnknownAgentError
 from enikk_core_domain.model import OutboxMessage, Session, Task
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core.settings import TaskSettings
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_kernel.clock import Clock
@@ -199,6 +201,35 @@ class CoreUseCases:
         _log.info("task %s reported %s", done.id, done.status)
         return ResultAccepted(task_id=done.id, status=done.status, duplicate=False)
 
+    # ------------------------------------------------------------ transcripts (ADR-0014)
+
+    async def append_transcript(
+        self, engine: Engine, task_id: uuid.UUID, request: TranscriptAppend
+    ) -> TranscriptAppended:
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, engine, task_id, request.lease_id)
+            stored = await uow.transcripts.append(task.session_id, request.key, request.entries)
+            await uow.commit()
+        return TranscriptAppended(stored=stored)
+
+    async def load_transcript(
+        self, engine: Engine, task_id: uuid.UUID, query: TranscriptQuery
+    ) -> TranscriptLoaded:
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, engine, task_id, query.lease_id)
+            entries = await uow.transcripts.load(task.session_id, query.key)
+        return TranscriptLoaded(entries=tuple(entries))
+
+    async def transcript_subpaths(
+        self, engine: Engine, task_id: uuid.UUID, query: SubpathQuery
+    ) -> TranscriptSubpaths:
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, engine, task_id, query.lease_id)
+            subpaths = await uow.transcripts.subpaths(
+                task.session_id, query.project_key, query.engine_session_id
+            )
+        return TranscriptSubpaths(subpaths=tuple(subpaths))
+
     # ------------------------------------------------------------ maintenance
 
     async def reap_expired_leases(self) -> int:
@@ -219,6 +250,13 @@ class CoreUseCases:
         task = await uow.tasks.get_for_update(task_id)
         if task is None or task.engine is not engine:
             raise NotFoundError(f"task {task_id} not found")
+        return task
+
+    async def _leased_task(
+        self, uow: UnitOfWork, engine: Engine, task_id: uuid.UUID, lease_id: uuid.UUID
+    ) -> Task:
+        task = await self._task_of(uow, engine, task_id)
+        task.verify_lease(lease_id, self._clock.now())
         return task
 
     async def _session_of(self, uow: UnitOfWork, task: Task) -> Session:
