@@ -5,10 +5,11 @@
 
 | 파일 | 내용 |
 |---|---|
-| `ruleset-main.json` | `main`: PR 필수, 필수 검사(`checks`, `protected-paths`), 강제 push·삭제 금지, 예외 없음 |
+| `ruleset-main.json` | `main`: PR 필수, 필수 검사(`checks`, `protected-paths`, `enikk/owner-approval`), 강제 push·삭제 금지, 예외 없음 |
 | `ruleset-agent-branches.json` | `main` 과 `agent/**` 밖의 브랜치는 저장소 관리자만 만들고 바꾼다. GitHub App 은 `agent/**` 에만 push 할 수 있다 |
 
-- `integration_id` 15368 은 GitHub Actions 다. 승인 흐름이 동작하면 `enikk/owner-approval`(출처: App `enikk-deployer`, ID 5869950)을 `ruleset-main.json` 의 필수 검사에 추가한다.
+- `integration_id` 15368 은 GitHub Actions 다. `enikk/owner-approval` 의 출처는 App `enikk-deployer`(ID 5869950)로 고정한다. core 만 이 상태를 기록하므로, 소유자가 Slack 에서 승인하지 않은 PR 은 머지되지 않는다.
+- 승인 경로가 고장 나 머지가 막히면 소유자가 GitHub 설정에서 `protect-main` 을 직접 끈다(ADR-0020). 에이전트는 ruleset 을 끄거나 예외를 추가하지 않는다.
 - `actor_id` 5 는 저장소 역할 admin 이다.
 
 ## 적용
