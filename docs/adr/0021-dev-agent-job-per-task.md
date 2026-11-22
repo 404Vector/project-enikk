@@ -57,6 +57,17 @@ ADR-0007 은 개발 에이전트를 작업마다 새로 만드는 격리된 Pod 
 - 시작한 Job 은 DB 의 `dispatches` 에 기록한다. 하루 상한은 최근 24시간의 기록 수로 센다. 상한에 걸린 작업은 대기하고, 위임 단계(ADR-0022)에서 접수 전에 거부한다.
 - 한 작업에 Job 을 `max_attempts` 번 시작했는데도 결과 보고가 없으면, 그 작업을 실패로 처리하고 스레드에 알린다.
 
+### 7. 개발 Pod 안 (구현 세부, 2026-11-22)
+- 앱 `enikk-dev-agent`(이미지 `deploy/docker/dev-agent.Dockerfile`: 공용 Python 이미지 + git, gh, uv)는 작업 하나를 처리하고 종료한다.
+  1. `claim` 으로 자기 작업을 임대한다. 없으면 아무것도 하지 않고 끝낸다.
+  2. core 에서 Claude 토큰과 Langfuse 키를 받고, `POST /v1/github/token` 으로 개발용 GitHub 토큰을 받는다. core 는 그 작업의 활성 임대를 확인한 뒤에만 발급한다.
+  3. 토큰은 gh 의 설정 파일(권한 0600)에만 쓰고, git 은 `gh auth git-credential` 로 읽는다. 환경변수와 명령 인자에는 넣지 않는다.
+  4. 저장소를 clone 하고 `agent/<작업 ID>` 브랜치를 만든 뒤, 저장소·브랜치·워크플로 수정 가능 여부를 요청 앞에 붙여 에이전트를 실행한다.
+  5. 결과를 보고하고, 토큰을 폐기(`DELETE /installation/token`)하고 설정 파일을 지운다.
+- Claude 엔진은 정의의 `tools.builtin` 만 열고, CLI 가 그 밖의 도구를 열면 실행을 거부한다. 계약 검증으로 `builtin` 도구는 `isolated` 에이전트만 가질 수 있다(I-14).
+- 프롬프트 `developer` 는 Langfuse 에 있다(I-13). `production` 승격은 소유자가 한다(I-19).
+- `enikk-ops smoke dev` 는 개발 에이전트에게 파일 하나를 추가하는 PR 을 요청하고, PR 링크가 돌아오는지 확인한다. PR 은 열린 채로 남으므로 확인 뒤 닫는다.
+
 ## 근거
 - 격리 단위가 Pod 이면 작업 사이에 파일, 프로세스, 자격증명이 남지 않는다.
 - core 의 Kubernetes 권한을 `enikk-dev` 한 네임스페이스의 Job 으로 한정하면, 권한이 늘어나는 범위가 개발 에이전트 실행에 그친다.

@@ -1,4 +1,7 @@
-"""Claude Agent SDK engine with every built-in tool removed (I-14, ADR-0017)."""
+"""Claude Agent SDK engine. Built-in tools are only those the definition grants (I-14).
+
+Shared agents get none (ADR-0017); only isolated agents may be granted any (ADR-0021).
+"""
 
 from __future__ import annotations
 
@@ -51,6 +54,8 @@ class ClaudeEngineConfig(FrozenModel):
     scratch_dir: Path
     """Parent of the per-task ``CLAUDE_CONFIG_DIR``; writable, discarded after each task."""
     client_app: str = Field(default="enikk-runtime-claude/0.1", pattern=r"^[\x21-\x7e]+$")
+    tool_env: dict[str, str] = Field(default_factory=dict)
+    """Extra environment for the CLI and the tools it runs (paths only, never secrets)."""
 
 
 class ClaudeEngine:
@@ -92,8 +97,10 @@ class ClaudeEngine:
         unknown = sorted(set(job.prompt.parameters) - {"effort"})
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
+        builtin = list(job.definition.tools.builtin)
         return ClaudeAgentOptions(
-            tools=[],
+            tools=builtin,
+            allowed_tools=builtin,
             setting_sources=[],
             strict_mcp_config=True,
             permission_mode="dontAsk",
@@ -107,6 +114,7 @@ class ClaudeEngine:
             session_store=store.as_sdk_store(),
             client_app=self._config.client_app,
             env={
+                **self._config.tool_env,
                 "CLAUDE_CODE_OAUTH_TOKEN": self._token.get_secret_value(),
                 "ANTHROPIC_API_KEY": "",
                 "CLAUDE_CONFIG_DIR": str(home),
@@ -124,7 +132,7 @@ class ClaudeEngine:
                 if isinstance(message, MirrorErrorMessage):
                     raise EngineError("the conversation could not be saved to core", retryable=True)
                 if isinstance(message, SystemMessage) and message.subtype == "init":
-                    _require_no_tools(message.data)
+                    _require_only_granted_tools(message.data, job.definition.tools.builtin)
                 elif isinstance(message, AssistantMessage) and message.parent_tool_use_id is None:
                     model = message.model or model
                     texts.extend(b.text for b in message.content if isinstance(b, TextBlock))
@@ -144,11 +152,13 @@ def _effort(value: object) -> EffortLevel | None:
     return None
 
 
-def _require_no_tools(init: dict[str, Any]) -> None:
-    tools = init.get("tools")
-    if tools:
+def _require_only_granted_tools(init: dict[str, Any], granted: tuple[str, ...]) -> None:
+    tools = init.get("tools") or []
+    extra = sorted({str(t) for t in tools} - set(granted))
+    if extra:
         raise EngineError(
-            f"Claude Code exposed built-in tools {sorted(tools)}; refusing to run (I-14)",
+            f"Claude Code exposed built-in tools {extra} the agent was not granted; "
+            "refusing to run (I-14)",
             retryable=False,
         )
 

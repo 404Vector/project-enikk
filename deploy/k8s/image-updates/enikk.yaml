@@ -39,3 +39,11 @@ spec:
             helm:
               name: image.repository
               tag: image.tag
+    - namePattern: enikk-dev-agent
+      images:
+        - alias: dev-agent
+          imageName: ghcr.io/404vector/enikk-dev-agent
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag

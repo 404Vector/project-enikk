@@ -10,6 +10,7 @@ import pytest
 
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
+from enikk_contracts.github import GitHubTokenRequest
 from enikk_contracts.outbox import OutboundKind, OutboxPoll
 from enikk_contracts.tasks import (
     Heartbeat,
@@ -19,7 +20,8 @@ from enikk_contracts.tasks import (
     TaskStatus,
 )
 from enikk_core.dispatcher import DispatchOutcome
-from enikk_core_client import CoreForbiddenError, CoreNotFoundError
+from enikk_core_client import CoreConflictError, CoreForbiddenError, CoreNotFoundError
+from enikk_github.permissions import TokenPurpose
 
 if TYPE_CHECKING:
     from conftest import Harness
@@ -95,6 +97,61 @@ async def test_a_task_is_claimed_once(harness: Harness) -> None:
             await dev.claim_task(accepted.task_id)
         with pytest.raises(CoreNotFoundError):
             await dev.claim_task(uuid.uuid4())
+
+
+async def test_dev_agent_gets_a_scoped_token_only_while_leased(harness: Harness) -> None:
+    async with harness.client("slack") as slack, harness.client("dev") as dev:
+        accepted = await slack.submit_event(_event("Dev1"))
+        lease = (await dev.claim_task(accepted.task_id)).assignment
+        assert lease is not None
+        own = await dev.github_token(
+            GitHubTokenRequest(task_id=lease.task_id, lease_id=lease.lease_id)
+        )
+        side = await dev.github_token(
+            GitHubTokenRequest(
+                task_id=lease.task_id, lease_id=lease.lease_id, repository="side-project"
+            )
+        )
+        with pytest.raises(CoreForbiddenError, match="not managed"):
+            await dev.github_token(
+                GitHubTokenRequest(
+                    task_id=lease.task_id, lease_id=lease.lease_id, repository="private-stuff"
+                )
+            )
+        with pytest.raises(CoreConflictError):
+            await dev.github_token(GitHubTokenRequest(task_id=lease.task_id, lease_id=uuid.uuid4()))
+        await dev.report_result(
+            lease.task_id, ResultReport(lease_id=lease.lease_id, outcome=Succeeded(text="done"))
+        )
+        with pytest.raises(CoreConflictError):
+            await dev.github_token(
+                GitHubTokenRequest(task_id=lease.task_id, lease_id=lease.lease_id)
+            )
+    assert (own.repository, own.workflows) == ("project-enikk", False)
+    assert (side.repository, side.workflows) == ("side-project", True)
+    assert own.author_email == "42+enikk-deployer[bot]@users.noreply.github.com"
+    assert own.token.get_secret_value() == "ghs-project-enikk"
+    assert harness.github.issued == [
+        ("project-enikk", TokenPurpose.DEVELOP),
+        ("side-project", TokenPurpose.DEVELOP),
+    ]
+    assert harness.github.workflows == [False, True]
+
+
+async def test_only_isolated_workers_get_github_tokens(harness: Harness) -> None:
+    async with harness.client("slack") as slack, harness.client("claude") as claude:
+        await slack.submit_event(_event("Ev1", agent="assistant"))
+        lease = (await claude.lease_task(NOW)).assignment
+        assert lease is not None
+        with pytest.raises(CoreForbiddenError):
+            await claude.github_token(
+                GitHubTokenRequest(task_id=lease.task_id, lease_id=lease.lease_id)
+            )
+    async with harness.client("dev") as dev:
+        with pytest.raises(CoreNotFoundError):
+            await dev.github_token(
+                GitHubTokenRequest(task_id=lease.task_id, lease_id=lease.lease_id)
+            )
 
 
 async def test_dispatcher_starts_one_job_at_a_time(harness: Harness) -> None:

@@ -38,6 +38,7 @@ class GitHubAppConfig(FrozenModel):
     app_id: Annotated[int, Field(gt=0)]
     installation_id: Annotated[int, Field(gt=0)]
     owner: AccountName
+    app_slug: Annotated[str, Field(pattern=r"^[a-z0-9-]{1,34}$")] = "enikk-deployer"
     api_url: str = "https://api.github.com"
     timeout_seconds: Annotated[float, Field(gt=0, le=60)] = 10.0
 
@@ -80,6 +81,22 @@ class _ErrorBody(_GitHubBody):
     message: str = ""
 
 
+class _UserBody(_GitHubBody):
+    id: int
+    login: str
+
+
+class BotIdentity(FrozenModel):
+    """The App's bot account, used as the author of agent commits."""
+
+    login: str
+    user_id: int
+
+    @property
+    def email(self) -> str:
+        return f"{self.user_id}+{self.login}@users.noreply.github.com"
+
+
 class GitHubApp:
     def __init__(
         self,
@@ -118,6 +135,10 @@ class GitHubApp:
     def config(self) -> GitHubAppConfig:
         return self._config
 
+    @property
+    def owner(self) -> str:
+        return self._config.owner
+
     async def aclose(self) -> None:
         await self._http.aclose()
 
@@ -146,6 +167,15 @@ class GitHubApp:
             repository=repository,
             permissions=issued.permissions,
         )
+
+    async def bot_identity(self, token: InstallationToken) -> BotIdentity:
+        """``<slug>[bot]``; its numeric ID makes the commit email GitHub attributes."""
+        login = f"{self._config.app_slug}[bot]"
+        response = await self._request(
+            "GET", f"/users/{login}", bearer=token.token.get_secret_value()
+        )
+        user = _parse(_UserBody, response)
+        return BotIdentity(login=user.login, user_id=user.id)
 
     async def repository_reachable(self, token: InstallationToken) -> bool:
         path = f"/repos/{self._config.owner}/{token.repository}"

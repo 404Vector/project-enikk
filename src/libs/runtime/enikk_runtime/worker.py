@@ -94,12 +94,17 @@ class TaskWorker:
             assignment.definition.name,
             assignment.attempt,
         )
+        await self.run_assignment(assignment)
+        return True
+
+    async def run_assignment(self, assignment: TaskAssignment) -> Succeeded | Failed | None:
+        """Run an already leased task and report it. ``None`` when the lease was lost."""
         outcome = await self._run_while_leased(assignment)
         if outcome is None:
             _log.warning("task %s: lease lost, result discarded", assignment.task_id)
-            return True
+            return None
         await self._report(assignment, outcome)
-        return True
+        return outcome
 
     # ------------------------------------------------------------ lease keeping
 

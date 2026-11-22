@@ -14,7 +14,7 @@ from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
 from enikk_core.credentials import CredentialIssuer
 from enikk_core.dispatcher import DevJobDispatcher
-from enikk_core.github import GitHubHealthCheck
+from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
 from enikk_core.security import Gatekeeper
 from enikk_core.settings import DevAgentSettings, TaskSettings
 from enikk_core.usecases import CoreUseCases
@@ -35,7 +35,7 @@ from enikk_core_domain.testing import (
     StaticCredentialStore,
     agent,
 )
-from enikk_github.app import InstallationToken
+from enikk_github.app import BotIdentity, InstallationToken
 from enikk_github.permissions import TokenPurpose, required_permissions
 from enikk_kernel.ids import RandomIdGenerator
 from enikk_kernel.testing import ManualClock, SequentialIds
@@ -63,7 +63,8 @@ TOKENS = {
 }
 
 POLICY = RepositoryPolicy.model_validate_json(
-    '{"repositories": [{"name": "project-enikk", "self": true}, {"name": "side-project"}]}'
+    '{"repositories": [{"name": "project-enikk", "self": true},'
+    ' {"name": "side-project", "workflows": true}]}'
 )
 
 
@@ -94,10 +95,11 @@ class FakeGitHubApp:
 
     def __init__(self) -> None:
         self.permissions: dict[str, str] = {
-            name: access.value for name, access in required_permissions(workflows=False).items()
+            name: access.value for name, access in required_permissions(workflows=True).items()
         }
         self.unreachable: set[str] = set()
         self.issued: list[tuple[str, TokenPurpose]] = []
+        self.workflows: list[bool] = []
         self.revoked: list[str] = []
 
     async def installation_permissions(self) -> dict[str, str]:
@@ -107,6 +109,7 @@ class FakeGitHubApp:
         self, repository: str, purpose: TokenPurpose, *, workflows: bool = False
     ) -> InstallationToken:
         self.issued.append((repository, purpose))
+        self.workflows.append(workflows)
         return InstallationToken(
             token=SecretStr(f"ghs-{repository}"),
             expires_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
@@ -119,6 +122,13 @@ class FakeGitHubApp:
 
     async def revoke(self, token: InstallationToken) -> None:
         self.revoked.append(token.repository)
+
+    async def bot_identity(self, token: InstallationToken) -> BotIdentity:
+        return BotIdentity(login="enikk-deployer[bot]", user_id=42)
+
+    @property
+    def owner(self) -> str:
+        return "404Vector"
 
 
 @dataclass
@@ -201,6 +211,7 @@ def harness() -> Harness:
         credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(StaticAuthenticator(TOKENS), directory),
         github=GitHubHealthCheck(github, POLICY, lambda: SecretStr("pem")),
+        dev_tokens=DevTokenIssuer(github, POLICY),
         reaper_interval_seconds=60,
         dispatcher=dispatcher,
     )

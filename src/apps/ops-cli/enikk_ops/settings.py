@@ -31,6 +31,7 @@ class SmokeSettings(SettingsModel):
     unbound_account: str = "default"
     max_foreign_tasks: int = Field(default=5, ge=0, le=50)
     reply_timeout_seconds: int = Field(default=300, ge=10, le=1800)
+    dev_timeout_seconds: float = Field(default=2400, gt=0)
 
 
 def _default_secret_file() -> Path:

@@ -136,6 +136,14 @@ def smoke_claude(ctx: typer.Context) -> None:
     typer.echo("all checks passed")
 
 
+@smoke_app.command("dev")
+def smoke_dev(ctx: typer.Context) -> None:
+    """Ask the isolated dev agent for a one-file change; expect a PR (uses the model)."""
+    typer.echo("dev agent smoke test")
+    _container(ctx).dev_smoke.run()
+    typer.echo("all checks passed")
+
+
 def main() -> None:
     try:
         app()

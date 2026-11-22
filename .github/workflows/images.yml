@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack]
+        app: [core, runtime-claude, connector-slack, dev-agent]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,7 +55,8 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: deploy/docker/python-app.Dockerfile
+          # dev-agent adds git, gh and uv to the shared Python image (ADR-0021).
+          file: deploy/docker/${{ matrix.app == 'dev-agent' && 'dev-agent' || 'python-app' }}.Dockerfile
           build-args: PACKAGE=enikk-${{ matrix.app }}
           push: false
           cache-from: type=gha,scope=${{ matrix.app }}
@@ -70,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack]
+        app: [core, runtime-claude, connector-slack, dev-agent]
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
     steps:
@@ -89,7 +90,8 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: deploy/docker/python-app.Dockerfile
+          # dev-agent adds git, gh and uv to the shared Python image (ADR-0021).
+          file: deploy/docker/${{ matrix.app == 'dev-agent' && 'dev-agent' || 'python-app' }}.Dockerfile
           build-args: PACKAGE=enikk-${{ matrix.app }}
           push: true
           tags: ${{ env.IMAGE }}:sha-${{ github.sha }}

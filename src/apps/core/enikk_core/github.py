@@ -9,8 +9,8 @@ import pydantic_core
 import yaml
 from pydantic import ValidationError
 
-from enikk_contracts.github import GitHubHealth, PermissionGap, RepositoryCheck
-from enikk_core_domain.errors import DependencyUnavailableError
+from enikk_contracts.github import GitHubHealth, GitHubToken, PermissionGap, RepositoryCheck
+from enikk_core_domain.errors import DependencyUnavailableError, PermissionDeniedError
 from enikk_core_domain.repositories import RepositoryPolicy
 from enikk_github.permissions import Access, TokenPurpose, required_permissions
 from enikk_kernel.errors import ConfigurationError
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from pydantic import SecretStr
 
-    from enikk_github.app import InstallationToken
+    from enikk_github.app import BotIdentity, InstallationToken
 
 _log = logging.getLogger(__name__)
 
@@ -35,7 +35,44 @@ class GitHubAppApi(Protocol):
 
     async def repository_reachable(self, token: InstallationToken) -> bool: ...
 
+    async def bot_identity(self, token: InstallationToken) -> BotIdentity: ...
+
     async def revoke(self, token: InstallationToken) -> None: ...
+
+    @property
+    def owner(self) -> str: ...
+
+
+class DevTokenIssuer:
+    """Development tokens for isolated workers (ADR-0019 §2, I-32).
+
+    The caller must hold the lease of an isolated task; that is checked before this.
+    """
+
+    def __init__(self, app: GitHubAppApi | None, policy: RepositoryPolicy) -> None:
+        self._app = app
+        self._policy = policy
+
+    async def issue(self, repository: str | None) -> GitHubToken:
+        if self._app is None:
+            raise DependencyUnavailableError("the GitHub App is not configured")
+        target = self._policy.own if repository is None else self._policy.get(repository)
+        if target is None:
+            raise PermissionDeniedError(f"repository {repository} is not managed by the agents")
+        token = await self._app.installation_token(
+            target.name, TokenPurpose.DEVELOP, workflows=target.workflows
+        )
+        bot = await self._app.bot_identity(token)
+        _log.info("development token for %s issued (workflows=%s)", target.name, target.workflows)
+        return GitHubToken(
+            token=token.token,
+            owner=self._app.owner,
+            repository=target.name,
+            expires_at=token.expires_at,
+            workflows=target.workflows,
+            author_name=bot.login,
+            author_email=bot.email,
+        )
 
 
 def load_repository_policy(path: Path, *, self_repository: str) -> RepositoryPolicy:

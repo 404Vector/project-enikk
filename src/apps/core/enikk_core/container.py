@@ -11,7 +11,7 @@ from enikk_core.api import CoreServices
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.dispatcher import DevJobDispatcher
-from enikk_core.github import GitHubHealthCheck, load_repository_policy
+from enikk_core.github import DevTokenIssuer, GitHubHealthCheck, load_repository_policy
 from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
@@ -62,12 +62,14 @@ def build_services(settings: CoreSettings) -> CoreServices:
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
     store = DirectoryCredentialStore(settings.credentials_dir)
+    github, dev_tokens = _github(settings, store, clock)
     return CoreServices(
         version=settings.version,
         usecases=usecases,
         credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(authenticator, directory),
-        github=_github(settings, store, clock),
+        github=github,
+        dev_tokens=dev_tokens,
         reaper_interval_seconds=settings.tasks.reaper_interval_seconds,
         dispatcher=dispatcher,
         dispatch_interval_seconds=dev.interval_seconds,
@@ -76,7 +78,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
 
 def _github(
     settings: CoreSettings, store: DirectoryCredentialStore, clock: SystemClock
-) -> GitHubHealthCheck:
+) -> tuple[GitHubHealthCheck, DevTokenIssuer]:
     policy = load_repository_policy(
         settings.github.repositories_file, self_repository=settings.github.self_repository
     )
@@ -86,4 +88,4 @@ def _github(
 
     config = settings.github.to_config()
     app = None if config is None else GitHubApp.create(config, private_key, clock)
-    return GitHubHealthCheck(app, policy, private_key)
+    return GitHubHealthCheck(app, policy, private_key), DevTokenIssuer(app, policy)
