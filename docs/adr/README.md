@@ -26,6 +26,7 @@
 | [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 | 2026-11-22 |
 | [0021](0021-dev-agent-job-per-task.md) | 개발 에이전트는 작업마다 새 Pod(Job)로 실행한다 | 승인 | 2026-11-22 |
 | [0022](0022-delegation-to-developer.md) | assistant 가 개발 에이전트에 작업을 위임한다 | 승인 | 2026-11-22 |
+| [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 | 2026-11-22 |
 
 ## 상태 정의
 

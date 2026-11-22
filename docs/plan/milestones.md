@@ -135,11 +135,11 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 **완료 조건**: Slack 요청 → PR → 승인 → 자동 배포가 사람의 수동 작업 없이 동작하고, 보호 경로를 건드린 PR 은 CI 에서 실패한다.
 **소유자 준비물**: GitHub App 생성·설치, 그 자격증명.
-**세부 결정**: ADR-0019 ~ ADR-0022. 프롬프트 개선 경로는 M6 에서 다룬다.
+**세부 결정**: ADR-0019 ~ ADR-0023. 프롬프트 개선 경로는 M6 에서 다룬다.
 **작업 순서**:
 1. CI 보강: PR 빌드에서 이미지 push 권한 제거(ADR-0008 위험), 보호 경로 검사, `main` ruleset 과 auto-merge 설정.
 2. GitHub 어댑터와 core 의 토큰 발급(ADR-0019), 키 등록(`secret set` 의 파일 입력).
 3. 개발 에이전트: `enikk-dev` 네임스페이스, Job 템플릿 차트, 이미지, `agents/developer.yaml`, core dispatcher 와 실행 제한(ADR-0021).
 4. 위임: `delegate` 도구, 하위 작업과 세션, 스레드 게시(ADR-0022).
 5. 승인: PR 감시, 소유자 DM 승인 요청, Slack 버튼, 승인 상태 기록과 auto-merge(ADR-0020).
-6. 배포 안전장치: RollingUpdate 전환, PostSync 스모크 검사, [되돌리기], 끝에서 끝까지 확인.
+6. 배포 안전장치(ADR-0023): RollingUpdate 전환과 PostSync 스모크 검사, 배포 감시와 결과 DM(성공·실패, 빌드 실패), [되돌리기]와 롤백 결과 DM, 끝에서 끝까지 확인.
