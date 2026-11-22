@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enikk-connector-slack
+  labels:
+    app.kubernetes.io/name: enikk-connector-slack
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  # One Socket Mode connection; a second replica would only split the events.
+  replicas: {{ if .Values.image.tag }}1{{ else }}0{{ end }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: enikk-connector-slack
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enikk-connector-slack
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: enikk-connector-slack
+      # Only the audience=enikk-core projected token below; no Kubernetes API token (I-28).
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-connector-slack"]
+          env:
+            - name: ENIKK_CONNECTOR_CORE_URL
+              value: {{ .Values.coreUrl | quote }}
+            - name: ENIKK_CONNECTOR_CONFIG_FILE
+              value: /app/config/slack.yaml
+          volumeMounts:
+            - name: core-token
+              mountPath: /var/run/secrets/enikk/core
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: enikk-core
+                  expirationSeconds: {{ .Values.coreTokenSeconds }}
+                  path: token

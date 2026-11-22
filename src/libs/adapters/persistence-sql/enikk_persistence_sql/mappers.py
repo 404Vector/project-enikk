@@ -88,6 +88,7 @@ def task_from_row(row: TaskRow) -> Task:
 def outbox_to_row(message: OutboxMessage, row: OutboxRow | None = None) -> OutboxRow:
     row = row or OutboxRow(id=message.id)
     row.task_id = message.task_id
+    row.source_event_id = message.source_event_id
     row.connector = message.conversation.connector.value
     row.channel = message.conversation.channel
     row.thread = message.conversation.thread
@@ -103,6 +104,7 @@ def outbox_from_row(row: OutboxRow) -> OutboxMessage:
     return OutboxMessage(
         id=row.id,
         task_id=row.task_id,
+        source_event_id=row.source_event_id,
         conversation=ConversationRef(
             connector=ConnectorKind(row.connector), channel=row.channel, thread=row.thread
         ),

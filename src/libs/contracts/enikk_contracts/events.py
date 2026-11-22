@@ -13,7 +13,9 @@ class InboundEvent(Contract):
 
     ``event_id`` is the idempotency key: delivering the same event twice
     creates one task. ``agent`` is the connector's routing choice and only
-    applies when the conversation has no session yet.
+    applies when the conversation has no session yet. With ``continue_only``
+    core accepts the event only into an existing session and answers
+    "not found" otherwise. The conversation's connector must be the caller's.
     """
 
     event_id: Identifier
@@ -21,6 +23,7 @@ class InboundEvent(Contract):
     user: Identifier
     text: NonEmptyText
     agent: AgentName
+    continue_only: bool = False
 
 
 class EventAccepted(Contract):

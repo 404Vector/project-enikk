@@ -41,8 +41,15 @@ SLACK = ServiceIdentity(namespace="enikk", name="enikk-connector-slack")
 CLAUDE = ServiceIdentity(namespace="enikk", name="enikk-runtime-claude")
 GEMINI = ServiceIdentity(namespace="enikk", name="enikk-runtime-gemini")
 STRANGER = ServiceIdentity(namespace="enikk", name="default")
+SMOKE = ServiceIdentity(namespace="enikk", name="enikk-smoke")
 
-TOKENS = {"slack": SLACK, "claude": CLAUDE, "gemini": GEMINI, "stranger": STRANGER}
+TOKENS = {
+    "slack": SLACK,
+    "claude": CLAUDE,
+    "gemini": GEMINI,
+    "stranger": STRANGER,
+    "smoke": SMOKE,
+}
 
 
 @dataclass
@@ -93,6 +100,7 @@ def harness() -> Harness:
                 credentials=frozenset({CredentialName.CLAUDE_OAUTH_TOKEN}),
             ),
             RoleBinding(identity=GEMINI, role=RuntimeRole(engine=Engine.GEMINI)),
+            RoleBinding(identity=SMOKE, role=ConnectorRole(connector=ConnectorKind.SMOKE)),
         )
     )
     store = StaticCredentialStore(

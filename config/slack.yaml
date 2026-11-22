@@ -1,0 +1,10 @@
+# Slack ↔ agent routing, read by enikk-connector-slack (I-01, I-15, ADR-0018).
+# Agent definitions know nothing about Slack; this file decides which agent answers.
+
+# The only Slack member whose messages are handled. Everyone else is ignored.
+owner: U04CF12EKRA
+
+# Agent that starts a new conversation. Replies in an existing thread keep its agent.
+routes:
+  direct_message: assistant
+  mention: assistant

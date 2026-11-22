@@ -225,6 +225,7 @@ class OutboxMessage(Entity):
 
     id: uuid.UUID
     task_id: uuid.UUID
+    source_event_id: Identifier
     conversation: ConversationRef
     kind: OutboundKind
     text: NonEmptyText

@@ -1,0 +1,28 @@
+[project]
+name = "enikk-connector-slack"
+version = "0.1.0"
+description = "Slack connector: relays the owner's Slack messages to enikk-core and posts the replies"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
+    "slack-sdk>=3.48",
+    "aiohttp>=3.11",
+    "pyyaml>=6.0.2",
+]
+
+[project.scripts]
+enikk-connector-slack = "enikk_connector_slack.main:main"
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_connector_slack"]

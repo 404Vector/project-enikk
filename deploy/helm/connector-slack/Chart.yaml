@@ -1,0 +1,5 @@
+apiVersion: v2
+name: enikk-connector-slack
+description: Slack connector (Socket Mode) for enikk-core
+type: application
+version: 0.1.0

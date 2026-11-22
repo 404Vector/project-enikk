@@ -31,3 +31,11 @@ spec:
             helm:
               name: image.repository
               tag: image.tag
+    - namePattern: enikk-connector-slack
+      images:
+        - alias: connector-slack
+          imageName: ghcr.io/404vector/enikk-connector-slack
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag

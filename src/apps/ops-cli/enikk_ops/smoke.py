@@ -196,7 +196,7 @@ class ClaudeSmokeTest:
             InboundEvent(
                 event_id=f"smoke-{uuid.uuid4().hex}",
                 conversation=ConversationRef(
-                    connector=ConnectorKind.SLACK, channel=SMOKE_CHANNEL, thread=thread
+                    connector=ConnectorKind.SMOKE, channel=SMOKE_CHANNEL, thread=thread
                 ),
                 user="enikk-smoke",
                 text=text,
@@ -232,7 +232,7 @@ def _smoke_event() -> InboundEvent:
     return InboundEvent(
         event_id=f"smoke-{run}",
         conversation=ConversationRef(
-            connector=ConnectorKind.SLACK, channel=SMOKE_CHANNEL, thread=run
+            connector=ConnectorKind.SMOKE, channel=SMOKE_CHANNEL, thread=run
         ),
         user="enikk-smoke",
         text="smoke test",

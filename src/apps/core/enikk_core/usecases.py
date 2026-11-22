@@ -71,6 +71,8 @@ class CoreUseCases:
                 )
             now = self._clock.now()
             session = await uow.sessions.find_by_conversation(event.conversation)
+            if session is None and event.continue_only:
+                raise NotFoundError("no conversation to continue in this thread")
             if session is None:
                 definition = self._catalog.get(event.agent)
                 if definition is None:
@@ -289,6 +291,7 @@ class CoreUseCases:
             OutboxMessage(
                 id=self._ids.new(),
                 task_id=task.id,
+                source_event_id=task.source_event_id,
                 conversation=session.conversation,
                 kind=kind,
                 text=text,
@@ -301,6 +304,7 @@ def _outbound(message: OutboxMessage) -> OutboundMessage:
     return OutboundMessage(
         message_id=message.id,
         task_id=message.task_id,
+        source_event_id=message.source_event_id,
         conversation=message.conversation,
         kind=message.kind,
         text=message.text,

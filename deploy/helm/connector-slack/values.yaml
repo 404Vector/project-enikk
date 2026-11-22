@@ -1,0 +1,16 @@
+image:
+  repository: ghcr.io/404vector/enikk-connector-slack
+  # Set by Argo CD Image Updater. While empty, the Deployment runs no replicas.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Slack tokens come from enikk-core at startup (ADR-0013); this chart mounts no Secret.
+# Routing (owner, agents) is config/slack.yaml, baked into the image (ADR-0018).
+coreUrl: http://enikk-core.enikk.svc
+
+# Lifetime of the audience=enikk-core projected token. kubelet rotates it.
+coreTokenSeconds: 3600
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { memory: 256Mi }

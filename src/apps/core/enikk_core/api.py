@@ -118,8 +118,10 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
     @app.post(routes.EVENTS, responses={200: {"model": EventAccepted}})
     @requires("connector")
     async def submit_event(request: Request) -> Response:
-        await gate.admit(request)
+        role = _connector(await gate.admit(request))
         event = await _parse(request, InboundEvent)
+        if event.conversation.connector is not role.connector:
+            raise PermissionDeniedError(f"connector {role.connector} cannot post to another")
         return _json(await usecases.accept_event(event))
 
     @app.post(routes.OUTBOX_POLL, responses={200: {"model": OutboxBatch}})
