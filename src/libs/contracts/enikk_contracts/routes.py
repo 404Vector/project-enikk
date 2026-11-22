@@ -17,6 +17,7 @@ OUTBOX_POLL: Final = "/v1/outbox/poll"
 OUTBOX_ACK: Final = "/v1/outbox/ack"
 CREDENTIALS: Final = "/v1/credentials"
 GITHUB_HEALTH: Final = "/v1/github/health"
+GITHUB_TOKEN: Final = "/v1/github/token"  # noqa: S105 - URL path
 
 AUDIENCE: Final = "enikk-core"
 """Audience of the ServiceAccount tokens that core accepts (ADR-0011)."""

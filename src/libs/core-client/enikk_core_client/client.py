@@ -11,7 +11,7 @@ from enikk_contracts import routes
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
-from enikk_contracts.github import GitHubHealth
+from enikk_contracts.github import GitHubHealth, GitHubToken
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import ClaimRequest, LeaseExtended, LeaseResponse, ResultAccepted
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
     from enikk_contracts.events import InboundEvent
+    from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
@@ -121,6 +122,10 @@ class CoreClient:
     async def fetch_credentials(self, request: CredentialRequest) -> Credentials:
         """Credentials granted to this caller. Keep them in memory only (ADR-0013)."""
         return _parse(Credentials, await self._post(routes.CREDENTIALS, request))
+
+    async def github_token(self, request: GitHubTokenRequest) -> GitHubToken:
+        """Isolated workers only: a development token for one repository (I-32)."""
+        return _parse(GitHubToken, await self._post(routes.GITHUB_TOKEN, request))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

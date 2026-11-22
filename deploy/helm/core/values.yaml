@@ -55,6 +55,8 @@ roleBindings:
   - namespace: enikk-dev
     service_account: enikk-dev-agent
     role: dev-agent
+    # Its GitHub token comes from /v1/github/token, scoped per task (ADR-0019, I-32).
+    credentials: [claude.oauth-token, langfuse.public-key, langfuse.secret-key]
   - namespace: enikk
     service_account: enikk-smoke
     role: connector

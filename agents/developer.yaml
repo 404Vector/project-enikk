@@ -1,0 +1,16 @@
+name: developer
+description: Changes code and definitions in a fresh workspace and opens a pull request
+engine: claude
+# A fresh Job per task in the enikk-dev namespace; never the shared runtime (ADR-0021).
+execution: isolated
+prompt:
+  name: developer
+  label: production
+tools:
+  mcp: []
+  # The only agent with shell and file tools (I-14). Protected path (I-20).
+  builtin: [Bash, Read, Write, Edit, Glob, Grep]
+delegates: []
+limits:
+  max_turns: 100
+  timeout_seconds: 3600

@@ -16,6 +16,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk.testing import run_session_store_conformance
 from pydantic import SecretStr
 
+from enikk_contracts.agents import Execution, ToolPolicy
 from enikk_contracts.transcripts import (
     SubpathQuery,
     TranscriptAppend,
@@ -196,6 +197,44 @@ async def test_exposed_built_in_tools_abort_the_run(tmp_path: Path) -> None:
     with pytest.raises(EngineError, match="Bash") as raised:
         await _engine(script, tmp_path).run(_job())
     assert not raised.value.retryable
+
+
+async def test_granted_tools_are_the_only_tools(tmp_path: Path) -> None:
+    job = _job()
+    granted = job.definition.model_copy(
+        update={
+            "execution": Execution.ISOLATED,
+            "tools": ToolPolicy(builtin=("Bash", "Read")),
+        }
+    )
+    job = job.model_copy(update={"definition": granted})
+    script = _Script(_init(["Bash", "Read"]), _result())
+    await _engine(script, tmp_path).run(job)
+    assert script.options is not None
+    assert script.options.tools == ["Bash", "Read"]
+    assert script.options.allowed_tools == ["Bash", "Read"]
+
+    wider = _Script(_init(["Bash", "Read", "WebFetch"]), _result())
+    with pytest.raises(EngineError, match="WebFetch"):
+        await _engine(wider, tmp_path).run(job)
+
+
+async def test_tool_env_reaches_the_cli_but_cannot_replace_the_token(tmp_path: Path) -> None:
+    script = _Script(_init(), _result())
+    engine = ClaudeEngine(
+        config=ClaudeEngineConfig(
+            workdir=tmp_path / "work",
+            scratch_dir=tmp_path / "scratch",
+            tool_env={"GIT_CONFIG_GLOBAL": "/workspace/gitconfig", "CLAUDE_CODE_OAUTH_TOKEN": "x"},
+        ),
+        oauth_token=SecretStr("sk-ant-oat-test"),
+        transcripts=FakeTranscripts(),
+        query_fn=script,
+    )
+    await engine.run(_job())
+    assert script.options is not None
+    assert script.options.env["GIT_CONFIG_GLOBAL"] == "/workspace/gitconfig"
+    assert script.options.env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat-test"
 
 
 async def test_transcript_mirror_failure_is_retryable(tmp_path: Path) -> None:

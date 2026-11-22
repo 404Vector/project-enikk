@@ -18,7 +18,7 @@ from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
-from enikk_contracts.github import GitHubHealth
+from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from enikk_contracts.base import Contract
     from enikk_core.credentials import CredentialIssuer
     from enikk_core.dispatcher import DevJobDispatcher
-    from enikk_core.github import GitHubHealthCheck
+    from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.security import Gatekeeper
     from enikk_core.usecases import CoreUseCases
     from enikk_core_domain.auth import Principal
@@ -89,6 +89,7 @@ class CoreServices:
         credentials: CredentialIssuer,
         gatekeeper: Gatekeeper,
         github: GitHubHealthCheck,
+        dev_tokens: DevTokenIssuer,
         reaper_interval_seconds: float,
         dispatcher: DevJobDispatcher | None = None,
         dispatch_interval_seconds: float = 10.0,
@@ -98,6 +99,7 @@ class CoreServices:
         self.credentials = credentials
         self.gatekeeper = gatekeeper
         self.github = github
+        self.dev_tokens = dev_tokens
         self.reaper_interval_seconds = reaper_interval_seconds
         self.dispatcher = dispatcher
         self.dispatch_interval_seconds = dispatch_interval_seconds
@@ -219,6 +221,16 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         if role.connector is not ConnectorKind.SMOKE:
             raise PermissionDeniedError("only the smoke check reads the GitHub status")
         return _json(await services.github.check())
+
+    @app.post(routes.GITHUB_TOKEN, responses={200: {"model": GitHubToken}})
+    @requires("dev-agent")
+    async def github_token(request: Request) -> Response:
+        _dev_agent(await gate.admit(request))
+        wanted = await _parse(request, GitHubTokenRequest)
+        await usecases.verify_lease(WorkerScope.isolated(), wanted.task_id, wanted.lease_id)
+        response = _json(await services.dev_tokens.issue(wanted.repository))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     verify_declared_roles(app)
     return app

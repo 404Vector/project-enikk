@@ -74,3 +74,11 @@ class AgentDefinition(Contract):
         if self.name in self.delegates:
             raise ValueError("an agent cannot delegate to itself")
         return self
+
+    @model_validator(mode="after")
+    def _builtin_tools_only_in_isolation(self) -> Self:
+        if self.tools.builtin and self.execution is not Execution.ISOLATED:
+            raise ValueError(
+                "built-in tools (shell, files) are allowed only for isolated agents (ADR-0021)"
+            )
+        return self

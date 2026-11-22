@@ -265,6 +265,13 @@ class CoreUseCases:
         _log.info("task %s reported %s", done.id, done.status)
         return ResultAccepted(task_id=done.id, status=done.status, duplicate=False)
 
+    async def verify_lease(
+        self, scope: WorkerScope, task_id: uuid.UUID, lease_id: uuid.UUID
+    ) -> None:
+        """Raise unless ``lease_id`` is the active lease of ``task_id`` within ``scope``."""
+        async with self._uow() as uow:
+            await self._leased_task(uow, scope, task_id, lease_id)
+
     # ------------------------------------------------------------ transcripts (ADR-0014)
 
     async def append_transcript(
