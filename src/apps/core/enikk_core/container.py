@@ -20,6 +20,7 @@ from enikk_core.github import (
     load_sensitive_paths,
 )
 from enikk_core.security import Gatekeeper
+from enikk_core.threads import ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
 from enikk_core_domain.deployments import WatchTiming
@@ -117,6 +118,7 @@ def _github(
             pulls=PullRequests(app),
             policy=policy,
             sensitive=load_sensitive_paths(settings.github.sensitive_paths_file),
+            threads=ThreadNotes(clock, ids),
             clock=clock,
             ids=ids,
             sleep=asyncio.sleep,
@@ -132,6 +134,7 @@ def _github(
             app=app,
             activity=RepositoryActivity(app),
             reverter=Reverter(app),
+            threads=ThreadNotes(clock, ids),
             policy=DeploymentPolicy(
                 apps=watch.apps,
                 repository=settings.github.self_repository,

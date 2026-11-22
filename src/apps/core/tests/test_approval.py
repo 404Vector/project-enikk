@@ -19,6 +19,7 @@ from enikk_contracts.approvals import (
     ResolutionOutcome,
 )
 from enikk_core.approval.service import ApprovalService
+from enikk_core.threads import ThreadNotes
 from enikk_core_client import CoreForbiddenError
 from enikk_core_domain.model import ApprovalState
 from enikk_core_domain.repositories import RepositoryPolicy, SensitivePaths
@@ -130,6 +131,7 @@ def service(harness: Harness, pulls: FakePulls) -> ApprovalService:
         clock=harness.clock,
         ids=RandomIdGenerator(),
         sleep=no_sleep,
+        threads=ThreadNotes(harness.clock, RandomIdGenerator()),
     )
 
 
@@ -339,3 +341,39 @@ async def test_sensitive_paths_are_flagged_with_their_own_diff(
     assert notice.pull.sensitive == ("docs/adr/0099-x.md", "NEW.md")
     assert "+adr" in notice.pull.sensitive_diff
     assert "+readme" not in notice.pull.sensitive_diff
+
+
+async def test_progress_of_an_agent_pr_is_told_in_its_thread(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    import uuid as _uuid
+
+    from enikk_contracts.common import ConnectorKind
+    from enikk_core_domain.model import Session
+    from enikk_core_domain.testing import T0, agent, conversation, task
+
+    session = Session.start(
+        session_id=_uuid.uuid4(),
+        conversation=conversation("9.0:developer"),
+        agent=agent("developer"),
+        now=T0,
+        reply_to=conversation("9.0"),
+    )
+    async with harness.db.unit_of_work() as uow:
+        await uow.sessions.add(session)
+        await uow.tasks.add(task(session))
+        await uow.commit()
+    pulls.pulls[7] = _pull(branch=f"agent/{session.id}")
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [notice] = await _notices(service)
+    assert isinstance(notice, ApprovalRequested)
+    await service.decide(
+        notice.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    async with harness.db.unit_of_work() as uow:
+        texts = [m.text for m in await uow.outbox.pending(ConnectorKind.SLACK, 10)]
+    # Both are queued in the same instant; their order is not part of the contract.
+    assert len(texts) == 2
+    assert any("승인 요청" in t for t in texts)
+    assert any("머지됐습니다" in t for t in texts)

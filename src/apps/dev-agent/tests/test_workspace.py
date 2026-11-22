@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 TASK = uuid.UUID("12345678-1234-5678-1234-567812345678")
+BRANCH = f"agent/{TASK}"
 SECRET = "ghs_secret-token-value"
 
 
@@ -47,7 +48,7 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_token_lives_only_in_the_gh_config_file(tmp_path: Path) -> None:
     runner = RecordingRunner()
     tools = tmp_path / "tools"
-    workspace = GitWorkspace(runner, tmp_path / "ws", tools).prepare(_token(), TASK)
+    workspace = GitWorkspace(runner, tmp_path / "ws", tools).prepare(_token(), BRANCH)
 
     assert workspace.branch == f"agent/{TASK}"
     assert workspace.repo_dir == tmp_path / "ws" / "repo"
@@ -60,8 +61,10 @@ def test_token_lives_only_in_the_gh_config_file(tmp_path: Path) -> None:
             "https://github.com/404Vector/project-enikk.git",
             str(tmp_path / "ws" / "repo"),
         ),
-        ("git", "switch", "--create", f"agent/{TASK}"),
+        ("git", "ls-remote", "--heads", "origin", BRANCH),
+        ("git", "switch", "--create", BRANCH),
     ]
+    assert not workspace.continuing
     assert all(SECRET not in " ".join(argv) for argv in runner.argvs)
     assert all(SECRET not in value for value in workspace.tool_env.values())
     assert all(SECRET not in value for value in os.environ.values())
@@ -81,7 +84,7 @@ def test_cleanup_revokes_and_removes_credentials(tmp_path: Path) -> None:
     runner = RecordingRunner()
     tools = tmp_path / "tools"
     git = GitWorkspace(runner, tmp_path / "ws", tools)
-    git.prepare(_token(), TASK)
+    git.prepare(_token(), BRANCH)
     git.revoke_and_forget()
     assert runner.argvs[-1] == ("gh", "api", "--method", "DELETE", "/installation/token")
     assert not tools.exists()
@@ -99,15 +102,53 @@ def test_failed_clone_is_a_workspace_error(tmp_path: Path) -> None:
     runner = RecordingRunner()
     runner.when("git", "clone", returncode=128, stderr="fatal: repository not found")
     with pytest.raises(WorkspaceError, match="repository not found"):
-        GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), TASK)
+        GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
 
 
 @pytest.mark.usefixtures("isolated_env")
 def test_brief_states_where_the_agent_works(tmp_path: Path) -> None:
     workspace = GitWorkspace(RecordingRunner(), tmp_path / "ws", tmp_path / "tools").prepare(
-        _token(), TASK
+        _token(), BRANCH
     )
-    assignment = TaskAssignment(
+    brief = task_brief(_assignment(), _token(), workspace)
+    assert "404Vector/project-enikk" in brief
+    assert BRANCH in brief
+    assert "new branch from main" in brief
+    assert "must not change files under .github/workflows" in brief
+    assert brief.endswith("Add a line to the README")
+    assert SECRET not in brief
+
+
+@pytest.mark.usefixtures("isolated_env")
+def test_an_existing_branch_is_continued(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    runner.when("git", "ls-remote", stdout=f"abc123\trefs/heads/{BRANCH}\n")
+    workspace = GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
+    assert workspace.continuing
+    assert runner.argvs[-2:] == [
+        (
+            "git",
+            "fetch",
+            "--depth",
+            "100",
+            "origin",
+            f"+refs/heads/{BRANCH}:refs/remotes/origin/{BRANCH}",
+        ),
+        ("git", "switch", "--create", BRANCH, "--track", f"origin/{BRANCH}"),
+    ]
+    brief = task_brief(_assignment(), _token(), workspace)
+    assert "do not open another pull request" in brief
+
+
+def test_the_work_branch_follows_the_session() -> None:
+    from enikk_dev_agent.app import work_branch
+
+    assignment = _assignment()
+    assert work_branch(assignment) == f"agent/{assignment.session_id}"
+
+
+def _assignment() -> TaskAssignment:
+    return TaskAssignment(
         task_id=TASK,
         lease_id=uuid.uuid4(),
         lease_expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=2),
@@ -120,13 +161,7 @@ def test_brief_states_where_the_agent_works(tmp_path: Path) -> None:
             prompt=PromptRef(name="developer", label="production"),
             tools=ToolPolicy(builtin=("Bash",)),
         ),
-        session_id=uuid.uuid4(),
+        session_id=uuid.UUID("87654321-4321-8765-4321-876543218765"),
         engine_session_id=None,
         input="Add a line to the README",
     )
-    brief = task_brief(assignment, _token(), workspace)
-    assert "404Vector/project-enikk" in brief
-    assert f"agent/{TASK}" in brief
-    assert "must not change files under .github/workflows" in brief
-    assert brief.endswith("Add a line to the README")
-    assert SECRET not in brief

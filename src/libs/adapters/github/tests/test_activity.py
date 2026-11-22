@@ -73,16 +73,23 @@ async def test_pull_of_commit_is_the_merged_one() -> None:
         return httpx.Response(
             200,
             json=[
-                {"number": 3, "title": "open", "html_url": "https://x/3", "merged_at": None},
+                {
+                    "number": 3,
+                    "title": "open",
+                    "html_url": "https://x/3",
+                    "merged_at": None,
+                    "head": {"ref": "agent/a"},
+                },
                 {
                     "number": 4,
                     "title": "feat: merged",
                     "html_url": "https://x/4",
                     "merged_at": "2026-11-22T08:00:00Z",
+                    "head": {"ref": "agent/b"},
                 },
             ],
         )
 
     pull = await _activity(httpx.MockTransport(handle)).pull_of_commit(TOKEN, SHA)
     assert pull is not None
-    assert (pull.number, pull.title) == (4, "feat: merged")
+    assert (pull.number, pull.title, pull.branch) == (4, "feat: merged", "agent/b")

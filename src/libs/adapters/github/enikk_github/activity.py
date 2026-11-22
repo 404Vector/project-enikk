@@ -37,10 +37,15 @@ class _Runs(_Body):
     workflow_runs: tuple[_Run, ...] = ()
 
 
+class _Head(_Body):
+    ref: str
+
+
 class _CommitPull(_Body):
     number: int
     title: str
     html_url: str
+    head: _Head
     merged_at: datetime | None = None
 
 
@@ -65,6 +70,7 @@ class CommitPull(FrozenModel):
     number: int
     title: str
     url: str
+    branch: str
 
 
 class RepositoryActivity:
@@ -103,7 +109,9 @@ class RepositoryActivity:
         if not merged:
             return None
         pull = merged[0]
-        return CommitPull(number=pull.number, title=pull.title, url=pull.html_url)
+        return CommitPull(
+            number=pull.number, title=pull.title, url=pull.html_url, branch=pull.head.ref
+        )
 
 
 def _parse[T](adapter: TypeAdapter[T], response: httpx.Response) -> T:

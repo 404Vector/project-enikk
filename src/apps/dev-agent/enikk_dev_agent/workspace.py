@@ -20,8 +20,6 @@ from enikk_kernel.errors import EnikkError
 from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
-    import uuid
-
     from enikk_contracts.github import GitHubToken
     from enikk_kernel.process import ProcessRunner
 
@@ -51,6 +49,8 @@ class Workspace(FrozenModel):
     repo_dir: Path
     branch: str
     tool_env: dict[str, str]
+    continuing: bool = False
+    """The branch already existed: it carries an open PR from earlier work (ADR-0025)."""
 
 
 class GitWorkspace:
@@ -72,17 +72,38 @@ class GitWorkspace:
             "XDG_CACHE_HOME": str(self._tools / "cache"),
         }
 
-    def prepare(self, token: GitHubToken, task_id: uuid.UUID) -> Workspace:
+    def prepare(self, token: GitHubToken, branch: str) -> Workspace:
+        """Clone and check out ``branch``: the existing one if it is on GitHub, else a
+        new one from main. One branch per thread, so later requests in the same thread
+        add commits to the same pull request (ADR-0025)."""
         env = self.tool_env
         os.environ.update(env)
         self._write_credentials(token)
         repo_dir = self._root / REPO_DIR
         url = f"https://{GITHUB_HOST}/{token.owner}/{token.repository}.git"
-        branch = f"agent/{task_id}"
         self._git("clone", "--depth", "100", url, str(repo_dir))
-        self._git("switch", "--create", branch, cwd=repo_dir)
-        _log.info("cloned %s/%s on branch %s", token.owner, token.repository, branch)
-        return Workspace(repo_dir=repo_dir, branch=branch, tool_env=env)
+        found = self._runner.run(
+            ["git", "ls-remote", "--heads", "origin", branch], cwd=repo_dir, check=False
+        )
+        if not found.ok:
+            raise WorkspaceError(f"git ls-remote failed: {found.stderr.strip()[:500]}")
+        continuing = bool(found.stdout.strip())
+        if continuing:
+            remote = f"refs/remotes/origin/{branch}"
+            self._git(
+                "fetch", "--depth", "100", "origin", f"+refs/heads/{branch}:{remote}", cwd=repo_dir
+            )
+            self._git("switch", "--create", branch, "--track", f"origin/{branch}", cwd=repo_dir)
+        else:
+            self._git("switch", "--create", branch, cwd=repo_dir)
+        _log.info(
+            "cloned %s/%s on %s branch %s",
+            token.owner,
+            token.repository,
+            "existing" if continuing else "new",
+            branch,
+        )
+        return Workspace(repo_dir=repo_dir, branch=branch, tool_env=env, continuing=continuing)
 
     def revoke_and_forget(self) -> None:
         """Best effort: revoke the token, then delete every credential file."""

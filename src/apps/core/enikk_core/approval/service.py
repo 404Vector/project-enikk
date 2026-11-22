@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         OwnerNoticeBody,
     )
     from enikk_core.github import GitHubAppApi
+    from enikk_core.threads import ThreadNotes
     from enikk_core_domain.ports import UnitOfWork, UnitOfWorkFactory
     from enikk_core_domain.repositories import RepositoryPolicy, SensitivePaths
     from enikk_github.app import InstallationToken
@@ -57,6 +58,16 @@ SENSITIVE_DIFF_LIMIT: Final = 40_000
 POLL_INTERVAL: Final = timedelta(seconds=1)
 
 _log = logging.getLogger(__name__)
+
+PASSING: Final = frozenset({"success", "neutral", "skipped"})
+
+_DECISION_NOTES: Final = {
+    ApprovalState.MERGED: (
+        "PR #{number} 이 승인되어 머지됐습니다. 배포가 있으면 결과도 여기에 알립니다."
+    ),
+    ApprovalState.REJECTED: "PR #{number} 이 반려되어 닫혔습니다.",
+    ApprovalState.BLOCKED: "PR #{number} 이 승인됐지만 GitHub 가 머지를 거부했습니다. {detail}",
+}
 
 _OUTCOME_OF_STATE: Final = {
     ApprovalState.MERGED: ResolutionOutcome.MERGED,
@@ -92,6 +103,7 @@ class ApprovalService:
         clock: Clock,
         ids: IdGenerator,
         sleep: Sleep,
+        threads: ThreadNotes | None = None,
     ) -> None:
         self._uow = uow
         self._app = app
@@ -101,6 +113,7 @@ class ApprovalService:
         self._clock = clock
         self._ids = ids
         self._sleep = sleep
+        self._threads = threads
 
     # ------------------------------------------------------------ watching
 
@@ -194,6 +207,19 @@ class ApprovalService:
                 else ApprovalRequested(approval_id=approval.id, pull=card)
             )
             await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=now))
+            if failed:
+                names = ", ".join(c.name for c in card.checks if c.conclusion not in PASSING)
+                note = (
+                    f"PR #{pull.number} 검사가 실패했습니다: {names or '알 수 없음'}. "
+                    "이 스레드에서 고쳐 달라고 하면 같은 PR 에서 고칩니다. "
+                    f"{pull.url}"
+                )
+            else:
+                note = (
+                    f"PR #{pull.number} 이 검사를 통과해 소유자에게 승인 요청을 보냈습니다. "
+                    f"{pull.url}"
+                )
+            await self._note(uow, pull.branch, note)
             await uow.commit()
         _log.info(
             "%s#%d %s: %s",
@@ -259,6 +285,10 @@ class ApprovalService:
                 await self._app.revoke(token)
             resolved = approval.resolve(state, self._clock.now(), by=request.decided_by)
             await uow.approvals.update(resolved)
+            note = _DECISION_NOTES.get(state)
+            if note is not None:
+                text = note.format(number=approval.number, detail=detail or "")
+                await self._note(uow, approval.branch, text.strip())
             await uow.commit()
         _log.info(
             "%s#%d: %s by the owner -> %s",
@@ -291,10 +321,16 @@ class ApprovalService:
             return ApprovalState.MERGED, ""
         return ApprovalState.BLOCKED, merged.detail
 
+    async def _note(self, uow: UnitOfWork, branch: str, text: str) -> None:
+        if self._threads is not None:
+            await self._threads.post(uow, branch, text)
+
     async def _resolve(
         self, uow: UnitOfWork, approval: Approval, state: ApprovalState, detail: str
     ) -> None:
         now = self._clock.now()
+        if state is ApprovalState.CLOSED:
+            await self._note(uow, approval.branch, f"PR #{approval.number} 이 닫혔습니다.")
         await uow.approvals.update(approval.resolve(state, now))
         await uow.notices.add(
             Notice(

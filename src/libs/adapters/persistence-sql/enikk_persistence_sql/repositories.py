@@ -100,6 +100,15 @@ class SqlTaskRepository:
         row = await self._db.scalar(select(TaskRow).where(TaskRow.source_event_id == event_id))
         return mappers.task_from_row(row) if row else None
 
+    async def latest_in_session(self, session_id: uuid.UUID) -> Task | None:
+        row = await self._db.scalar(
+            select(TaskRow)
+            .where(TaskRow.session_id == session_id)
+            .order_by(TaskRow.created_at.desc(), TaskRow.id.desc())
+            .limit(1)
+        )
+        return mappers.task_from_row(row) if row else None
+
     async def add(self, task: Task) -> None:
         self._db.add(mappers.task_to_row(task))
         await _flush(self._db, f"task {task.id}")
