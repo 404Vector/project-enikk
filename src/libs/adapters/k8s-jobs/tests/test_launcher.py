@@ -91,15 +91,14 @@ async def test_template_must_stay_in_the_namespace_and_carry_labels() -> None:
 
 
 async def test_running_counts_unfinished_jobs() -> None:
+    # As the API server returns them: list items carry no "kind".
     jobs: list[dict[str, object]] = [
-        {"kind": "Job", "metadata": {"name": "a"}, "status": {}},
+        {"metadata": {"name": "a"}, "status": {"active": 1}},
         {
-            "kind": "Job",
             "metadata": {"name": "b"},
             "status": {"conditions": [{"type": "Complete", "status": "True"}]},
         },
         {
-            "kind": "Job",
             "metadata": {"name": "c"},
             "status": {"conditions": [{"type": "Failed", "status": "True"}]},
         },

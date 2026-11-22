@@ -77,8 +77,9 @@ class _JobStatus(_KubeBody):
     conditions: tuple[_JobCondition, ...] = ()
 
 
-class _Job(_KubeBody):
-    kind: Literal["Job"]
+class _ListedJob(_KubeBody):
+    """A Job inside a list response. Kubernetes omits ``kind`` on list items."""
+
     metadata: _Metadata
     status: _JobStatus = _JobStatus()
 
@@ -89,8 +90,12 @@ class _Job(_KubeBody):
         )
 
 
+class _Job(_ListedJob):
+    kind: Literal["Job"]
+
+
 class _JobList(_KubeBody):
-    items: tuple[_Job, ...] = ()
+    items: tuple[_ListedJob, ...] = ()
 
 
 class KubeJobLauncher:
