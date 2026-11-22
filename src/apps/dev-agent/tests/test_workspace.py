@@ -114,6 +114,7 @@ def test_brief_states_where_the_agent_works(tmp_path: Path) -> None:
     assert "404Vector/project-enikk" in brief
     assert BRANCH in brief
     assert "new branch from main" in brief
+    assert "config/sensitive-paths.yaml" in brief
     assert "must not change files under .github/workflows" in brief
     assert brief.endswith("Add a line to the README")
     assert SECRET not in brief
