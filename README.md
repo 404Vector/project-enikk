@@ -67,6 +67,14 @@ cd project-enikk
 uv sync --all-packages
 ```
 
+### 테스트
+
+```bash
+uv run pytest   # 영속성 통합 테스트는 Docker 로 Postgres 를 띄운다
+```
+
+Docker 없이 로컬 Postgres 로 돌리는 방법과 개발 에이전트 Pod 에서 도는 방식은 [docs/development/testing.md](docs/development/testing.md) 를 참고하세요.
+
 ### 클러스터 부트스트랩
 
 ```bash

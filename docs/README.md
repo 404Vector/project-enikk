@@ -13,6 +13,7 @@
 | [architecture/code-structure.md](architecture/code-structure.md) | `src/` 파일 트리, 패키지 경계, 의존성 규칙 | 승인 |
 | [adr/](adr/README.md) | 아키텍처 결정 기록 (ADR) | 진행 중 |
 | [plan/milestones.md](plan/milestones.md) | 구현 순서와 각 단계의 완료 조건 | 승인 |
+| [development/testing.md](development/testing.md) | 테스트 실행 방법 (Postgres 통합 테스트, 개발 Pod) | 작성 중 |
 
 ## 문서 작성 규칙
 

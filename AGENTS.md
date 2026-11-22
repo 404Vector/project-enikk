@@ -29,8 +29,10 @@ uv run ruff format .
 uv run ruff check .
 uv run mypy
 uv run lint-imports              # 계층 의존성 규칙
-uv run pytest                    # 영속성 통합 테스트는 Docker 로 Postgres 를 띄운다
+uv run pytest                    # 영속성 통합 테스트는 Postgres 를 띄운다
 ```
+
+- 영속성 통합 테스트는 PC·CI 에서는 Docker 로, 개발 Pod 에서는 이미지에 든 Postgres 로 임시 서버를 띄운다. 어디서든 오류와 실패가 0 이어야 한다. 자세한 방법은 `docs/development/testing.md`.
 
 ## 코드 규칙
 
