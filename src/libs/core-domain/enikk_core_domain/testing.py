@@ -254,6 +254,19 @@ class _Outbox:
     async def add(self, message: OutboxMessage) -> None:
         self._s.outbox[message.id] = message
 
+    async def posted_by_others(
+        self, conversation: ConversationRef, session_id: uuid.UUID, since: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        found = [
+            m
+            for m in self._s.outbox.values()
+            if m.conversation == conversation
+            and m.created_at > since
+            and (task := self._s.tasks.get(m.task_id)) is not None
+            and task.session_id != session_id
+        ]
+        return sorted(found, key=lambda m: (m.created_at, m.id))[-limit:]
+
     async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
         found = [
             m
@@ -723,6 +736,29 @@ async def check_delegated_session_round_trip(new_uow: UnitOfWorkFactory) -> None
     async with new_uow() as uow:
         latest = await uow.tasks.latest_in_session(delegated.id)
         _expect(latest is not None and latest.id == second.id, "latest task of a session")
+    owner = session(thread="1.0")
+    own = task(owner, now=T0)
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(own)
+        for at, related in (
+            (T0, second),
+            (T0 + timedelta(minutes=1), own),
+            (T0 + timedelta(minutes=2), second),
+        ):
+            await uow.outbox.add(
+                outbox_message(delegated, related, now=at).model_copy(
+                    update={"conversation": origin}
+                )
+            )
+        await uow.commit()
+    async with new_uow() as uow:
+        others = await uow.outbox.posted_by_others(origin, owner.id, T0 - timedelta(1), 10)
+        _expect([m.created_at for m in others] == [T0, T0 + timedelta(minutes=2)], "others")
+        newest = await uow.outbox.posted_by_others(origin, owner.id, T0, 10)
+        _expect(len(newest) == 1, "only after since")
+        capped = await uow.outbox.posted_by_others(origin, owner.id, T0 - timedelta(1), 1)
+        _expect([m.created_at for m in capped] == [T0 + timedelta(minutes=2)], "newest kept")
 
 
 async def check_dispatches(new_uow: UnitOfWorkFactory) -> None:
