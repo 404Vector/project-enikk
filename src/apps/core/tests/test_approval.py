@@ -223,10 +223,12 @@ async def test_new_commit_supersedes_an_open_request(
     pulls.runs[SHA2] = _passed("checks")
     await service.watch_once()
     notices = await _notices(service)
-    assert [type(n) for n in notices] == [ApprovalResolved, ApprovalRequested]
-    resolved = notices[0]
-    assert isinstance(resolved, ApprovalResolved)
+    # Both are created in the same instant; their order is not part of the contract.
+    [resolved] = [n for n in notices if isinstance(n, ApprovalResolved)]
+    [requested] = [n for n in notices if isinstance(n, ApprovalRequested)]
+    assert len(notices) == 2
     assert resolved.outcome is ResolutionOutcome.SUPERSEDED
+    assert requested.pull.head_sha == SHA2
 
 
 async def test_rejection_closes_and_deletes_only_agent_branches(
