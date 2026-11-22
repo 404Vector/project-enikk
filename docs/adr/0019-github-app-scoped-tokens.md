@@ -56,7 +56,7 @@ repositories:
 
 - 목록에 저장소를 추가하는 것도 PR 이므로 소유자 Slack 승인을 거친다(ADR-0020).
 - `self: true` 인 저장소는 하나뿐이며 `workflows` 를 켤 수 없다. core 가 설정을 읽을 때 검증한다.
-- `self` 인 저장소의 이름은 core Helm values 의 `github.selfRepository` 와 같아야 한다. 목록 파일은 에이전트도 바꿀 수 있지만 core values 는 보호 경로이므로, 목록을 고쳐 이 플랫폼의 보호를 다른 저장소로 옮길 수 없다.
+- `self` 인 저장소의 이름은 core Helm values 의 `github.selfRepository` 와 같아야 한다. 목록 파일은 에이전트도 바꿀 수 있지만 core values 는 보호 경로이므로, 목록을 고쳐 이 플랫폼의 보호를 다른 저장소로 옮길 수 없다. (ADR-0024 이후: 두 파일 모두 민감 경로이며, 바꾸면 강화된 승인을 거친다. `self` 저장소의 `workflows` 는 켠다.)
 - 다른 저장소의 `workflows` 는 기본값이 꺼짐이다. 켜면 에이전트가 그 저장소에서 승인 전에 Actions 를 실행할 수 있다. 영향은 그 저장소와 그 저장소의 비밀값에 한정된다.
 - 목록에 추가된 저장소는 core 가 설정 토큰으로 `project-enikk` 과 같은 기본 ruleset(PR 필수, 강제 push·삭제 금지, 필수 검사 `enikk/owner-approval`, 예외 없음)을 적용한다. 그래서 모든 관리 대상 저장소의 `main` 머지가 같은 Slack 승인을 거친다.
 
