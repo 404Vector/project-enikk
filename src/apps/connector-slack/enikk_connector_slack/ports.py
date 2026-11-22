@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
+    from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 
 
 class CoreApi(Protocol):
@@ -40,6 +41,8 @@ class CoreApi(Protocol):
     async def decide(self, approval_id: uuid.UUID, request: DecisionRequest) -> DecisionResult: ...
 
     async def request_revert(self, request: RevertRequest) -> RevertResult: ...
+
+    async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked: ...
 
 
 class SlackDeliveryError(EnikkError):
@@ -74,6 +77,10 @@ class SlackApi(Protocol):
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:
         """Replace a message. Failures are logged, never raised."""
+        ...
+
+    async def permalink(self, channel: str, ts: str) -> str | None:
+        """The message's permalink. Failures are logged and give ``None``."""
         ...
 
     async def react(self, message: MessageRef, emoji: str) -> None:

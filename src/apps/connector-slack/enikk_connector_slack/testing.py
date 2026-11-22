@@ -16,6 +16,7 @@ from enikk_contracts.approvals import (
 from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
+from enikk_contracts.threads import ReviewThreadLinked
 from enikk_core_client import CoreNotFoundError
 
 if TYPE_CHECKING:
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxPoll
+    from enikk_contracts.threads import ReviewThreadOpened
 
 OWNER = "U0OWNER"
 BOT = "U0BOT"
@@ -48,6 +50,9 @@ class FakeCore:
             outcome=RevertOutcome.OPENED,
             pull=PullLink(number=60, title="Revert", url="https://github.com/x/y/pull/60"),
         )
+        self.reviews: list[ReviewThreadOpened] = []
+        self.review_linked = ReviewThreadLinked()
+        self.review_fails: Exception | None = None
 
     async def submit_event(self, event: InboundEvent) -> EventAccepted:
         if self.fail_with is not None:
@@ -91,6 +96,12 @@ class FakeCore:
         self.reverts.append(request)
         return self.revert_result
 
+    async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked:
+        if self.review_fails is not None:
+            raise self.review_fails
+        self.reviews.append(review)
+        return self.review_linked
+
 
 class FakeSlack:
     def __init__(self) -> None:
@@ -102,6 +113,7 @@ class FakeSlack:
         self.fail_replies: list[Exception] = []
         self.uploads: list[tuple[str, str, str, str]] = []
         self.updates: list[tuple[str, str, list[dict[str, JsonValue]]]] = []
+        self.no_permalinks = False
 
     async def post_reply(self, channel: str, thread: str, text: str) -> None:
         if self.fail_posts:
@@ -130,6 +142,11 @@ class FakeSlack:
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:
         self.updates.append((channel, ts, blocks))
+
+    async def permalink(self, channel: str, ts: str) -> str | None:
+        if self.no_permalinks:
+            return None
+        return f"https://slack.test/archives/{channel}/p{ts.replace('.', '')}"
 
     async def react(self, message: MessageRef, emoji: str) -> None:
         self.reactions.append(("+", message.ts, emoji))

@@ -22,12 +22,14 @@ from enikk_contracts.approvals import (
     NoticePoll,
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
+from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 from enikk_core_client import CoreApiError, CoreUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from enikk_connector_slack.config import SlackConfig
+    from enikk_connector_slack.events import PostedMessage
     from enikk_connector_slack.outbound import RelayPolicy
     from enikk_connector_slack.ports import CoreApi, SlackApi
     from enikk_contracts.approvals import OwnerNotice, PullRequestCard
@@ -103,13 +105,43 @@ class NoticeRelay:
             return
         if card is None:
             return
+        linked = await self._link_threads(posted, card)
         await self._post_details(posted.channel, posted.ts, card)
+        if linked.report is not None:
+            await self._post_text(posted, card, f"*개발 에이전트 보고*\n{linked.report}")
         if card.diff:
             name = f"pr-{card.number}-{card.head_sha[:7]}.diff"
             note = " (잘림)" if card.diff_truncated else ""
             await self._slack.upload_text(
                 posted.channel, posted.ts, name, card.diff, f"#{card.number} diff{note}"
             )
+
+    async def _link_threads(
+        self, posted: PostedMessage, pull: PullRequestCard
+    ) -> ReviewThreadLinked:
+        """Exchange links between this review thread and the thread that asked for the PR."""
+        review = ReviewThreadOpened(
+            repository=pull.repository,
+            number=pull.number,
+            branch=pull.branch,
+            review_link=await self._slack.permalink(posted.channel, posted.ts),
+        )
+        try:
+            linked = await self._core.review_thread_opened(review)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("could not link the review thread of PR #%d: %s", pull.number, exc)
+            return ReviewThreadLinked()
+        if linked.origin is not None:
+            origin = await self._slack.permalink(linked.origin.channel, linked.origin.thread)
+            if origin is not None:
+                await self._post_text(posted, pull, f"원래 요청 스레드: {origin}")
+        return linked
+
+    async def _post_text(self, posted: PostedMessage, pull: PullRequestCard, text: str) -> None:
+        try:
+            await self._slack.post_reply(posted.channel, posted.ts, text)
+        except SlackDeliveryError as exc:
+            _log.warning("could not post in the review thread of PR #%d: %s", pull.number, exc)
 
     async def _post_details(self, channel: str, thread: str, pull: PullRequestCard) -> None:
         for reply in blocks.details(pull):

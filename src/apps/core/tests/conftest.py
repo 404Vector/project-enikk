@@ -17,6 +17,7 @@ from enikk_core.dispatcher import DevJobDispatcher
 from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
 from enikk_core.security import Gatekeeper
 from enikk_core.settings import DevAgentSettings, TaskSettings
+from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core_client import CoreClient, StaticTokenSource
 from enikk_core_domain.auth import (
@@ -215,6 +216,7 @@ def harness() -> Harness:
         dev_tokens=DevTokenIssuer(github, POLICY),
         reaper_interval_seconds=60,
         dispatcher=dispatcher,
+        review_links=ReviewLinks(db.unit_of_work, ThreadNotes(clock, RandomIdGenerator())),
     )
     return Harness(
         app=create_app(services, run_reaper=False),

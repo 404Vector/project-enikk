@@ -101,6 +101,18 @@ class SlackWebApi:
         except (aiohttp.ClientError, TimeoutError) as exc:
             _log.warning("could not update message %s: %r", ts, exc)
 
+    async def permalink(self, channel: str, ts: str) -> str | None:
+        try:
+            response = await self._web.chat_getPermalink(channel=channel, message_ts=ts)
+        except SlackApiError as exc:
+            _log.warning("no permalink for %s: %s", ts, _error_code(exc))
+            return None
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("no permalink for %s: %r", ts, exc)
+            return None
+        link = response.get("permalink")
+        return link if isinstance(link, str) and link else None
+
     async def react(self, message: MessageRef, emoji: str) -> None:
         try:
             await self._web.reactions_add(channel=message.channel, timestamp=message.ts, name=emoji)
