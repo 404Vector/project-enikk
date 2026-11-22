@@ -29,7 +29,9 @@ from enikk_contracts.approvals import (
     PullRequestCard,
     ResolutionOutcome,
 )
-from enikk_core_client import CoreConflictError
+from enikk_contracts.common import ConnectorKind, ConversationRef
+from enikk_contracts.threads import ReviewThreadLinked
+from enikk_core_client import CoreConflictError, CoreUnavailableError
 
 pytestmark = pytest.mark.anyio
 
@@ -136,6 +138,59 @@ async def test_failed_details_still_leave_the_request_and_its_buttons(
     assert len(slack.uploads) == 1
     assert core.notices_acked == [notice.notice_id]
     assert "could not post details of PR #7" in caplog.text
+
+
+ORIGIN = ConversationRef(connector=ConnectorKind.SLACK, channel="C0ASK", thread="1700.1")
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_review_thread_and_asking_thread_link_each_other(failed: bool) -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.review_linked = ReviewThreadLinked(origin=ORIGIN, report="상세 보고: src/a.py 수정")
+    body = ChecksFailed(pull=CARD) if failed else ApprovalRequested(approval_id=APPROVAL, pull=CARD)
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
+    await _relay(core, slack).relay_once()
+
+    [review] = core.reviews
+    assert (review.repository, review.number, review.branch) == (CARD.repository, 7, "agent/abc")
+    assert review.review_link == "https://slack.test/archives/D0OWNER/p10"
+    [origin_link, report] = slack.posts
+    assert origin_link == (
+        "D0OWNER",
+        "1.0",
+        "원래 요청 스레드: https://slack.test/archives/C0ASK/p17001",
+    )
+    assert report[:2] == ("D0OWNER", "1.0")
+    assert "상세 보고: src/a.py 수정" in report[2]
+    assert all(channel == "D0OWNER" for channel, _, _ in slack.posts)
+
+
+async def test_links_are_skipped_without_permalinks_and_core_failures_do_not_stop_the_dm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    core, slack = FakeCore(), FakeSlack()
+    slack.no_permalinks = True
+    core.review_linked = ReviewThreadLinked(origin=ORIGIN)
+    core.notices.append(
+        OwnerNotice(notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD))
+    )
+    await _relay(core, slack).relay_once()
+    [review] = core.reviews
+    assert review.review_link is None
+    assert slack.posts == []
+
+    core, slack = FakeCore(), FakeSlack()
+    core.review_fails = CoreUnavailableError("down")
+    notice = OwnerNotice(
+        notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD)
+    )
+    core.notices.append(notice)
+    with caplog.at_level(logging.WARNING):
+        assert await _relay(core, slack).relay_once() == 1
+    assert len(slack.messages) == 1
+    assert slack.replies
+    assert core.notices_acked == [notice.notice_id]
+    assert "could not link the review thread of PR #7" in caplog.text
 
 
 def test_summary_prefers_a_summary_section() -> None:

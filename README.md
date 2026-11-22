@@ -106,6 +106,48 @@ uv run enikk-ops secret sync                  # 파일 내용을 클러스터에
 Slack 에서 enikk 자체(코드, 설정, 에이전트 정의, 문서)를 바꿔 달라고 요청하면 개발 에이전트가 격리된 환경에서 작업해 pull request 를 만들고, 소유자가 Slack 에서 승인한 뒤에야 반영됩니다.
 승인 요청 DM 에는 PR 제목, 한두 줄 요약, 링크, [승인하고 머지] [반려] 버튼만 담깁니다. 저장소·브랜치 정보, PR 본문 전체, 바뀐 파일, 검사 결과는 그 메시지의 스레드 댓글로 나눠 올리고, diff 파일도 같은 스레드에 첨부합니다.
 
+### 프롬프트 수정 방법
+
+에이전트의 시스템 프롬프트(대화 방식, 말투)는 git 이 아니라 Langfuse 에만 있습니다([ADR-0006](docs/adr/0006-prompts-managed-in-langfuse.md)).
+코드 배포 없이 Langfuse 화면에서 바로 고칩니다.
+
+**어디를 고치나**
+
+- Langfuse 호스트: `https://jp.cloud.langfuse.com` (Langfuse Cloud 일본 리전, 직접 호스팅 아님, [ADR-0001](docs/adr/0001-observability-langfuse-cloud.md), [ADR-0016](docs/adr/0016-langfuse-adapter.md))
+  - 기본값: `ENIKK_RUNTIME_LANGFUSE_URL`, `ENIKK_DEV_LANGFUSE_URL` 설정의 기본값
+  - 배포값: Helm values 의 `langfuseUrl` (`deploy/helm/runtime-claude/values.yaml`, `deploy/helm/dev-agent/values.yaml`). Argo CD Application 은 이 값을 덮어쓰지 않습니다.
+- 프롬프트 (에이전트 정의 `agents/*.yaml` 의 `prompt`):
+
+  | 에이전트 | 하는 일 | 프롬프트 이름 | label |
+  |---|---|---|---|
+  | `assistant` | Slack DM·멘션에 답하는 메인 대화 에이전트 (`config/slack.yaml`) | `assistant` | `production` |
+  | `developer` | 코드 변경 요청을 받아 PR 을 만드는 개발 에이전트 | `developer` | `production` |
+
+- 프로젝트 ID: **저장소에 없습니다.** 런타임은 API 키로 프로젝트를 정하므로 코드와 설정에 프로젝트 ID 를 적지 않습니다.
+  Langfuse 에 로그인해 프로젝트를 열면 주소창의 `/project/<프로젝트 ID>/...` 부분, 또는 **Settings → General** 화면에서 확인합니다.
+- 바로 가는 주소 (`<프로젝트 ID>` 를 위 값으로 바꿉니다):
+  - `https://jp.cloud.langfuse.com/project/<프로젝트 ID>/prompts/assistant`
+  - `https://jp.cloud.langfuse.com/project/<프로젝트 ID>/prompts/developer`
+- API 키 이름: `langfuse.public-key`, `langfuse.secret-key` (core 가 런타임에 전달합니다. [비밀값](#비밀값) 참고).
+
+**절차**
+
+1. 위 주소로 들어가거나, 왼쪽 메뉴 **Prompts** 에서 고칠 프롬프트(`assistant` 등)를 엽니다.
+2. 현재 `production` label 이 붙은 버전을 확인하고 **New version** 으로 새 버전을 만듭니다.
+3. 형식을 지킵니다. 어기면 그 에이전트는 실행을 거부합니다([ADR-0016](docs/adr/0016-langfuse-adapter.md)).
+   - 프롬프트 형식은 **text** 입니다 (chat 아님).
+   - **Config** 에 `"model"` 키가 있어야 합니다. 이전 버전의 config 를 그대로 가져가세요. `model` 외의 키는 생성 파라미터로 엔진에 전달됩니다.
+4. 새 버전에 **`production` label** 을 지정합니다. 저장할 때 바로 지정하거나, 나중에 버전 목록에서 label 을 옮깁니다.
+   label 을 옮기지 않으면 새 버전을 만들어도 에이전트는 이전 버전을 계속 씁니다.
+5. 되돌릴 때는 `production` label 을 이전 버전으로 옮깁니다.
+
+**반영 시점**
+
+- 재시작은 필요 없습니다. 런타임이 작업마다 Langfuse 에서 프롬프트를 가져옵니다.
+- `assistant`: 런타임 프로세스가 프롬프트를 **60초** 캐시하므로, label 을 옮기고 최대 60초 뒤의 대화부터 새 버전이 쓰입니다.
+- `developer`: 작업마다 새 Job 으로 실행되므로 다음 작업부터 새 버전이 쓰입니다.
+- Langfuse 에 연결할 수 없을 때만 최대 1시간 된 캐시를 씁니다. 어떤 버전이 쓰였는지는 런타임 로그(`prompt <이름> v<버전>`)에서 확인할 수 있습니다.
+
 ### 배포 확인
 
 ```bash
