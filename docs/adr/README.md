@@ -15,7 +15,7 @@
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 에이전트 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
 | [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 | 2026-11-21 |
 | [0011](0011-core-persistence-and-api.md) | enikk-core 의 저장소·작업 큐·API·데이터 모델링 | 승인 | 2026-11-21 |
-| [0012](0012-core-skeleton-implementation.md) | enikk-core 골격 구현 세부 결정 | 승인 | 2026-11-21 |
+| [0012](0012-core-skeleton-implementation.md) | enikk-core 골격 구현 세부 결정 | 승인 (§1 은 ADR-0030 으로 부분 대체) | 2026-11-21 |
 | [0013](0013-credentials-local-file-core-broker.md) | 비밀값은 소유자 PC 의 파일이 원본이고, core 가 서비스에 나눠 준다 | 승인 | 2026-11-22 |
 | [0014](0014-engine-transcripts-in-core.md) | 엔진 대화 이력(트랜스크립트)은 core 가 저장한다 | 승인 | 2026-11-22 |
 | [0015](0015-runtime-worker.md) | 런타임 공통 작업 처리 흐름 | 승인 | 2026-11-22 |
@@ -33,6 +33,7 @@
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 에이전트는 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
 | [0028](0028-memory-in-the-owners-vault.md) | 에닉의 기억은 소유자의 Obsidian 볼트에 둔다 | 승인 | 2026-11-22 |
 | [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 승인 | 2026-11-23 |
+| [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 
 ## 상태 정의
 
