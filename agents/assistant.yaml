@@ -7,7 +7,9 @@ prompt:
 tools:
   mcp: []
   builtin: []
-delegates: []
+# Change requests for the platform go to the developer agent (ADR-0022). This adds
+# only the in-process delegate tool; the assistant itself has no git or shell (I-17).
+delegates: [developer]
 limits:
   max_turns: 20
   timeout_seconds: 600

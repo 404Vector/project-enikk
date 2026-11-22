@@ -360,6 +360,9 @@ class StaticAgentCatalog:
     def remove(self, name: str) -> None:
         del self._by_name[name]
 
+    def put(self, definition: AgentDefinition) -> None:
+        self._by_name[definition.name] = definition
+
 
 class StaticCredentialStore:
     def __init__(self, values: dict[CredentialName, SecretStr]) -> None:
@@ -605,6 +608,24 @@ async def check_isolated_tasks_stay_out_of_shared_queue(new_uow: UnitOfWorkFacto
         _expect(claimed is not None and claimed.id == isolated.id, "isolated task claimed")
 
 
+async def check_delegated_session_round_trip(new_uow: UnitOfWorkFactory) -> None:
+    origin = conversation("1.0")
+    delegated = Session.start(
+        session_id=uuid.uuid4(),
+        conversation=conversation("1.0:developer"),
+        agent=agent("developer", execution=Execution.ISOLATED),
+        now=T0,
+        reply_to=origin,
+    )
+    async with new_uow() as uow:
+        await uow.sessions.add(delegated)
+        await uow.commit()
+    async with new_uow() as uow:
+        found = await uow.sessions.get(delegated.id)
+        _expect(found == delegated, "delegated session round trip")
+        _expect(found is not None and found.outbox_conversation == origin, "replies upstream")
+
+
 async def check_dispatches(new_uow: UnitOfWorkFactory) -> None:
     owner = session()
     work = task(owner, execution=Execution.ISOLATED)
@@ -640,4 +661,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_transcripts,
     check_isolated_tasks_stay_out_of_shared_queue,
     check_dispatches,
+    check_delegated_session_round_trip,
 )

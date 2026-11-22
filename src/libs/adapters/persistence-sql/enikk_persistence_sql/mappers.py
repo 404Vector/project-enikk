@@ -22,20 +22,27 @@ def session_to_row(session: Session, row: SessionRow | None = None) -> SessionRo
     row.agent = session.agent
     row.engine = session.engine.value
     row.engine_session_id = session.engine_session_id
+    row.reply_channel = session.reply_to.channel if session.reply_to else None
+    row.reply_thread = session.reply_to.thread if session.reply_to else None
     row.created_at = session.created_at
     row.updated_at = session.updated_at
     return row
 
 
 def session_from_row(row: SessionRow) -> Session:
+    connector = ConnectorKind(row.connector)
+    reply_to = None
+    if row.reply_channel is not None and row.reply_thread is not None:
+        reply_to = ConversationRef(
+            connector=connector, channel=row.reply_channel, thread=row.reply_thread
+        )
     return Session(
         id=row.id,
-        conversation=ConversationRef(
-            connector=ConnectorKind(row.connector), channel=row.channel, thread=row.thread
-        ),
+        conversation=ConversationRef(connector=connector, channel=row.channel, thread=row.thread),
         agent=row.agent,
         engine=Engine(row.engine),
         engine_session_id=row.engine_session_id,
+        reply_to=reply_to,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

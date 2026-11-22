@@ -10,6 +10,7 @@ from enikk_contracts.agents import Execution
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import (
+    DelegationAccepted,
     LeaseExtended,
     LeaseResponse,
     ResultAccepted,
@@ -18,7 +19,12 @@ from enikk_contracts.tasks import (
     TaskStatus,
 )
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
-from enikk_core_domain.errors import NotFoundError, UnknownAgentError
+from enikk_core_domain.errors import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    UnknownAgentError,
+)
 from enikk_core_domain.model import OutboxMessage, Session, Task
 
 if TYPE_CHECKING:
@@ -28,7 +34,7 @@ if TYPE_CHECKING:
     from enikk_contracts.common import ConnectorKind, Engine
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
-    from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core.settings import TaskSettings
     from enikk_core_domain.model import WorkerScope
@@ -51,6 +57,7 @@ class CoreUseCases:
         ids: IdGenerator,
         policy: TaskSettings,
         sleep: Sleep,
+        isolated_daily_limit: int | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -58,6 +65,7 @@ class CoreUseCases:
         self._ids = ids
         self._policy = policy
         self._sleep = sleep
+        self._isolated_daily_limit = isolated_daily_limit
 
     # ------------------------------------------------------------ connector
 
@@ -272,6 +280,65 @@ class CoreUseCases:
         async with self._uow() as uow:
             await self._leased_task(uow, scope, task_id, lease_id)
 
+    async def delegate(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: DelegateRequest
+    ) -> DelegationAccepted:
+        """Queue ``request`` for one of the running agent's delegates (ADR-0022).
+
+        The delegate works in its own session, one per thread and delegate, and posts
+        into the delegating thread. Only the request text crosses over (I-12).
+        """
+        async with self._uow() as uow:
+            parent = await self._leased_task(uow, scope, task_id, request.lease_id)
+            parent_definition = self._catalog.get(parent.agent)
+            if parent_definition is None or request.agent not in parent_definition.delegates:
+                raise PermissionDeniedError(
+                    f"agent '{parent.agent}' may not delegate to '{request.agent}'"
+                )
+            target = self._catalog.get(request.agent)
+            if target is None:
+                raise UnknownAgentError(f"agent '{request.agent}' is not defined")
+            event_id = f"delegate:{parent.id}:{target.name}"
+            existing = await uow.tasks.find_by_source_event(event_id)
+            if existing is not None:
+                return DelegationAccepted(task_id=existing.id, agent=target.name, duplicate=True)
+            now = self._clock.now()
+            if target.execution is Execution.ISOLATED and self._isolated_daily_limit is not None:
+                started = await uow.dispatches.count_since(now - timedelta(hours=24))
+                if started >= self._isolated_daily_limit:
+                    raise ConflictError(
+                        f"the daily limit of {self._isolated_daily_limit} "
+                        f"'{target.name}' runs is reached; try again later"
+                    )
+            origin = await self._session_of(uow, parent)
+            thread_of = origin.outbox_conversation
+            conversation = thread_of.model_copy(
+                update={"thread": f"{thread_of.thread}:{target.name}"}
+            )
+            session = await uow.sessions.find_by_conversation(conversation)
+            if session is None:
+                session = Session.start(
+                    session_id=self._ids.new(),
+                    conversation=conversation,
+                    agent=target,
+                    now=now,
+                    reply_to=thread_of,
+                )
+                await uow.sessions.add(session)
+            child = Task.enqueue(
+                task_id=self._ids.new(),
+                session=session,
+                source_event_id=event_id,
+                text=request.request,
+                max_attempts=self._policy.max_attempts,
+                now=now,
+                execution=target.execution,
+            )
+            await uow.tasks.add(child)
+            await uow.commit()
+        _log.info("task %s delegated %s to %s", parent.id, child.id, target.name)
+        return DelegationAccepted(task_id=child.id, agent=target.name, duplicate=False)
+
     # ------------------------------------------------------------ transcripts (ADR-0014)
 
     async def append_transcript(
@@ -349,7 +416,7 @@ class CoreUseCases:
                 id=self._ids.new(),
                 task_id=task.id,
                 source_event_id=task.source_event_id,
-                conversation=session.conversation,
+                conversation=session.outbox_conversation,
                 kind=kind,
                 text=text,
                 created_at=self._clock.now(),

@@ -14,7 +14,13 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth, GitHubToken
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
-from enikk_contracts.tasks import ClaimRequest, LeaseExtended, LeaseResponse, ResultAccepted
+from enikk_contracts.tasks import (
+    ClaimRequest,
+    DelegationAccepted,
+    LeaseExtended,
+    LeaseResponse,
+    ResultAccepted,
+)
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
 from enikk_core_client.tokens import BearerAuth
@@ -28,7 +34,7 @@ if TYPE_CHECKING:
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
-    from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
 
@@ -87,6 +93,13 @@ class CoreClient:
         """Isolated workers only: lease the task this Job was started for (ADR-0021)."""
         path = routes.TASK_CLAIM.format(task_id=task_id)
         return _parse(LeaseResponse, await self._post(path, ClaimRequest()))
+
+    async def delegate_task(
+        self, task_id: uuid.UUID, request: DelegateRequest
+    ) -> DelegationAccepted:
+        """Queue ``request`` for a delegate of the running task's agent (ADR-0022)."""
+        path = routes.TASK_DELEGATE.format(task_id=task_id)
+        return _parse(DelegationAccepted, await self._post(path, request))
 
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended:
         path = routes.TASK_HEARTBEAT.format(task_id=task_id)
