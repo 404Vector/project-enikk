@@ -79,6 +79,10 @@ class SlackApi(Protocol):
         """Replace a message. Failures are logged, never raised."""
         ...
 
+    async def post_ephemeral(self, channel: str, user: str, text: str) -> None:
+        """Show ``text`` to ``user`` alone in ``channel``. Failures are logged, never raised."""
+        ...
+
     async def permalink(self, channel: str, ts: str) -> str | None:
         """The message's permalink. Failures are logged and give ``None``."""
         ...

@@ -114,6 +114,8 @@ class FakeSlack:
         self.uploads: list[tuple[str, str, str, str]] = []
         self.updates: list[tuple[str, str, list[dict[str, JsonValue]]]] = []
         self.no_permalinks = False
+        self.ephemerals: list[tuple[str, str, str]] = []
+        self.fail_channels: dict[str, Exception] = {}
 
     async def post_reply(self, channel: str, thread: str, text: str) -> None:
         if self.fail_posts:
@@ -128,10 +130,13 @@ class FakeSlack:
                 raise self.fail_replies.pop(0)
             self.replies.append((channel, thread, message))
             return PostedMessage(channel=channel, ts=f"{thread}.{len(self.replies)}")
+        if channel in self.fail_channels:
+            raise self.fail_channels[channel]
         if self.fail_posts:
             raise self.fail_posts.pop(0)
         self.messages.append((channel, message))
-        return PostedMessage(channel="D0OWNER", ts=f"{len(self.messages)}.0")
+        posted = "D0OWNER" if channel == OWNER else channel
+        return PostedMessage(channel=posted, ts=f"{len(self.messages)}.0")
 
     async def upload_text(
         self, channel: str, thread: str, filename: str, content: str, title: str
@@ -142,6 +147,9 @@ class FakeSlack:
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:
         self.updates.append((channel, ts, blocks))
+
+    async def post_ephemeral(self, channel: str, user: str, text: str) -> None:
+        self.ephemerals.append((channel, user, text))
 
     async def permalink(self, channel: str, ts: str) -> str | None:
         if self.no_permalinks:

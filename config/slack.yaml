@@ -8,3 +8,8 @@ owner: U04CF12EKRA
 routes:
   direct_message: assistant
   mention: assistant
+
+# Channel for deployment, image build and rollback notices (ADR-0026). The bot must be
+# a member. If posting there fails, the notice goes to the owner's DM instead.
+# ENIKK_CONNECTOR_DEPLOY_NOTIFY_CHANNEL overrides it.
+deploy_notify_channel: C0CKT1ZNZ43  # #release

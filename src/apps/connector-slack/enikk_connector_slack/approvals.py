@@ -55,6 +55,7 @@ class NoticeRelay:
         self._core = core
         self._slack = slack
         self._owner = config.owner
+        self._deploy_channel = config.deploy_notify_channel
         self._policy = policy
         self._sleep = sleep
 
@@ -96,6 +97,9 @@ class NoticeRelay:
             message = blocks.deployment_finished(body)
         elif isinstance(body, BuildFailed):
             message = blocks.build_failed(body)
+        if isinstance(body, DeploymentFinished | BuildFailed):
+            await self._deliver_deployment(notice, message)
+            return
         try:
             posted = await self._slack.post_message(self._owner, message)
         except SlackDeliveryError as exc:
@@ -115,6 +119,28 @@ class NoticeRelay:
             await self._slack.upload_text(
                 posted.channel, posted.ts, name, card.diff, f"#{card.number} diff{note}"
             )
+
+    async def _deliver_deployment(self, notice: OwnerNotice, message: blocks.Message) -> None:
+        """Post in the deployment channel, or in the owner's DM if that fails (ADR-0026)."""
+        try:
+            await self._slack.post_message(self._deploy_channel, message)
+        except SlackDeliveryError as exc:
+            _log.error(
+                "could not post notice %s in %s, sending it to the owner's DM: %s",
+                notice.notice_id,
+                self._deploy_channel,
+                exc,
+            )
+        else:
+            return
+        try:
+            await self._slack.post_message(
+                self._owner, blocks.sent_to_dm_instead(message, self._deploy_channel)
+            )
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
 
     async def _link_threads(
         self, posted: PostedMessage, pull: PullRequestCard
@@ -167,6 +193,9 @@ class ApprovalActions:
             return
         if actions.user.id != self._owner:
             _log.warning("ignored a button press by %s", actions.user.id)
+            await self._slack.post_ephemeral(
+                actions.channel_id, actions.user.id, blocks.NOT_OWNER_TEXT
+            )
             return
         for action in actions.actions:
             if action.action_id == blocks.REVERT_ACTION:
