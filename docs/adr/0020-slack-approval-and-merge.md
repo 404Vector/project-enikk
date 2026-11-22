@@ -2,7 +2,7 @@
 
 - 상태: 승인
 - 날짜: 2026-11-22
-- 관련: ADR-0007, ADR-0008, ADR-0018, ADR-0019, ADR-0021, ADR-0022, I-01, I-18, I-19, I-20, I-33
+- 관련: ADR-0007, ADR-0008, ADR-0018, ADR-0019, ADR-0021, ADR-0022, ADR-0023, ADR-0024, I-01, I-18, I-19, I-20, I-33
 
 ## 배경
 ADR-0007 은 에이전트 PR 을 소유자가 승인해야 머지되도록 정했다. 소유자의 요구는 다음과 같다.
@@ -28,7 +28,7 @@ GitHub 의 PR 리뷰 승인은 사람 계정으로만 할 수 있다. 소유자 
 - PR 필수. GitHub 리뷰 승인 수는 0 이다.
 - 필수 상태 검사:
   - 기존 CI 검사
-  - 보호 경로 검사(I-20). 모든 PR 에서 실행되어야 한다(경로 필터를 걸지 않는다).
+  - 보호 경로 검사(I-20). 모든 PR 에서 실행되어야 한다(경로 필터를 걸지 않는다). (ADR-0024 로 대체: 막지 않고 민감 경로로 표시해 강화된 승인을 받는다.)
   - `enikk/owner-approval`. **출처를 App `enikk-deployer` 로 고정**한다. 같은 이름의 상태라도 다른 App 이나 GitHub Actions 가 기록하면 인정되지 않는다.
 - 강제 push 와 브랜치 삭제를 막는다.
 - **예외(bypass)는 두지 않는다.** 소유자 계정으로 만든 PR(소유자가 Claude Code 에 시킨 작업 포함)도 에이전트 PR 과 같은 Slack 승인을 거친다.
@@ -36,7 +36,7 @@ GitHub 의 PR 리뷰 승인은 사람 계정으로만 할 수 있다. 소유자 
 - ruleset 설정값은 `deploy/github/` 에 JSON 으로 두고, 소유자 확인을 받아 `gh api` 로 적용한다. 저장소 설정은 GitOps 대상이 아니므로 I-18 의 부트스트랩 예외로 본다.
 - `enikk/owner-approval` 은 승인 흐름이 동작하기 시작할 때 필수 검사에 추가한다. 그 전에는 PR 과 CI 통과만 요구한다. (2026-11-22: PR #29 를 Slack 승인으로 머지해 흐름을 확인한 뒤 추가했다.)
 - `main` 과 `agent/**` 밖의 브랜치는 저장소 관리자만 만들고 바꿀 수 있다(ruleset `agent-branches-only`). 그래서 App 은 `agent/**` 에만 push 할 수 있고, 소유자 브랜치에 커밋을 끼워 넣을 수 없다.
-- 보호 경로 검사는 App 이 연 PR 과 `agent/` 브랜치의 PR 을 에이전트 변경으로 본다. 검사 목록은 워크플로 파일 안에 둔다. App 토큰에는 `workflows` 권한이 없으므로 에이전트가 목록을 바꿀 수 없다.
+- 보호 경로 검사는 App 이 연 PR 과 `agent/` 브랜치의 PR 을 에이전트 변경으로 본다. 검사 목록은 워크플로 파일 안에 둔다. App 토큰에는 `workflows` 권한이 없으므로 에이전트가 목록을 바꿀 수 없다. (ADR-0024 로 대체: 막지 않고 민감 경로로 표시해 강화된 승인을 받는다.)
 
 ### 비상 시 수동 처리
 - 승인 경로(core, connector-slack, Slack 앱, GitHub App 키)가 고장 나 Slack 으로 승인할 수 없으면, 소유자가 GitHub 설정에서 ruleset 을 직접 잠시 끄고 수정 PR 을 머지한 뒤 다시 켠다.
@@ -60,6 +60,8 @@ GitHub 의 PR 리뷰 승인은 사람 계정으로만 할 수 있다. 소유자 
 - Slack 앱에 Interactivity(Socket Mode 로 수신)와 `files:write` 권한을 추가한다.
 
 ### 3. 배포 실패 대응
+> 세부는 ADR-0023 이 정한다. 스모크 결과는 core 에 보고하지 않고 Argo CD 동기화 결과로 나타나며, core 가 Argo CD Application 을 읽어 배포 성공·실패와 롤백 결과를 알린다.
+
 - 모든 앱 Deployment 를 RollingUpdate(`maxUnavailable: 0`)로 둔다. 새 Pod 가 readiness 를 통과하지 못하면 이전 Pod 가 계속 서비스한다.
   - connector-slack 도 Recreate 에서 바꾼다. 잠깐 Socket Mode 연결이 둘이 되어도 이벤트 ID 기반 멱등 처리(ADR-0018)로 작업은 하나만 생긴다.
 - Argo CD PostSync Job 이 `enikk-ops smoke core` 를 실행하고 결과를 core 에 보고한다. core 는 결과를 소유자 DM 으로 알린다.
