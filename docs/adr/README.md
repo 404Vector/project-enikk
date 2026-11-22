@@ -28,6 +28,7 @@
 | [0022](0022-delegation-to-developer.md) | assistant 가 개발 에이전트에 작업을 위임한다 | 승인 | 2026-11-22 |
 | [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 | 2026-11-22 |
 | [0024](0024-sensitive-paths-instead-of-protected.md) | 보호 경로를 막지 않고, 민감 경로로 표시해 강화된 승인을 받는다 | 승인 | 2026-11-22 |
+| [0025](0025-thread-follow-up-on-agent-prs.md) | 위임한 스레드에서 PR 을 끝까지 따라가고, 같은 PR 을 이어서 고친다 | 승인 | 2026-11-22 |
 
 ## 상태 정의
 
