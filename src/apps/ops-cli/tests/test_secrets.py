@@ -37,13 +37,27 @@ def _mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
+def _access(path: Path) -> int:
+    """Read, write and execute bits only. A new directory inherits the setgid bit of a
+    setgid parent (a Kubernetes fsGroup volume is one); that bit grants no access."""
+    return _mode(path) & 0o777
+
+
 def test_set_writes_private_plain_text_file(tmp_path: Path) -> None:
     file = _file(tmp_path)
     file.set(BOT, SecretStr("xoxb-1"))
     assert _mode(file.path) == 0o600
-    assert _mode(file.path.parent) == 0o700
+    assert _access(file.path.parent) == 0o700
     assert "xoxb-1" in file.path.read_text()
     assert file.values()[BOT].get_secret_value() == "xoxb-1"
+
+
+def test_set_stays_private_under_a_setgid_group_writable_parent(tmp_path: Path) -> None:
+    tmp_path.chmod(0o2777)
+    file = _file(tmp_path)
+    file.set(BOT, SecretStr("xoxb-1"))
+    assert _mode(file.path) == 0o600
+    assert _access(file.path.parent) == 0o700
 
 
 def test_set_replaces_and_unset_removes(tmp_path: Path) -> None:
