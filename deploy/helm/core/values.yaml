@@ -51,6 +51,11 @@ memory:
   repository: vault.hyeongseok-kim
   intervalSeconds: 60
 
+# Read-only diagnostics (ADR-0029): recent tasks, deployments, Pod logs of enikk's
+# services and pull requests, answered by core with secrets masked.
+diagnostics:
+  enabled: true
+
 devAgent:
   enabled: true
   namespace: enikk-dev

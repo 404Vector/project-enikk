@@ -237,6 +237,10 @@ class _Notices:
         wanted = set(notice_ids)
         return [n for n in self._s.notices.values() if n.id in wanted]
 
+    async def recent_of_kinds(self, kinds: Sequence[str], limit: int) -> Sequence[Notice]:
+        found = [n for n in self._s.notices.values() if n.body.kind in kinds]
+        return sorted(found, key=lambda n: (n.created_at, n.id), reverse=True)[:limit]
+
     async def update(self, notice: Notice) -> None:
         self._s.notices[notice.id] = notice
 
@@ -281,6 +285,22 @@ class _Tasks:
 
     async def find_by_source_event(self, event_id: str) -> Task | None:
         return next((t for t in self._s.tasks.values() if t.source_event_id == event_id), None)
+
+    async def recent(
+        self,
+        since: datetime,
+        limit: int,
+        status: TaskStatus | None = None,
+        agent: str | None = None,
+    ) -> Sequence[Task]:
+        found = [
+            t
+            for t in self._s.tasks.values()
+            if t.created_at >= since
+            and (status is None or t.status is status)
+            and (agent is None or t.agent == agent)
+        ]
+        return sorted(found, key=lambda t: (t.created_at, t.id), reverse=True)[:limit]
 
     async def latest_in_session(self, session_id: uuid.UUID) -> Task | None:
         found = [t for t in self._s.tasks.values() if t.session_id == session_id]
@@ -786,6 +806,10 @@ async def check_delegated_session_round_trip(new_uow: UnitOfWorkFactory) -> None
     async with new_uow() as uow:
         latest = await uow.tasks.latest_in_session(delegated.id)
         _expect(latest is not None and latest.id == second.id, "latest task of a session")
+        latest_tasks = await uow.tasks.recent(T0 - timedelta(hours=1), 1)
+        _expect([t.id for t in latest_tasks] == [second.id], "recent tasks, newest first")
+        none = await uow.tasks.recent(T0, 5, status=TaskStatus.FAILED)
+        _expect(list(none) == [], "recent tasks by status")
     owner = session(thread="1.0")
     own = task(owner, now=T0)
     async with new_uow() as uow:

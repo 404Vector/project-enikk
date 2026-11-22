@@ -12,6 +12,7 @@ from enikk_core.approval.service import ApprovalService
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
+from enikk_core.diagnostics import DiagnosticsPolicy, DiagnosticsService
 from enikk_core.dispatcher import DevJobDispatcher
 from enikk_core.github import (
     DevTokenIssuer,
@@ -34,6 +35,7 @@ from enikk_github.vault import VaultReader, VaultWriter
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
+from enikk_k8s_jobs.logs import KubeLogReader, LogConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
 from enikk_persistence_sql.engine import create_engine, create_session_factory
@@ -99,6 +101,40 @@ def build_services(settings: CoreSettings) -> CoreServices:
         review_links=ReviewLinks(uow, ThreadNotes(clock, ids)),
         memory=memory,
         memory_interval_seconds=settings.memory.interval_seconds,
+        diagnostics=_diagnostics(settings, store, clock, uow),
+    )
+
+
+def _diagnostics(
+    settings: CoreSettings,
+    store: DirectoryCredentialStore,
+    clock: SystemClock,
+    uow: SqlUnitOfWorkFactory,
+) -> DiagnosticsService | None:
+    d = settings.diagnostics
+    if not d.enabled:
+        return None
+    config = settings.github.to_config()
+
+    def private_key() -> SecretStr | None:
+        return store.get(CredentialName.GITHUB_APP_PRIVATE_KEY)
+
+    app = None if config is None else GitHubApp.create(config, private_key, clock)
+    return DiagnosticsService(
+        uow=uow,
+        clock=clock,
+        policy=DiagnosticsPolicy(
+            namespace=d.namespace,
+            dev_namespace=d.dev_namespace,
+            apps=settings.deployments.apps,
+            repository=settings.github.self_repository,
+        ),
+        logs=KubeLogReader.in_cluster(LogConfig(api_url=d.api_url)),
+        apps=KubeApplicationReader.in_cluster(
+            ArgoConfig(namespace=settings.deployments.argocd_namespace, api_url=d.api_url)
+        ),
+        github=app,
+        pulls=None if app is None else PullRequests(app),
     )
 
 

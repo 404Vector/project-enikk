@@ -108,6 +108,23 @@ class SqlTaskRepository:
         row = await self._db.scalar(select(TaskRow).where(TaskRow.source_event_id == event_id))
         return mappers.task_from_row(row) if row else None
 
+    async def recent(
+        self,
+        since: datetime,
+        limit: int,
+        status: TaskStatus | None = None,
+        agent: str | None = None,
+    ) -> Sequence[Task]:
+        query = select(TaskRow).where(TaskRow.created_at >= since)
+        if status is not None:
+            query = query.where(TaskRow.status == status.value)
+        if agent is not None:
+            query = query.where(TaskRow.agent == agent)
+        rows = await self._db.scalars(
+            query.order_by(TaskRow.created_at.desc(), TaskRow.id.desc()).limit(limit)
+        )
+        return [mappers.task_from_row(row) for row in rows]
+
     async def latest_in_session(self, session_id: uuid.UUID) -> Task | None:
         row = await self._db.scalar(
             select(TaskRow)
@@ -317,6 +334,15 @@ class SqlNoticeRepository:
 
     async def get_many(self, notice_ids: Sequence[uuid.UUID]) -> Sequence[Notice]:
         rows = await self._db.scalars(select(NoticeRow).where(NoticeRow.id.in_(list(notice_ids))))
+        return [mappers.notice_from_row(row) for row in rows]
+
+    async def recent_of_kinds(self, kinds: Sequence[str], limit: int) -> Sequence[Notice]:
+        rows = await self._db.scalars(
+            select(NoticeRow)
+            .where(NoticeRow.body["kind"].astext.in_(list(kinds)))
+            .order_by(NoticeRow.created_at.desc(), NoticeRow.id.desc())
+            .limit(limit)
+        )
         return [mappers.notice_from_row(row) for row in rows]
 
     async def update(self, notice: Notice) -> None:

@@ -25,6 +25,18 @@ from enikk_contracts.approvals import (
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.deployments import RevertRequest, RevertResult
+from enikk_contracts.diagnostics import (
+    Deployments,
+    DeploymentsQuery,
+    LogLines,
+    LogsQuery,
+    Pulls,
+    PullsQuery,
+    RecentTasks,
+    RecentTasksQuery,
+    TaskDetail,
+    TaskDetailQuery,
+)
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
 from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
@@ -79,6 +91,7 @@ if TYPE_CHECKING:
     from enikk_core.approval.service import ApprovalService
     from enikk_core.credentials import CredentialIssuer
     from enikk_core.deployments import DeploymentService
+    from enikk_core.diagnostics import DiagnosticsService
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.memory import MemoryService
@@ -126,6 +139,7 @@ class CoreServices:
         review_links: ReviewLinks | None = None,
         memory: MemoryService | None = None,
         memory_interval_seconds: float = 60.0,
+        diagnostics: DiagnosticsService | None = None,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -143,6 +157,7 @@ class CoreServices:
         self.review_links = review_links
         self.memory = memory
         self.memory_interval_seconds = memory_interval_seconds
+        self.diagnostics = diagnostics
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -215,6 +230,46 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         _dev_agent(await gate.admit(request))
         await _parse(request, ClaimRequest)
         return _json(await usecases.claim_task(task_id))
+
+    @app.post(routes.DIAG_TASKS, responses={200: {"model": RecentTasks}})
+    @requires("runtime", "dev-agent")
+    async def diagnose_recent_tasks(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, RecentTasksQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).recent_tasks(body))
+
+    @app.post(routes.DIAG_TASK, responses={200: {"model": TaskDetail}})
+    @requires("runtime", "dev-agent")
+    async def diagnose_task_detail(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, TaskDetailQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).task_detail(body))
+
+    @app.post(routes.DIAG_DEPLOYMENTS, responses={200: {"model": Deployments}})
+    @requires("runtime", "dev-agent")
+    async def diagnose_deployments(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, DeploymentsQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).deployments(body))
+
+    @app.post(routes.DIAG_LOGS, responses={200: {"model": LogLines}})
+    @requires("runtime", "dev-agent")
+    async def diagnose_logs(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, LogsQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).logs(body))
+
+    @app.post(routes.DIAG_PULLS, responses={200: {"model": Pulls}})
+    @requires("runtime", "dev-agent")
+    async def diagnose_pulls(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, PullsQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).pulls(body))
 
     @app.post(routes.MEMORY_REMEMBER, responses={200: {"model": MemoryWritten}})
     @requires("runtime", "dev-agent")
@@ -410,6 +465,12 @@ def _owner_channel(principal: Principal) -> ConnectorRole:
     if role.connector is not ConnectorKind.SLACK:
         raise PermissionDeniedError("only the Slack connector talks to the owner")
     return role
+
+
+def _diagnostics(services: CoreServices) -> DiagnosticsService:
+    if services.diagnostics is None:
+        raise DependencyUnavailableError("diagnostics are not enabled")
+    return services.diagnostics
 
 
 def _memory(services: CoreServices) -> MemoryService:

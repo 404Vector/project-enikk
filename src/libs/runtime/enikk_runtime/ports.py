@@ -10,6 +10,18 @@ if TYPE_CHECKING:
 
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.common import Engine
+    from enikk_contracts.diagnostics import (
+        Deployments,
+        DeploymentsQuery,
+        LogLines,
+        LogsQuery,
+        Pulls,
+        PullsQuery,
+        RecentTasks,
+        RecentTasksQuery,
+        TaskDetail,
+        TaskDetailQuery,
+    )
     from enikk_contracts.memory import (
         ForgetRequest,
         MemoryMatches,
@@ -56,6 +68,22 @@ class MemoryKeeper(Protocol):
     ) -> MemoryWritten: ...
     async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten: ...
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches: ...
+
+
+class Diagnostician(Protocol):
+    """Read-only diagnostics through core (ADR-0029). ``CoreClient`` implements it."""
+
+    async def diagnose_recent_tasks(
+        self, task_id: uuid.UUID, query: RecentTasksQuery
+    ) -> RecentTasks: ...
+    async def diagnose_task_detail(
+        self, task_id: uuid.UUID, query: TaskDetailQuery
+    ) -> TaskDetail: ...
+    async def diagnose_deployments(
+        self, task_id: uuid.UUID, query: DeploymentsQuery
+    ) -> Deployments: ...
+    async def diagnose_logs(self, task_id: uuid.UUID, query: LogsQuery) -> LogLines: ...
+    async def diagnose_pulls(self, task_id: uuid.UUID, query: PullsQuery) -> Pulls: ...
 
 
 class PromptStore(Protocol):

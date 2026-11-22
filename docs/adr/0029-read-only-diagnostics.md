@@ -1,6 +1,6 @@
 # ADR-0029: 에닉이 자기 상태를 읽어 진단한다 (읽기 전용)
 
-- 상태: 제안
+- 상태: 승인
 - 날짜: 2026-11-23
 - 관련: ADR-0010, ADR-0011, ADR-0021, ADR-0023, ADR-0028, I-07, I-18, I-23, I-28
 
@@ -46,6 +46,12 @@
 - 소유자가 "왜 안 됐어?", "배포 상태 어때?" 라고 물으면 에닉이(assistant 역할) 도구로 사실을 모아 답한다.
 - 원인이 코드에 있으면, 찾은 사실(작업 ID, 로그 줄, 실패 이유)을 담아 개발 역할로 넘긴다.
 - 개발 역할로 일할 때도 자기 PR 의 검사 실패나 이전 작업의 실패 이유를 직접 볼 수 있다.
+
+### 5. 구현 세부 (2026-11-23)
+- 플랫폼 도구 이름: `recent_tasks`, `task_detail`, `deployments`, `service_logs`, `pull_requests`. core API 는 `/v1/tasks/{task_id}/diagnostics/{tasks,task,deployments,logs,pulls}` 이다.
+- 배포 이력은 core 가 보낸 배포·빌드·롤백 알림 기록에서 읽는다. 앱의 현재 상태는 Argo CD Application 에서 읽는다.
+- 로그는 서비스별 라벨로 Pod 를 찾고(개발 Job 은 `batch.kubernetes.io/job-name=enikk-dev-<작업 ID>`), Pod 3개까지, Pod 마다 최근 200줄에서 필터한 뒤 최대 200줄을 돌려준다.
+- 비밀값 가림 규칙은 기억 쓰기와 같은 것을 쓴다(`enikk_core_domain.redaction`).
 
 ## 근거
 - 정해진 질의만 열어 두면, 진단에 필요한 사실은 주면서 권한과 노출 범위는 core 가 통제한다.
