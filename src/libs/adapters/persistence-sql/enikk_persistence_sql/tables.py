@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -119,6 +120,16 @@ class NoticeRow(Base):
     body: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime]
+
+
+class DeploymentWatchRow(Base):
+    """The deployment watcher's memory (ADR-0023). One row, id 1; ``body`` is JSON."""
+
+    __tablename__ = "deployment_watch"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    body: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class OutboxRow(Base):

@@ -11,14 +11,18 @@ from enikk_core.api import CoreServices
 from enikk_core.approval.service import ApprovalService
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
+from enikk_core.deployments import DeploymentPolicy, DeploymentService
 from enikk_core.dispatcher import DevJobDispatcher
 from enikk_core.github import DevTokenIssuer, GitHubHealthCheck, load_repository_policy
 from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
+from enikk_core_domain.deployments import WatchTiming
+from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
 from enikk_github.pulls import PullRequests
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
+from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
@@ -65,7 +69,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
     store = DirectoryCredentialStore(settings.credentials_dir)
-    github, dev_tokens, approvals = _github(settings, store, clock, uow, ids)
+    github, dev_tokens, approvals, deployments = _github(settings, store, clock, uow, ids)
     return CoreServices(
         version=settings.version,
         usecases=usecases,
@@ -78,6 +82,8 @@ def build_services(settings: CoreSettings) -> CoreServices:
         dispatch_interval_seconds=dev.interval_seconds,
         approvals=approvals,
         watch_interval_seconds=settings.approval.interval_seconds,
+        deployments=deployments,
+        deployment_interval_seconds=settings.deployments.interval_seconds,
     )
 
 
@@ -87,7 +93,7 @@ def _github(
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
-) -> tuple[GitHubHealthCheck, DevTokenIssuer, ApprovalService | None]:
+) -> tuple[GitHubHealthCheck, DevTokenIssuer, ApprovalService | None, DeploymentService | None]:
     policy = load_repository_policy(
         settings.github.repositories_file, self_repository=settings.github.self_repository
     )
@@ -108,4 +114,31 @@ def _github(
             ids=ids,
             sleep=asyncio.sleep,
         )
-    return GitHubHealthCheck(app, policy, private_key), DevTokenIssuer(app, policy), approvals
+    deployments = None
+    watch = settings.deployments
+    if app is not None and watch.enabled:
+        deployments = DeploymentService(
+            uow=uow,
+            reader=KubeApplicationReader.in_cluster(
+                ArgoConfig(namespace=watch.argocd_namespace, api_url=watch.api_url)
+            ),
+            app=app,
+            activity=RepositoryActivity(app),
+            policy=DeploymentPolicy(
+                apps=watch.apps,
+                repository=settings.github.self_repository,
+                images_workflow=watch.images_workflow,
+                timing=WatchTiming(
+                    timeout=timedelta(seconds=watch.timeout_seconds),
+                    settle=timedelta(seconds=watch.settle_seconds),
+                ),
+            ),
+            clock=clock,
+            ids=ids,
+        )
+    return (
+        GitHubHealthCheck(app, policy, private_key),
+        DevTokenIssuer(app, policy),
+        approvals,
+        deployments,
+    )

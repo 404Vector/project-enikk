@@ -11,6 +11,7 @@ from enikk_persistence_sql.engine import DatabaseConfig, create_engine, create_s
 from enikk_persistence_sql.migrate import upgrade
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
     OutboxRow,
@@ -51,6 +52,7 @@ async def uow_factory(database: DatabaseConfig) -> AsyncIterator[SqlUnitOfWorkFa
             DispatchRow,
             ApprovalRow,
             NoticeRow,
+            DeploymentWatchRow,
             TaskRow,
             SessionRow,
         ):
