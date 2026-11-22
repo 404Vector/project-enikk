@@ -9,9 +9,15 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   # One Socket Mode connection; a second replica would only split the events.
+  # During a rollout two connections overlap briefly; event IDs keep tasks
+  # unique (ADR-0018).
   replicas: {{ if .Values.image.tag }}1{{ else }}0{{ end }}
+  # A new Pod must be ready before the old one stops (ADR-0020 §3, ADR-0023 §3).
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: enikk-connector-slack

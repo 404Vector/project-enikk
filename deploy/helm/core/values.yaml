@@ -34,6 +34,16 @@ approval:
   enabled: true
   intervalSeconds: 30
 
+# Deployment and image build notices in the owner's DM (ADR-0023). core reads
+# these Argo CD Applications (Role in argocdNamespace, get only).
+deployments:
+  enabled: true
+  intervalSeconds: 30
+  argocdNamespace: argocd
+  apps: [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-dev-agent]
+  timeoutSeconds: 600
+  settleSeconds: 60
+
 devAgent:
   enabled: true
   namespace: enikk-dev
@@ -71,6 +81,13 @@ roleBindings:
 resources:
   requests: { cpu: 50m, memory: 128Mi }
   limits: { memory: 320Mi }
+
+# PostSync check of the deployed core (ADR-0023 §2), as the enikk-smoke identity.
+selfcheck:
+  deadlineSeconds: 180
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 160Mi }
 
 migration:
   resources:

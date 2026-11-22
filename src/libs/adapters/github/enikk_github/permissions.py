@@ -17,7 +17,7 @@ class TokenPurpose(StrEnum):
     APPROVE = "approve"
     """Core's approval module: records ``enikk/owner-approval`` and enables auto-merge."""
     WATCH = "watch"
-    """Core's pull request watcher. Read-only."""
+    """Core's pull request and deployment watchers. Read-only."""
     SETUP = "setup"
     """Core's repository onboarding: applies the standard ruleset."""
 
@@ -40,6 +40,7 @@ _FIXED: Final[dict[TokenPurpose, Permissions]] = {
     },
     TokenPurpose.WATCH: {
         "metadata": Access.READ,
+        "actions": Access.READ,
         "contents": Access.READ,
         "pull_requests": Access.READ,
         "checks": Access.READ,

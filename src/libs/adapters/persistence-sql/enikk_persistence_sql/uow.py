@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from enikk_core_domain.errors import ConcurrentUpdateError, DependencyUnavailableError
 from enikk_persistence_sql.repositories import (
     SqlApprovalRepository,
+    SqlDeploymentWatchRepository,
     SqlDispatchRepository,
     SqlJobQueue,
     SqlNoticeRepository,
@@ -34,6 +35,7 @@ class SqlUnitOfWork:
         self.dispatches = SqlDispatchRepository(self._db)
         self.approvals = SqlApprovalRepository(self._db)
         self.notices = SqlNoticeRepository(self._db)
+        self.deployment_watch = SqlDeploymentWatchRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

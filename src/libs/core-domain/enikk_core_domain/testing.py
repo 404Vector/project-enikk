@@ -16,6 +16,7 @@ from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
+from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
 from enikk_core_domain.model import (
     Approval,
@@ -117,6 +118,7 @@ class InMemoryDatabase:
         self.dispatches: dict[uuid.UUID, Dispatch] = {}
         self.approvals: dict[uuid.UUID, Approval] = {}
         self.notices: dict[uuid.UUID, Notice] = {}
+        self.deployment_watch: DeploymentWatch | None = None
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -132,6 +134,18 @@ class _Staged:
         self.dispatches = dict(db.dispatches)
         self.approvals = dict(db.approvals)
         self.notices = dict(db.notices)
+        self.deployment_watch = db.deployment_watch
+
+
+class _DeploymentWatch:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def load_for_update(self) -> DeploymentWatch | None:
+        return self._s.deployment_watch
+
+    async def save(self, watch: DeploymentWatch) -> None:
+        self._s.deployment_watch = watch
 
 
 class _Approvals:
@@ -374,6 +388,7 @@ class InMemoryUnitOfWork:
         self.dispatches = _Dispatches(self._staged)
         self.approvals = _Approvals(self._staged)
         self.notices = _Notices(self._staged)
+        self.deployment_watch = _DeploymentWatch(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -398,6 +413,7 @@ class InMemoryUnitOfWork:
         self._db.dispatches = dict(self._staged.dispatches)
         self._db.approvals = dict(self._staged.approvals)
         self._db.notices = dict(self._staged.notices)
+        self._db.deployment_watch = self._staged.deployment_watch
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -779,6 +795,30 @@ async def check_approvals_and_notices(new_uow: UnitOfWorkFactory) -> None:
     raise AssertionError("a second approval for the same commit must be rejected")
 
 
+async def check_deployment_watch(new_uow: UnitOfWorkFactory) -> None:
+    async with new_uow() as uow:
+        _expect(await uow.deployment_watch.load_for_update() is None, "no watch before save")
+    first = DeploymentWatch(
+        baselines=(
+            AppBaseline(app="enikk-core", image_tag="sha-" + "a" * 40, operation_started_at=T0),
+        ),
+        seen_build_runs=(1, 2),
+        builds_since=T0,
+    )
+    async with new_uow() as uow:
+        await uow.deployment_watch.save(first)
+        await uow.commit()
+    second = first.saw_build_runs([3])
+    async with new_uow() as uow:
+        _expect(await uow.deployment_watch.load_for_update() == first, "watch round trip")
+        await uow.deployment_watch.save(second)
+        await uow.commit()
+    async with new_uow() as uow:
+        await uow.deployment_watch.save(DeploymentWatch())
+    async with new_uow() as uow:
+        _expect(await uow.deployment_watch.load_for_update() == second, "watch update")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -794,4 +834,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_dispatches,
     check_delegated_session_round_trip,
     check_approvals_and_notices,
+    check_deployment_watch,
 )

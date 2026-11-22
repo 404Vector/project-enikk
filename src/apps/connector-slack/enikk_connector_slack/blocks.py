@@ -1,4 +1,4 @@
-"""Slack Block Kit messages for the owner's DM (ADR-0020)."""
+"""Slack Block Kit messages for the owner's DM (ADR-0020, ADR-0023)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,12 @@ from enikk_contracts.approvals import (
     ChecksFailed,
     PullRequestCard,
     ResolutionOutcome,
+)
+from enikk_contracts.deployments import (
+    AppResult,
+    BuildFailed,
+    DeploymentFinished,
+    PullLink,
 )
 
 APPROVE_ACTION: Final = "enikk.approve"
@@ -33,6 +39,13 @@ OUTCOME_TEXT: Final = {
     ),
     ResolutionOutcome.BLOCKED: ":warning: 승인했지만 GitHub 가 머지를 거부했습니다.",
     ResolutionOutcome.CLOSED: ":heavy_minus_sign: PR 이 닫혔거나 이미 처리되었습니다.",
+}
+
+
+APP_RESULT_TEXT: Final = {
+    AppResult.SUCCEEDED: ":white_check_mark:",
+    AppResult.FAILED: ":x:",
+    AppResult.REPLACED: ":fast_forward: 다음 배포로 대체",
 }
 
 
@@ -176,6 +189,60 @@ def resolved(notice: ApprovalResolved) -> Message:
     if notice.detail:
         line += f"\n> {_escape(notice.detail)}"
     return Message(text=f"PR #{notice.number}: {notice.outcome}", blocks=(_section(line),))
+
+
+def deployment_finished(notice: DeploymentFinished) -> Message:
+    what = _what(notice.commit, notice.pull)
+    if notice.succeeded:
+        heading = f":rocket: *배포 성공* {what}"
+        summary = f"배포 성공: {_plain(notice.commit, notice.pull)}"
+    else:
+        heading = f":rotating_light: *배포 실패* {what}"
+        summary = f"배포 실패: {_plain(notice.commit, notice.pull)}"
+    lines = [heading]
+    for app in notice.apps:
+        line = f"• `{app.app}` {APP_RESULT_TEXT[app.result]}"
+        if app.detail:
+            line += f" — {_escape(app.detail)}"
+        lines.append(line)
+    blocks: list[Block] = [_section("\n".join(lines))]
+    if not notice.succeeded:
+        blocks.append(
+            Context(
+                elements=(
+                    Text(
+                        text="새 Pod 가 준비되지 않은 앱은 이전 버전이 계속 동작합니다. "
+                        "동기화가 실패한 앱은 일부만 바뀌었을 수 있습니다."
+                    ),
+                )
+            )
+        )
+    return Message(text=summary, blocks=tuple(blocks))
+
+
+def build_failed(notice: BuildFailed) -> Message:
+    what = _what(notice.commit, notice.pull)
+    text = (
+        f":hammer_and_wrench: *이미지 빌드 실패* {what}\n"
+        f"<{notice.run_url}|빌드 기록> · 결과 `{_escape(notice.conclusion)}`"
+    )
+    return Message(
+        text=f"이미지 빌드 실패: {_plain(notice.commit, notice.pull)}",
+        blocks=(
+            _section(text),
+            Context(elements=(Text(text="배포는 시작되지 않았고 이전 버전이 그대로 동작합니다."),)),
+        ),
+    )
+
+
+def _what(commit: str, pull: PullLink | None) -> str:
+    if pull is None:
+        return f"커밋 `{commit[:7]}`"
+    return f"<{pull.url}|#{pull.number} {_escape(pull.title)}> · 커밋 `{commit[:7]}`"
+
+
+def _plain(commit: str, pull: PullLink | None) -> str:
+    return f"#{pull.number} {pull.title}" if pull else commit[:7]
 
 
 def decided(outcome: ResolutionOutcome, detail: str, by: str) -> Context:

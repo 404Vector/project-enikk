@@ -7,6 +7,12 @@ metadata:
 spec:
   # No image has been published yet until Image Updater sets image.tag.
   replicas: {{ if .Values.image.tag }}1{{ else }}0{{ end }}
+  # A new Pod must be ready before the old one stops (ADR-0020 §3, ADR-0023 §3).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       {{- include "enikk-core.selectorLabels" . | nindent 6 }}
@@ -16,7 +22,8 @@ spec:
         {{- include "enikk-core.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: enikk-core
-      # core's Kubernetes API token: TokenReview, and dev agent Jobs in enikk-dev (I-28).
+      # core's Kubernetes API token: TokenReview, dev agent Jobs in enikk-dev and
+      # reading the Argo CD Applications it reports on (I-28).
       automountServiceAccountToken: true
       # Service links inject ENIKK_CORE_PORT=tcp://... and collide with settings.
       enableServiceLinks: false
@@ -52,6 +59,18 @@ spec:
               value: {{ .Values.approval.enabled | quote }}
             - name: ENIKK_CORE_APPROVAL__INTERVAL_SECONDS
               value: {{ .Values.approval.intervalSeconds | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__ENABLED
+              value: {{ .Values.deployments.enabled | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__INTERVAL_SECONDS
+              value: {{ .Values.deployments.intervalSeconds | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__ARGOCD_NAMESPACE
+              value: {{ .Values.deployments.argocdNamespace | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__APPS
+              value: {{ .Values.deployments.apps | toJson | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__TIMEOUT_SECONDS
+              value: {{ .Values.deployments.timeoutSeconds | quote }}
+            - name: ENIKK_CORE_DEPLOYMENTS__SETTLE_SECONDS
+              value: {{ .Values.deployments.settleSeconds | quote }}
             - name: ENIKK_CORE_DEV_AGENT__ENABLED
               value: {{ .Values.devAgent.enabled | quote }}
             - name: ENIKK_CORE_DEV_AGENT__NAMESPACE
