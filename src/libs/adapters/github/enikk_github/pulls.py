@@ -55,6 +55,7 @@ class _Pull(_Body):
 
 
 class _CheckRun(_Body):
+    id: int
     name: str
     status: str
     conclusion: str | None = None
@@ -162,9 +163,16 @@ class PullRequests:
             token,
             params={"per_page": "100"},
         )
+        # A check re-runs when its workflow fires again on the same commit (for
+        # example after the PR description is edited) and the older run is
+        # cancelled. Only the newest run of each check counts.
+        latest: dict[str, _CheckRun] = {}
+        for run in _parse(_CHECKS, response).check_runs:
+            if run.name not in latest or run.id > latest[run.name].id:
+                latest[run.name] = run
         return [
             CheckRun(name=r.name, completed=r.status == "completed", conclusion=r.conclusion)
-            for r in _parse(_CHECKS, response).check_runs
+            for r in sorted(latest.values(), key=lambda r: r.name)
         ]
 
     async def files(self, token: InstallationToken, number: int) -> list[FileChange]:
