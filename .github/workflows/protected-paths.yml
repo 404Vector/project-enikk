@@ -1,0 +1,55 @@
+name: protected-paths
+
+# Fails agent pull requests that touch protected paths (I-20, ADR-0007).
+# An agent change is a PR opened by the GitHub App or from an `agent/` branch.
+# The list lives in this workflow because the App cannot change workflow files.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: protected-paths-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  protected-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check changed paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          APP_BOT: enikk-deployer[bot]
+        run: |
+          set -euo pipefail
+          if [ "$AUTHOR" != "$APP_BOT" ] && [[ "$HEAD_REF" != agent/* ]]; then
+            echo "Not an agent change (author $AUTHOR, branch $HEAD_REF)."
+            exit 0
+          fi
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          blocked=0
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              .github/*|AGENTS.md|docs/architecture/invariants.md|docs/adr/*|\
+              agents/developer.yaml|\
+              deploy/github/*|deploy/helm/core/*|deploy/helm/dev-agent/*|deploy/k8s/identities/*|\
+              src/apps/core/enikk_core/approval/*|src/libs/adapters/github/*)
+                echo "::error::protected path changed by an agent: $path"
+                blocked=1
+                ;;
+            esac
+          done <<< "$files"
+          if [ "$blocked" -ne 0 ]; then
+            exit 1
+          fi
+          echo "No protected path changed."

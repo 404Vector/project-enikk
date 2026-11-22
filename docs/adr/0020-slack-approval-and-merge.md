@@ -35,6 +35,8 @@ GitHub 의 PR 리뷰 승인은 사람 계정으로만 할 수 있다. 소유자 
 - 저장소 설정에서 auto-merge 를 허용한다.
 - ruleset 설정값은 `deploy/github/` 에 JSON 으로 두고, 소유자 확인을 받아 `gh api` 로 적용한다. 저장소 설정은 GitOps 대상이 아니므로 I-18 의 부트스트랩 예외로 본다.
 - `enikk/owner-approval` 은 승인 흐름이 동작하기 시작할 때 필수 검사에 추가한다. 그 전에는 PR 과 CI 통과만 요구한다.
+- `main` 과 `agent/**` 밖의 브랜치는 저장소 관리자만 만들고 바꿀 수 있다(ruleset `agent-branches-only`). 그래서 App 은 `agent/**` 에만 push 할 수 있고, 소유자 브랜치에 커밋을 끼워 넣을 수 없다.
+- 보호 경로 검사는 App 이 연 PR 과 `agent/` 브랜치의 PR 을 에이전트 변경으로 본다. 검사 목록은 워크플로 파일 안에 둔다. App 토큰에는 `workflows` 권한이 없으므로 에이전트가 목록을 바꿀 수 없다.
 
 ### 비상 시 수동 처리
 - 승인 경로(core, connector-slack, Slack 앱, GitHub App 키)가 고장 나 Slack 으로 승인할 수 없으면, 소유자가 GitHub 설정에서 ruleset 을 직접 잠시 끄고 수정 PR 을 머지한 뒤 다시 켠다.
