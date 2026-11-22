@@ -236,6 +236,10 @@ class _Tasks:
     async def find_by_source_event(self, event_id: str) -> Task | None:
         return next((t for t in self._s.tasks.values() if t.source_event_id == event_id), None)
 
+    async def latest_in_session(self, session_id: uuid.UUID) -> Task | None:
+        found = [t for t in self._s.tasks.values() if t.session_id == session_id]
+        return max(found, key=lambda t: (t.created_at, t.id), default=None)
+
     async def add(self, task: Task) -> None:
         self._s.tasks[task.id] = task
 
@@ -709,6 +713,16 @@ async def check_delegated_session_round_trip(new_uow: UnitOfWorkFactory) -> None
         found = await uow.sessions.get(delegated.id)
         _expect(found == delegated, "delegated session round trip")
         _expect(found is not None and found.outbox_conversation == origin, "replies upstream")
+    first = task(delegated, now=T0)
+    second = task(delegated, now=T0 + timedelta(minutes=5))
+    async with new_uow() as uow:
+        _expect(await uow.tasks.latest_in_session(delegated.id) is None, "no task yet")
+        await uow.tasks.add(second)
+        await uow.tasks.add(first)
+        await uow.commit()
+    async with new_uow() as uow:
+        latest = await uow.tasks.latest_in_session(delegated.id)
+        _expect(latest is not None and latest.id == second.id, "latest task of a session")
 
 
 async def check_dispatches(new_uow: UnitOfWorkFactory) -> None:

@@ -75,7 +75,12 @@ class FakeActivity:
         return list(self.runs)
 
     async def pull_of_commit(self, token: InstallationToken, sha: str) -> CommitPull | None:
-        return CommitPull(number=40, title="feat: something", url="https://github.com/x/y/pull/40")
+        return CommitPull(
+            number=40,
+            title="feat: something",
+            url="https://github.com/x/y/pull/40",
+            branch="feat/x",
+        )
 
 
 class FakeReverter:
@@ -223,7 +228,12 @@ async def test_revert_opens_a_pull_request_and_its_deployment_is_a_rollback(
     assert ("project-enikk", TokenPurpose.DEVELOP) in harness.github.issued
 
     async def merged_revert(token: InstallationToken, sha: str) -> CommitPull:
-        return CommitPull(number=41, title='Revert "x"', url="https://github.com/x/y/pull/41")
+        return CommitPull(
+            number=41,
+            title='Revert "x"',
+            url="https://github.com/x/y/pull/41",
+            branch="agent/revert-x",
+        )
 
     activity.pull_of_commit = merged_revert  # type: ignore[method-assign]
     harness.clock.advance(timedelta(seconds=30))

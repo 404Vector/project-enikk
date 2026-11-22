@@ -34,6 +34,7 @@ from enikk_kernel.models import FrozenModel
 if TYPE_CHECKING:
     from enikk_contracts.deployments import RevertRequest
     from enikk_core.github import GitHubAppApi
+    from enikk_core.threads import ThreadNotes
     from enikk_core_domain.deployments import FinishedDeployment
     from enikk_core_domain.ports import ApplicationReader, UnitOfWorkFactory
     from enikk_github.activity import CommitPull, WorkflowRun
@@ -82,8 +83,10 @@ class DeploymentService:
         policy: DeploymentPolicy,
         clock: Clock,
         ids: IdGenerator,
+        threads: ThreadNotes | None = None,
     ) -> None:
         self._uow = uow
+        self._threads = threads
         self._reader = reader
         self._app = app
         self._activity = activity
@@ -102,7 +105,10 @@ class DeploymentService:
                 now = self._clock.now()
                 watch, finished = watch.observe(observations, now, self._policy.timing)
                 for deployment in finished:
-                    bodies.append(await self._deployment_notice(token, deployment, watch))
+                    notice, branch = await self._deployment_notice(token, deployment, watch)
+                    bodies.append(notice)
+                    if branch is not None and self._threads is not None:
+                        await self._threads.post(uow, branch, _thread_note(notice))
                 if token is not None:
                     watch, failed = await self._failed_builds(token, watch)
                     bodies.extend(failed)
@@ -124,6 +130,12 @@ class DeploymentService:
             return None
 
     async def _pull(self, token: InstallationToken | None, sha: str) -> PullLink | None:
+        found = await self._commit_pull(token, sha)
+        return found[0] if found else None
+
+    async def _commit_pull(
+        self, token: InstallationToken | None, sha: str
+    ) -> tuple[PullLink, str] | None:
         if token is None:
             return None
         try:
@@ -133,16 +145,18 @@ class DeploymentService:
             return None
         if pull is None:
             return None
-        return PullLink(number=pull.number, title=pull.title[:300], url=pull.url[:500])
+        link = PullLink(number=pull.number, title=pull.title[:300], url=pull.url[:500])
+        return link, pull.branch
 
     async def _deployment_notice(
         self,
         token: InstallationToken | None,
         deployment: FinishedDeployment,
         watch: DeploymentWatch,
-    ) -> DeploymentFinished:
-        pull = await self._pull(token, deployment.commit)
-        return DeploymentFinished(
+    ) -> tuple[DeploymentFinished, str | None]:
+        found = await self._commit_pull(token, deployment.commit)
+        pull, branch = found if found else (None, None)
+        notice = DeploymentFinished(
             repository=self._full_name,
             commit=deployment.commit,
             pull=pull,
@@ -157,6 +171,7 @@ class DeploymentService:
                 for r in deployment.rollouts
             ),
         )
+        return notice, branch
 
     async def _failed_builds(
         self, token: InstallationToken, watch: DeploymentWatch
@@ -232,3 +247,14 @@ class DeploymentService:
     @property
     def _full_name(self) -> str:
         return f"{self._app.owner}/{self._policy.repository}"
+
+
+def _thread_note(notice: DeploymentFinished) -> str:
+    number = f"PR #{notice.pull.number} " if notice.pull else ""
+    if notice.succeeded:
+        return f"{number}배포가 끝났습니다. 바뀐 내용이 이제 동작합니다."
+    failed = ", ".join(a.app for a in notice.apps if a.result.value == "failed")
+    return (
+        f"{number}배포가 실패했습니다({failed}). 이전 버전이 계속 동작합니다. "
+        "소유자 DM 에서 되돌릴 수 있습니다."
+    )

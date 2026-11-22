@@ -43,15 +43,29 @@ _log = logging.getLogger(__name__)
 def task_brief(assignment: TaskAssignment, token: GitHubToken, workspace: Workspace) -> str:
     """The request, preceded by where the agent works. Facts only; rules are in the prompt."""
     workflows = "may" if token.workflows else "must not"
+    if workspace.continuing:
+        branch_state = (
+            "This branch already has an open pull request from earlier work in this "
+            "thread (see `gh pr view`). Add commits and push to it; do not open another "
+            "pull request. Mention the pull request in your reply.\n"
+        )
+    else:
+        branch_state = "This is a new branch from main.\n"
     return (
         f"Repository: {token.owner}/{token.repository}, cloned at {workspace.repo_dir}.\n"
         f"Branch: {workspace.branch} (already checked out; push only this branch).\n"
+        f"{branch_state}"
         f"You {workflows} change files under .github/workflows.\n"
         f"Task ID: {assignment.task_id}\n"
         "\n"
         "Request:\n"
         f"{assignment.input}"
     )
+
+
+def work_branch(assignment: TaskAssignment) -> str:
+    """One branch per developer session, so per Slack thread (ADR-0025)."""
+    return f"agent/{assignment.session_id}"
 
 
 class DevAgentApp:
@@ -82,7 +96,9 @@ class DevAgentApp:
             token = await core.github_token(
                 GitHubTokenRequest(task_id=assignment.task_id, lease_id=assignment.lease_id)
             )
-            workspace = await asyncio.to_thread(self._workspace.prepare, token, assignment.task_id)
+            workspace = await asyncio.to_thread(
+                self._workspace.prepare, token, work_branch(assignment)
+            )
         except EnikkError as exc:
             await _fail(core, assignment, f"could not prepare the workspace: {exc}")
             return
