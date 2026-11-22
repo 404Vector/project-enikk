@@ -44,6 +44,11 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["enikk-runtime-claude"]
+          # Deliberately failing readiness check to exercise the rollback path
+          # (ADR-0023). This commit is meant to be reverted from Slack.
+          readinessProbe:
+            exec: { command: ["python", "-c", "raise SystemExit(1)"] }
+            periodSeconds: 10
           env:
             - name: ENIKK_RUNTIME_CORE_URL
               value: {{ .Values.coreUrl | quote }}
