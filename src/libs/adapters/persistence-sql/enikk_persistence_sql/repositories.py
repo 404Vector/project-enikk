@@ -11,11 +11,13 @@ from sqlalchemy.orm import aliased
 from enikk_contracts.agents import Execution
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
-from enikk_core_domain.model import OutboxStatus
+from enikk_core_domain.model import ApprovalState, NoticeStatus, OutboxStatus
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
 from enikk_persistence_sql.tables import (
+    ApprovalRow,
     DispatchRow,
+    NoticeRow,
     OutboxRow,
     SessionRow,
     TaskRow,
@@ -32,7 +34,14 @@ if TYPE_CHECKING:
 
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
-    from enikk_core_domain.model import Dispatch, OutboxMessage, Session, Task
+    from enikk_core_domain.model import (
+        Approval,
+        Dispatch,
+        Notice,
+        OutboxMessage,
+        Session,
+        Task,
+    )
 
 
 async def _flush(db: AsyncSession, what: str) -> None:
@@ -207,6 +216,78 @@ def _transcript(
         TranscriptEntryRow.engine_session_id == engine_session_id,
         TranscriptEntryRow.subpath == subpath,
     )
+
+
+class SqlApprovalRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, approval: Approval) -> None:
+        self._db.add(mappers.approval_to_row(approval))
+        await _flush(self._db, f"approval {approval.id}")
+
+    async def update(self, approval: Approval) -> None:
+        row = await self._db.get(ApprovalRow, approval.id)
+        if row is None:
+            raise NotFoundError(f"approval {approval.id} does not exist")
+        mappers.approval_to_row(approval, row)
+        await _flush(self._db, f"approval {approval.id}")
+
+    async def get_for_update(self, approval_id: uuid.UUID) -> Approval | None:
+        row = await self._db.scalar(
+            select(ApprovalRow)
+            .where(ApprovalRow.id == approval_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.approval_from_row(row) if row else None
+
+    async def find(self, repository: str, number: int, head_sha: str) -> Approval | None:
+        row = await self._db.scalar(
+            select(ApprovalRow).where(
+                ApprovalRow.repository == repository,
+                ApprovalRow.number == number,
+                ApprovalRow.head_sha == head_sha,
+            )
+        )
+        return mappers.approval_from_row(row) if row else None
+
+    async def in_state(self, state: ApprovalState) -> Sequence[Approval]:
+        rows = await self._db.scalars(
+            select(ApprovalRow)
+            .where(ApprovalRow.state == state.value)
+            .order_by(ApprovalRow.created_at, ApprovalRow.id)
+        )
+        return [mappers.approval_from_row(row) for row in rows]
+
+
+class SqlNoticeRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, notice: Notice) -> None:
+        self._db.add(mappers.notice_to_row(notice))
+        await _flush(self._db, f"notice {notice.id}")
+
+    async def pending(self, limit: int) -> Sequence[Notice]:
+        rows = await self._db.scalars(
+            select(NoticeRow)
+            .where(NoticeRow.status == NoticeStatus.PENDING.value)
+            .order_by(NoticeRow.created_at, NoticeRow.id)
+            .limit(limit)
+        )
+        return [mappers.notice_from_row(row) for row in rows]
+
+    async def get_many(self, notice_ids: Sequence[uuid.UUID]) -> Sequence[Notice]:
+        rows = await self._db.scalars(select(NoticeRow).where(NoticeRow.id.in_(list(notice_ids))))
+        return [mappers.notice_from_row(row) for row in rows]
+
+    async def update(self, notice: Notice) -> None:
+        row = await self._db.get(NoticeRow, notice.id)
+        if row is None:
+            raise NotFoundError(f"notice {notice.id} does not exist")
+        mappers.notice_to_row(notice, row)
+        await _flush(self._db, f"notice {notice.id}")
 
 
 class SqlDispatchRepository:

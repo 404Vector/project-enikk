@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices
+from enikk_core.approval.service import ApprovalService
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.dispatcher import DevJobDispatcher
@@ -16,6 +17,7 @@ from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
 from enikk_github.app import GitHubApp
+from enikk_github.pulls import PullRequests
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
 from enikk_kernel.clock import SystemClock
@@ -63,7 +65,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
     store = DirectoryCredentialStore(settings.credentials_dir)
-    github, dev_tokens = _github(settings, store, clock)
+    github, dev_tokens, approvals = _github(settings, store, clock, uow, ids)
     return CoreServices(
         version=settings.version,
         usecases=usecases,
@@ -74,12 +76,18 @@ def build_services(settings: CoreSettings) -> CoreServices:
         reaper_interval_seconds=settings.tasks.reaper_interval_seconds,
         dispatcher=dispatcher,
         dispatch_interval_seconds=dev.interval_seconds,
+        approvals=approvals,
+        watch_interval_seconds=settings.approval.interval_seconds,
     )
 
 
 def _github(
-    settings: CoreSettings, store: DirectoryCredentialStore, clock: SystemClock
-) -> tuple[GitHubHealthCheck, DevTokenIssuer]:
+    settings: CoreSettings,
+    store: DirectoryCredentialStore,
+    clock: SystemClock,
+    uow: SqlUnitOfWorkFactory,
+    ids: RandomIdGenerator,
+) -> tuple[GitHubHealthCheck, DevTokenIssuer, ApprovalService | None]:
     policy = load_repository_policy(
         settings.github.repositories_file, self_repository=settings.github.self_repository
     )
@@ -89,4 +97,15 @@ def _github(
 
     config = settings.github.to_config()
     app = None if config is None else GitHubApp.create(config, private_key, clock)
-    return GitHubHealthCheck(app, policy, private_key), DevTokenIssuer(app, policy)
+    approvals = None
+    if app is not None and settings.approval.enabled:
+        approvals = ApprovalService(
+            uow=uow,
+            app=app,
+            pulls=PullRequests(app),
+            policy=policy,
+            clock=clock,
+            ids=ids,
+            sleep=asyncio.sleep,
+        )
+    return GitHubHealthCheck(app, policy, private_key), DevTokenIssuer(app, policy), approvals

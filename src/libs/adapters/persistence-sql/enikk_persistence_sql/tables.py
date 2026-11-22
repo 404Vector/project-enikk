@@ -87,6 +87,40 @@ class DispatchRow(Base):
     created_at: Mapped[datetime]
 
 
+class ApprovalRow(Base):
+    """The owner's approval of one pull request commit (ADR-0020)."""
+
+    __tablename__ = "approvals"
+    __table_args__ = (
+        UniqueConstraint("repository", "number", "head_sha", name="uq_approvals_commit"),
+        Index("ix_approvals_state", "state", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    repository: Mapped[str] = mapped_column(String(200))
+    number: Mapped[int] = mapped_column(Integer)
+    head_sha: Mapped[str] = mapped_column(String(40))
+    branch: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str] = mapped_column(String(300))
+    url: Mapped[str] = mapped_column(String(500))
+    state: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime]
+    decided_at: Mapped[datetime | None]
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+
+
+class NoticeRow(Base):
+    """A message for the owner's DM. ``body`` is an ``OwnerNotice`` body as JSON."""
+
+    __tablename__ = "notices"
+    __table_args__ = (Index("ix_notices_pending", "status", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    body: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime]
+
+
 class OutboxRow(Base):
     __tablename__ = "outbox"
     __table_args__ = (Index("ix_outbox_pending", "connector", "status", "created_at"),)

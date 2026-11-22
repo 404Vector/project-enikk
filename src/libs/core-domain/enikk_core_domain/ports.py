@@ -17,7 +17,15 @@ if TYPE_CHECKING:
     from enikk_contracts.credentials import CredentialName
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
-    from enikk_core_domain.model import Dispatch, OutboxMessage, Session, Task
+    from enikk_core_domain.model import (
+        Approval,
+        ApprovalState,
+        Dispatch,
+        Notice,
+        OutboxMessage,
+        Session,
+        Task,
+    )
 
 
 class SessionRepository(Protocol):
@@ -108,8 +116,43 @@ class DispatchRepository(Protocol):
     async def count_for(self, task_id: uuid.UUID) -> int: ...
 
 
+class ApprovalRepository(Protocol):
+    """Owner approvals of pull request commits (ADR-0020)."""
+
+    async def add(self, approval: Approval) -> None: ...
+    async def update(self, approval: Approval) -> None: ...
+
+    async def get_for_update(self, approval_id: uuid.UUID) -> Approval | None:
+        """Load an approval and lock it until the unit of work ends."""
+        ...
+
+    async def find(self, repository: str, number: int, head_sha: str) -> Approval | None: ...
+
+    async def in_state(self, state: ApprovalState) -> Sequence[Approval]:
+        """Every approval in ``state``, oldest first."""
+        ...
+
+
+class NoticeRepository(Protocol):
+    """The owner's DM queue (ADR-0020)."""
+
+    async def add(self, notice: Notice) -> None: ...
+
+    async def pending(self, limit: int) -> Sequence[Notice]:
+        """Oldest undelivered notices first."""
+        ...
+
+    async def get_many(self, notice_ids: Sequence[uuid.UUID]) -> Sequence[Notice]: ...
+    async def update(self, notice: Notice) -> None: ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
+
+    @property
+    def approvals(self) -> ApprovalRepository: ...
+    @property
+    def notices(self) -> NoticeRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...

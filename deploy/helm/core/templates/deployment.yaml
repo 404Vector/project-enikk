@@ -48,6 +48,10 @@ spec:
               value: {{ .Values.github.selfRepository | quote }}
             - name: ENIKK_CORE_GITHUB__REPOSITORIES_FILE
               value: /app/config/github.yaml
+            - name: ENIKK_CORE_APPROVAL__ENABLED
+              value: {{ .Values.approval.enabled | quote }}
+            - name: ENIKK_CORE_APPROVAL__INTERVAL_SECONDS
+              value: {{ .Values.approval.intervalSeconds | quote }}
             - name: ENIKK_CORE_DEV_AGENT__ENABLED
               value: {{ .Values.devAgent.enabled | quote }}
             - name: ENIKK_CORE_DEV_AGENT__NAMESPACE

@@ -8,6 +8,7 @@ import httpx
 from pydantic import ValidationError
 
 from enikk_contracts import routes
+from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     import uuid
     from types import TracebackType
 
+    from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
     from enikk_contracts.events import InboundEvent
@@ -139,6 +141,19 @@ class CoreClient:
     async def github_token(self, request: GitHubTokenRequest) -> GitHubToken:
         """Isolated workers only: a development token for one repository (I-32)."""
         return _parse(GitHubToken, await self._post(routes.GITHUB_TOKEN, request))
+
+    async def poll_notices(self, poll: NoticePoll) -> NoticeBatch:
+        """Slack connector only: messages for the owner's DM (ADR-0020)."""
+        timeout = poll.wait_seconds + LONG_POLL_MARGIN
+        return _parse(NoticeBatch, await self._post(routes.NOTICES_POLL, poll, timeout))
+
+    async def ack_notices(self, ack: NoticeAck) -> NoticeAcked:
+        return _parse(NoticeAcked, await self._post(routes.NOTICES_ACK, ack))
+
+    async def decide(self, approval_id: uuid.UUID, request: DecisionRequest) -> DecisionResult:
+        """The owner's decision on a pull request. Merging can take a few seconds."""
+        path = routes.APPROVAL_DECISION.format(approval_id=approval_id)
+        return _parse(DecisionResult, await self._post(path, request, 60))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

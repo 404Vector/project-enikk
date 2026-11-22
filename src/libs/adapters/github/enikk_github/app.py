@@ -194,6 +194,26 @@ class GitHubApp:
         except DependencyUnavailableError as exc:
             _log.warning("could not revoke a token for %s: %s", token.repository, exc)
 
+    async def call(
+        self,
+        method: str,
+        path: str,
+        token: InstallationToken,
+        *,
+        body: str | None = None,
+        params: dict[str, str] | None = None,
+        accept: str | None = None,
+    ) -> httpx.Response:
+        """A REST call with an installation token. Raises ``GitHubRequestError``."""
+        return await self._request(
+            method,
+            path,
+            bearer=token.token.get_secret_value(),
+            body=body,
+            params=params,
+            accept=accept,
+        )
+
     # ------------------------------------------------------------ internals
 
     def _app_jwt(self) -> str:
@@ -217,13 +237,24 @@ class GitHubApp:
             ) from None
 
     async def _request(
-        self, method: str, path: str, *, bearer: str, body: str | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        bearer: str,
+        body: str | None = None,
+        params: dict[str, str] | None = None,
+        accept: str | None = None,
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {bearer}"}
         if body is not None:
             headers["Content-Type"] = "application/json"
+        if accept is not None:
+            headers["Accept"] = accept
         try:
-            response = await self._http.request(method, path, content=body, headers=headers)
+            response = await self._http.request(
+                method, path, content=body, headers=headers, params=params
+            )
         except httpx.HTTPError as exc:
             raise DependencyUnavailableError(
                 f"GitHub {method} {path} failed: {type(exc).__name__}"
@@ -233,9 +264,20 @@ class GitHubApp:
         message = ""
         with contextlib.suppress(ValidationError):
             message = _ErrorBody.model_validate_json(response.content).message
-        raise DependencyUnavailableError(
-            f"GitHub {method} {path} returned {response.status_code}: {message[:300]}"
+        raise GitHubRequestError(
+            f"GitHub {method} {path} returned {response.status_code}: {message[:300]}",
+            status=response.status_code,
+            message=message[:300],
         )
+
+
+class GitHubRequestError(DependencyUnavailableError):
+    """GitHub answered with an error status."""
+
+    def __init__(self, text: str, *, status: int, message: str) -> None:
+        super().__init__(text)
+        self.status = status
+        self.message = message
 
 
 def _parse[T: BaseModel](model: type[T], response: httpx.Response) -> T:

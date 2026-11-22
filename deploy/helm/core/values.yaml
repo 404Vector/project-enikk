@@ -28,6 +28,12 @@ github:
 
 # Isolated dev agent Jobs (ADR-0021). The Role that lets core start them is in
 # deploy/helm/dev-agent; core waits until that chart publishes the Job template.
+# Slack approval of pull requests (ADR-0020): core watches open PRs to main and
+# asks the owner in a DM; approving records enikk/owner-approval and merges.
+approval:
+  enabled: true
+  intervalSeconds: 30
+
 devAgent:
   enabled: true
   namespace: enikk-dev

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Self
 from pydantic import AwareDatetime, Field, model_validator
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import AgentName, ConversationRef, Engine, Identifier, NonEmptyText
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import FailureReason, ProgressNote, TaskStatus
@@ -276,6 +277,60 @@ class Dispatch(FrozenModel):
     task_id: uuid.UUID
     job_name: Annotated[str, Field(min_length=1, max_length=63)]
     created_at: AwareDatetime
+
+
+class ApprovalState(StrEnum):
+    CHECKS_FAILED = "checks-failed"
+    """CI failed on this commit; the owner was told, nothing to approve."""
+    REQUESTED = "requested"
+    MERGED = "merged"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+    BLOCKED = "blocked"
+    CLOSED = "closed"
+
+
+class Approval(Entity):
+    """The owner's approval of one pull request commit (ADR-0020, I-33).
+
+    One record per repository, PR and head commit: approving binds to that commit only.
+    """
+
+    id: uuid.UUID
+    repository: Annotated[str, Field(min_length=3, max_length=200)]
+    number: Annotated[int, Field(ge=1)]
+    head_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    branch: Annotated[str, Field(min_length=1, max_length=255)]
+    title: Annotated[str, Field(min_length=1, max_length=300)]
+    url: Annotated[str, Field(min_length=1, max_length=500)]
+    state: ApprovalState
+    created_at: AwareDatetime
+    decided_at: AwareDatetime | None = None
+    decided_by: Identifier | None = None
+
+    def resolve(self, state: ApprovalState, now: datetime, by: str | None = None) -> Self:
+        if self.state is not ApprovalState.REQUESTED:
+            raise InvalidTransitionError(f"approval {self.id} is already {self.state}")
+        return self._evolve(state=state, decided_at=now, decided_by=by)
+
+
+class NoticeStatus(StrEnum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+
+
+class Notice(Entity):
+    """A message for the owner's DM (ADR-0020). ``body`` is an ``OwnerNotice`` body."""
+
+    id: uuid.UUID
+    body: OwnerNoticeBody
+    status: NoticeStatus = NoticeStatus.PENDING
+    created_at: AwareDatetime
+
+    def mark_delivered(self) -> Self:
+        if self.status is NoticeStatus.DELIVERED:
+            return self
+        return self._evolve(status=NoticeStatus.DELIVERED)
 
 
 class OutboxStatus(StrEnum):
