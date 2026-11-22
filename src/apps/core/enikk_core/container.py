@@ -13,7 +13,12 @@ from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
 from enikk_core.dispatcher import DevJobDispatcher
-from enikk_core.github import DevTokenIssuer, GitHubHealthCheck, load_repository_policy
+from enikk_core.github import (
+    DevTokenIssuer,
+    GitHubHealthCheck,
+    load_repository_policy,
+    load_sensitive_paths,
+)
 from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
@@ -111,6 +116,7 @@ def _github(
             app=app,
             pulls=PullRequests(app),
             policy=policy,
+            sensitive=load_sensitive_paths(settings.github.sensitive_paths_file),
             clock=clock,
             ids=ids,
             sleep=asyncio.sleep,
@@ -130,6 +136,7 @@ def _github(
                 apps=watch.apps,
                 repository=settings.github.self_repository,
                 images_workflow=watch.images_workflow,
+                workflows=policy.own.workflows,
                 timing=WatchTiming(
                     timeout=timedelta(seconds=watch.timeout_seconds),
                     settle=timedelta(seconds=watch.settle_seconds),

@@ -1,7 +1,9 @@
 # Repositories the agents may work on (ADR-0019 §3). Adding one goes through a PR
 # and the owner's Slack approval like any other change.
-#   self: true      the platform's own repository; exactly one, workflows always off
+#   self: true      the platform's own repository; exactly one
 #   workflows: true development tokens may change that repository's workflow files
 repositories:
   - name: project-enikk
     self: true
+    # Workflow files are sensitive paths: changes need the stronger approval (ADR-0024).
+    workflows: true

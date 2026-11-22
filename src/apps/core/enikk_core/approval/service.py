@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     )
     from enikk_core.github import GitHubAppApi
     from enikk_core_domain.ports import UnitOfWork, UnitOfWorkFactory
-    from enikk_core_domain.repositories import RepositoryPolicy
+    from enikk_core_domain.repositories import RepositoryPolicy, SensitivePaths
     from enikk_github.app import InstallationToken
     from enikk_github.pulls import CheckRun, FileChange, MergeResult, PullInfo
     from enikk_kernel.clock import Clock
@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
 AGENT_BRANCH_PREFIX: Final = "agent/"
 MAX_FILES: Final = 100
+SENSITIVE_DIFF_LIMIT: Final = 40_000
 POLL_INTERVAL: Final = timedelta(seconds=1)
 
 _log = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class ApprovalService:
         app: GitHubAppApi,
         pulls: PullsApi,
         policy: RepositoryPolicy,
+        sensitive: SensitivePaths,
         clock: Clock,
         ids: IdGenerator,
         sleep: Sleep,
@@ -95,6 +97,7 @@ class ApprovalService:
         self._app = app
         self._pulls = pulls
         self._policy = policy
+        self._sensitive = sensitive
         self._clock = clock
         self._ids = ids
         self._sleep = sleep
@@ -205,6 +208,15 @@ class ApprovalService:
     ) -> PullRequestCard:
         files = await self._pulls.files(token, pull.number)
         diff, truncated = await self._pulls.diff(token, pull.number)
+        flagged = [
+            f
+            for f in files
+            if self._sensitive.matches(f.path)
+            or (f.previous_path is not None and self._sensitive.matches(f.previous_path))
+        ]
+        sensitive_diff = "\n".join(
+            f"--- {f.path}\n{f.patch or '(diff 없음: 바이너리이거나 너무 큼)'}" for f in flagged
+        )
         return PullRequestCard(
             repository=full_name,
             number=pull.number,
@@ -225,6 +237,8 @@ class ApprovalService:
             ),
             diff=diff,
             diff_truncated=truncated,
+            sensitive=tuple(f.path[:500] for f in flagged[:100]),
+            sensitive_diff=sensitive_diff[:SENSITIVE_DIFF_LIMIT],
         )
 
     # ------------------------------------------------------------ deciding

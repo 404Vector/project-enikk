@@ -77,7 +77,7 @@ def test_repository_list_in_git_is_valid() -> None:
         REPO_ROOT / "config/github.yaml", self_repository="project-enikk"
     )
     assert policy.own.name == "project-enikk"
-    assert not policy.own.workflows
+    assert policy.own.workflows
 
 
 def test_self_repository_must_match_core_settings(tmp_path: Path) -> None:
@@ -90,7 +90,6 @@ def test_self_repository_must_match_core_settings(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("document", "message"),
     [
-        ({"repositories": [{"name": "a", "self": True, "workflows": True}]}, "cannot allow"),
         ({"repositories": [{"name": "a"}]}, "exactly one"),
         ({"repositories": [{"name": "a", "self": True}, {"name": "A"}]}, "unique"),
         ({"repositories": [{"name": "a/b", "self": True}]}, "pattern"),
@@ -118,3 +117,13 @@ def test_github_is_off_without_both_ids(monkeypatch: pytest.MonkeyPatch) -> None
     config = CoreSettings().github.to_config()
     assert config is not None
     assert (config.app_id, config.installation_id) == (5869950, 184545127)
+
+
+def test_sensitive_path_list_in_git_is_valid_and_guards_itself() -> None:
+    from enikk_core.github import load_sensitive_paths
+
+    paths = load_sensitive_paths(REPO_ROOT / "config/sensitive-paths.yaml")
+    assert paths.matches("config/sensitive-paths.yaml")
+    assert paths.matches("src/apps/core/enikk_core/approval/service.py")
+    assert paths.matches(".github/workflows/ci.yml")
+    assert not paths.matches("README.md")

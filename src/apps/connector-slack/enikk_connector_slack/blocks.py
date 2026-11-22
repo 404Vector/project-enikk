@@ -114,10 +114,34 @@ _STRONG: Final = re.compile(r"\*\*(.+?)\*\*")
 def approval_request(notice: ApprovalRequested) -> Message:
     pull = notice.pull
     approval = str(notice.approval_id)
+    warning: tuple[Block, ...] = ()
+    confirm = None
+    if pull.sensitive:
+        listed = "\n".join(f"• `{_escape(p)}`" for p in pull.sensitive[:MAX_FILE_LINES])
+        hidden = len(pull.sensitive) - MAX_FILE_LINES
+        if hidden > 0:
+            listed += f"\n• …외 {hidden}개"
+        warning = (
+            _section(
+                ":warning: *민감 경로 변경* — 승인 절차, 권한, 설계 기록 같은 파일을 바꿉니다. "
+                f"스레드의 첫 댓글에서 이 파일들의 diff 를 확인해 주세요.\n{listed}"
+            ),
+        )
+        confirm = Confirm(
+            title=Text(type="plain_text", text="민감 경로 변경"),
+            text=Text(
+                type="plain_text",
+                text=f"민감 경로 {len(pull.sensitive)}개를 바꾸는 PR 입니다. 정말 머지할까요?",
+            ),
+            confirm=Text(type="plain_text", text="승인하고 머지"),
+            deny=Text(type="plain_text", text="취소"),
+        )
     return Message(
-        text=f"PR 승인 요청: #{pull.number} {pull.title}",
+        text=f"{'민감 경로 변경 ' if pull.sensitive else ''}PR 승인 요청: "
+        f"#{pull.number} {pull.title}",
         blocks=(
             *_headline(pull, heading=":inbox_tray: *승인 요청*"),
+            *warning,
             Actions(
                 elements=(
                     Button(
@@ -125,6 +149,7 @@ def approval_request(notice: ApprovalRequested) -> Message:
                         action_id=APPROVE_ACTION,
                         value=approval,
                         style="primary",
+                        confirm=confirm,
                     ),
                     Button(
                         text=Text(type="plain_text", text="반려"),
@@ -147,7 +172,24 @@ def checks_failed(notice: ChecksFailed) -> Message:
 
 
 def details(pull: PullRequestCard) -> tuple[Message, ...]:
-    """Thread replies under a request: metadata, PR body, changed files and checks."""
+    """Thread replies under a request: the sensitive diff first (ADR-0024), then
+    metadata, PR body, changed files and checks."""
+    replies: list[Message] = []
+    if pull.sensitive_diff:
+        # A literal ``` inside the diff would end the code block early.
+        pieces = _chunks(pull.sensitive_diff.replace("```", "`\u200b``"), SECTION_LIMIT - 20)
+        replies += [
+            Message(
+                text=f"PR #{pull.number} 민감 경로 diff ({i}/{len(pieces)})",
+                blocks=(
+                    _section(
+                        (":warning: *민감 경로 diff*\n" if i == 1 else "")
+                        + f"```{_escape(piece)}```"
+                    ),
+                ),
+            )
+            for i, piece in enumerate(pieces, start=1)
+        ]
     parts = [
         f"`{pull.repository}` · 작성자 `{pull.author}` · 브랜치 `{pull.branch}` "
         f"· 커밋 `{pull.head_sha[:7]}`"
@@ -167,14 +209,17 @@ def details(pull: PullRequestCard) -> tuple[Message, ...]:
         parts.append(f"*검사*\n{marks}")
     chunks = _chunks("\n\n".join(parts), SECTION_LIMIT)
     total = len(chunks)
-    return tuple(
-        Message(
-            text=f"PR #{pull.number} 상세 ({i}/{total})"
-            if total > 1
-            else f"PR #{pull.number} 상세",
-            blocks=(_section(chunk),),
-        )
-        for i, chunk in enumerate(chunks, start=1)
+    return (
+        *replies,
+        *(
+            Message(
+                text=f"PR #{pull.number} 상세 ({i}/{total})"
+                if total > 1
+                else f"PR #{pull.number} 상세",
+                blocks=(_section(chunk),),
+            )
+            for i, chunk in enumerate(chunks, start=1)
+        ),
     )
 
 
