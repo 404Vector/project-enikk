@@ -1,7 +1,7 @@
 # 구현 마일스톤
 
 - 상태: 승인
-- 최종 갱신: 2026-11-21
+- 최종 갱신: 2026-11-22
 - 근거: [architecture/code-structure.md](../architecture/code-structure.md), ADR-0001 ~ ADR-0011
 
 ## 진행 원칙
@@ -72,7 +72,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 4. k8s-auth(TokenReview), core-client
 5. core 앱 조립, 배포 설정(마이그레이션 Job, ServiceAccount·권한), `enikk-ops smoke core` 로 클러스터 검증
 
-## M3. 첫 대화 (End-to-End)
+## M3. 첫 대화 (End-to-End) — 완료 (2026-11-22, PR #12 ~ #17)
 
 **목표**: Slack 에 말을 걸면 Claude 에이전트가 답한다.
 
@@ -85,6 +85,12 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 **완료 조건**: Slack 스레드에서 대화가 이어지고, Langfuse 에 프롬프트 버전과 연결된 트레이스가 남는다. 다른 사용자의 메시지는 무시된다.
 **소유자 준비물**: Slack 앱(Socket Mode, 봇·앱 토큰), `claude setup-token` 토큰, Langfuse 프로젝트 키와 프롬프트. 토큰과 키는 `enikk-ops secret set` 으로 등록한다.
+**세부 결정**: ADR-0013 ~ ADR-0018
+**확인 결과 (2026-11-22)**:
+- 소유자가 DM 과 채널 멘션으로 대화했다. 같은 스레드의 후속 메시지가 앞의 내용을 기억했고, 채널 스레드에서는 멘션 없는 답글로도 이어졌다.
+- Langfuse 에 generation 4건이 `assistant` v1 과 연결되어 남았고, 스레드별로 같은 세션에 묶였다.
+- 다른 사용자의 메시지를 무시하는 동작은 connector-slack 테스트로 확인했다(다른 계정으로는 확인하지 않음).
+- 런타임은 작업마다 빈 설정 디렉터리에서 core 의 대화 이력으로 이어 간다(ADR-0014, `enikk-ops smoke claude`). Pod 재시작 뒤의 Slack 대화는 따로 확인하지 않았다.
 
 ## M4. MCP 도구
 
