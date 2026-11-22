@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Final
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.threads import ReviewThreadLinked
-from enikk_core_domain.model import OutboxMessage
+from enikk_core_domain.model import OutboxMessage, ReviewMessageRef
 
 if TYPE_CHECKING:
     from enikk_contracts.threads import ReviewThreadOpened
@@ -100,10 +100,22 @@ class ReviewLinks:
 
     async def opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked:
         async with self._uow() as uow:
+            if review.channel is not None and review.ts is not None:
+                await uow.review_messages.put(
+                    ReviewMessageRef(
+                        repository=review.repository,
+                        number=review.number,
+                        channel=review.channel,
+                        ts=review.ts,
+                    )
+                )
+                await uow.commit()
             found = await self._notes.origin(uow, review.branch)
             if found is None:
                 return ReviewThreadLinked()
             session, latest = found
+            if review.updated:
+                return ReviewThreadLinked(origin=session.reply_to)
             if review.review_link is not None:
                 note = f"PR #{review.number} 검토 스레드(소유자 DM): {review.review_link}"
                 await self._notes.post(uow, review.branch, note)

@@ -377,3 +377,43 @@ async def test_progress_of_an_agent_pr_is_told_in_its_thread(
     assert len(texts) == 2
     assert any("승인 요청" in t for t in texts)
     assert any("머지됐습니다" in t for t in texts)
+
+
+async def test_a_new_commit_updates_the_owners_message_instead_of_adding_one(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    from enikk_contracts.approvals import ApprovalOutdated
+    from enikk_core_domain.model import ReviewMessageRef
+
+    pulls.pulls[7] = _pull()
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [first] = await _notices(service)
+    assert isinstance(first, ApprovalRequested)
+    assert first.replaces is None
+    async with harness.db.unit_of_work() as uow:
+        await uow.review_messages.put(
+            ReviewMessageRef(repository="404Vector/project-enikk", number=7, channel="D1", ts="5.0")
+        )
+        await uow.commit()
+
+    pulls.pulls[7] = _pull(sha=SHA2)
+    pulls.runs[SHA2] = [CheckRun(name="checks", completed=False, conclusion=None)]
+    await service.watch_once()
+    await service.watch_once()
+    [outdated] = await _notices(service)
+    assert isinstance(outdated, ApprovalOutdated)
+    assert (outdated.replaces.channel, outdated.replaces.ts) == ("D1", "5.0")
+    assert outdated.head_sha == SHA2
+
+    pulls.runs[SHA2] = _passed("checks")
+    await service.watch_once()
+    [second] = await _notices(service)
+    assert isinstance(second, ApprovalRequested)
+    assert second.replaces is not None
+    assert second.replaces.ts == "5.0"
+    result = await service.decide(
+        first.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    assert result.outcome is ResolutionOutcome.SUPERSEDED
+    assert pulls.merged == []

@@ -333,3 +333,41 @@ async def test_ordinary_changes_have_no_confirmation() -> None:
     [actions] = [b for b in slack.messages[0][1].blocks if isinstance(b, Actions)]
     assert all(e.confirm is None for e in actions.elements)
     assert "confirm" not in str(slack.messages[0][1].payload())
+
+
+async def test_a_replacing_request_updates_the_message_in_place() -> None:
+    from enikk_contracts.approvals import ApprovalOutdated, ReviewMessage
+
+    core, slack = FakeCore(), FakeSlack()
+    old = ReviewMessage(channel="D0OWNER", ts="5.0")
+    core.notices += [
+        OwnerNotice(
+            notice_id=uuid.uuid4(),
+            body=ApprovalOutdated(
+                repository=CARD.repository,
+                number=7,
+                url=CARD.url,
+                title=CARD.title,
+                head_sha="2" * 40,
+                replaces=old,
+            ),
+        ),
+        OwnerNotice(
+            notice_id=uuid.uuid4(),
+            body=ApprovalRequested(
+                approval_id=APPROVAL,
+                pull=CARD.model_copy(update={"head_sha": "2" * 40}),
+                replaces=old,
+            ),
+        ),
+    ]
+    assert await _relay(core, slack).relay_once() == 2
+    assert slack.messages == []
+    [(c1, ts1, waiting), (c2, ts2, request)] = slack.updates
+    assert (c1, ts1) == (c2, ts2) == ("D0OWNER", "5.0")
+    assert "검사 중" in str(waiting)
+    assert all(b["type"] != "actions" for b in waiting)
+    assert any(b["type"] == "actions" for b in request)
+    assert any("갱신" in text for (_, _, text) in slack.posts)
+    [review] = core.reviews
+    assert (review.channel, review.ts, review.updated) == ("D0OWNER", "5.0", True)

@@ -27,6 +27,7 @@ from enikk_core_domain.model import (
     NoticeStatus,
     OutboxMessage,
     OutboxStatus,
+    ReviewMessageRef,
     Session,
     Task,
 )
@@ -121,6 +122,7 @@ class InMemoryDatabase:
         self.notices: dict[uuid.UUID, Notice] = {}
         self.deployment_watch: DeploymentWatch | None = None
         self.vault: dict[str, VaultNote] = {}
+        self.review_messages: dict[tuple[str, int], ReviewMessageRef] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -138,6 +140,18 @@ class _Staged:
         self.notices = dict(db.notices)
         self.deployment_watch = db.deployment_watch
         self.vault = dict(db.vault)
+        self.review_messages = dict(db.review_messages)
+
+
+class _ReviewMessages:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None:
+        return self._s.review_messages.get((repository, number))
+
+    async def put(self, ref: ReviewMessageRef) -> None:
+        self._s.review_messages[(ref.repository, ref.number)] = ref
 
 
 class _Vault:
@@ -439,6 +453,7 @@ class InMemoryUnitOfWork:
         self.notices = _Notices(self._staged)
         self.deployment_watch = _DeploymentWatch(self._staged)
         self.vault = _Vault(self._staged)
+        self.review_messages = _ReviewMessages(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -465,6 +480,7 @@ class InMemoryUnitOfWork:
         self._db.notices = dict(self._staged.notices)
         self._db.deployment_watch = self._staged.deployment_watch
         self._db.vault = dict(self._staged.vault)
+        self._db.review_messages = dict(self._staged.review_messages)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -940,6 +956,21 @@ async def check_vault_index(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.vault.shas() == {first.path: "s2"}, "update and remove")
 
 
+async def check_review_messages(new_uow: UnitOfWorkFactory) -> None:
+    first = ReviewMessageRef(repository="404Vector/project-enikk", number=7, channel="D1", ts="1.0")
+    async with new_uow() as uow:
+        _expect(await uow.review_messages.get(first.repository, 7) is None, "none yet")
+        await uow.review_messages.put(first)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.review_messages.get(first.repository, 7) == first, "round trip")
+        await uow.review_messages.put(first.model_copy(update={"ts": "2.0"}))
+        await uow.commit()
+    async with new_uow() as uow:
+        found = await uow.review_messages.get(first.repository, 7)
+        _expect(found is not None and found.ts == "2.0", "replaced")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -957,4 +988,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_approvals_and_notices,
     check_deployment_watch,
     check_vault_index,
+    check_review_messages,
 )

@@ -11,7 +11,12 @@ from sqlalchemy.orm import aliased
 from enikk_contracts.agents import Execution
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
-from enikk_core_domain.model import ApprovalState, NoticeStatus, OutboxStatus
+from enikk_core_domain.model import (
+    ApprovalState,
+    NoticeStatus,
+    OutboxStatus,
+    ReviewMessageRef,
+)
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
 from enikk_persistence_sql.tables import (
@@ -20,6 +25,7 @@ from enikk_persistence_sql.tables import (
     DispatchRow,
     NoticeRow,
     OutboxRow,
+    ReviewMessageRow,
     SessionRow,
     TaskRow,
     TranscriptEntryRow,
@@ -341,6 +347,28 @@ class SqlDeploymentWatchRepository:
         else:
             mappers.deployment_watch_to_row(watch, row)
         await _flush(self._db, "deployment watch")
+
+
+class SqlReviewMessageRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None:
+        row = await self._db.get(ReviewMessageRow, (repository, number))
+        if row is None:
+            return None
+        return ReviewMessageRef(
+            repository=row.repository, number=row.number, channel=row.channel, ts=row.ts
+        )
+
+    async def put(self, ref: ReviewMessageRef) -> None:
+        row = await self._db.get(ReviewMessageRow, (ref.repository, ref.number))
+        if row is None:
+            row = ReviewMessageRow(repository=ref.repository, number=ref.number)
+            self._db.add(row)
+        row.channel = ref.channel
+        row.ts = ref.ts
+        await _flush(self._db, f"review message of {ref.repository}#{ref.number}")
 
 
 class SqlVaultIndexRepository:

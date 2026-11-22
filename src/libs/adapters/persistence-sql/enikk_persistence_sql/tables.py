@@ -148,6 +148,17 @@ class VaultNoteRow(Base):
     synced_at: Mapped[datetime]
 
 
+class ReviewMessageRow(Base):
+    """The owner's DM message showing a pull request (ADR-0020 §4)."""
+
+    __tablename__ = "review_messages"
+
+    repository: Mapped[str] = mapped_column(String(200), primary_key=True)
+    number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(255))
+    ts: Mapped[str] = mapped_column(String(255))
+
+
 class OutboxRow(Base):
     __tablename__ = "outbox"
     __table_args__ = (Index("ix_outbox_pending", "connector", "status", "created_at"),)

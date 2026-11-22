@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         Dispatch,
         Notice,
         OutboxMessage,
+        ReviewMessageRef,
         Session,
         Task,
     )
@@ -189,6 +190,13 @@ class VaultIndexRepository(Protocol):
         ...
 
 
+class ReviewMessageRepository(Protocol):
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None: ...
+    async def put(self, ref: ReviewMessageRef) -> None:
+        """Create or replace the message of that pull request."""
+        ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -200,6 +208,8 @@ class UnitOfWork(Protocol):
     def deployment_watch(self) -> DeploymentWatchRepository: ...
     @property
     def vault(self) -> VaultIndexRepository: ...
+    @property
+    def review_messages(self) -> ReviewMessageRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...
