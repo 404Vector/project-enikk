@@ -21,7 +21,7 @@ from enikk_contracts.approvals import (
 from enikk_core.approval.service import ApprovalService
 from enikk_core_client import CoreForbiddenError
 from enikk_core_domain.model import ApprovalState
-from enikk_core_domain.repositories import RepositoryPolicy
+from enikk_core_domain.repositories import RepositoryPolicy, SensitivePaths
 from enikk_github.permissions import TokenPurpose
 from enikk_github.pulls import CheckRun, FileChange, MergeResult, PullInfo
 from enikk_kernel.ids import RandomIdGenerator
@@ -36,6 +36,7 @@ pytestmark = pytest.mark.anyio
 POLICY = RepositoryPolicy.model_validate_json(
     '{"repositories": [{"name": "project-enikk", "self": true}, {"name": "side-project"}]}'
 )
+SENSITIVE = SensitivePaths(paths=("docs/adr/", "AGENTS.md"))
 SHA1 = "1" * 40
 SHA2 = "2" * 40
 OWNER = "U04CF12EKRA"
@@ -68,6 +69,7 @@ class FakePulls:
         self.merge_result = MergeResult(merged=True)
         self.purposes: list[TokenPurpose] = []
         self.updated: list[int] = []
+        self.changed = [FileChange(path="README.md", additions=1, deletions=0)]
 
     async def open_pulls(self, token: InstallationToken, base: str = "main") -> list[PullInfo]:
         if token.repository != "project-enikk":
@@ -81,7 +83,7 @@ class FakePulls:
         return self.runs.get(sha, [])
 
     async def files(self, token: InstallationToken, number: int) -> list[FileChange]:
-        return [FileChange(path="README.md", additions=1, deletions=0)]
+        return list(self.changed)
 
     async def diff(self, token: InstallationToken, number: int) -> tuple[str, bool]:
         return "+one line", False
@@ -124,6 +126,7 @@ def service(harness: Harness, pulls: FakePulls) -> ApprovalService:
         app=harness.github,
         pulls=pulls,
         policy=POLICY,
+        sensitive=SENSITIVE,
         clock=harness.clock,
         ids=RandomIdGenerator(),
         sleep=no_sleep,
@@ -318,3 +321,21 @@ async def test_agent_branch_behind_main_is_updated_instead_of_asked(
     notices = await _notices(service)
     assert [n.pull.number for n in notices if isinstance(n, ApprovalRequested)] == [8]
     assert ("project-enikk", TokenPurpose.APPROVE) in harness.github.issued
+
+
+async def test_sensitive_paths_are_flagged_with_their_own_diff(
+    service: ApprovalService, pulls: FakePulls
+) -> None:
+    pulls.changed = [
+        FileChange(path="README.md", additions=1, deletions=0, patch="+readme"),
+        FileChange(path="docs/adr/0099-x.md", additions=3, deletions=0, patch="+adr"),
+        FileChange(path="NEW.md", additions=0, deletions=0, previous_path="AGENTS.md"),
+    ]
+    pulls.pulls[7] = _pull()
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [notice] = await _notices(service)
+    assert isinstance(notice, ApprovalRequested)
+    assert notice.pull.sensitive == ("docs/adr/0099-x.md", "NEW.md")
+    assert "+adr" in notice.pull.sensitive_diff
+    assert "+readme" not in notice.pull.sensitive_diff

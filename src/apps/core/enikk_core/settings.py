@@ -101,6 +101,7 @@ class GitHubSettings(SettingsModel):
     api_url: str = "https://api.github.com"
     self_repository: str = "project-enikk"
     repositories_file: Path = Path("config/github.yaml")
+    sensitive_paths_file: Path = Path("config/sensitive-paths.yaml")
 
     def to_config(self) -> GitHubAppConfig | None:
         if self.app_id is None or self.installation_id is None:

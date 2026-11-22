@@ -68,8 +68,10 @@ class _CheckRuns(_Body):
 
 class _File(_Body):
     filename: str
+    previous_filename: str | None = None
     additions: int = 0
     deletions: int = 0
+    patch: str = ""
 
 
 class _Merge(_Body):
@@ -114,6 +116,9 @@ class FileChange(FrozenModel):
     path: str
     additions: int
     deletions: int
+    previous_path: str | None = None
+    patch: str = ""
+    """The file's unified diff hunk; empty for binary or very large files."""
 
 
 class MergeResult(FrozenModel):
@@ -190,7 +195,13 @@ class PullRequests:
             params={"per_page": "100"},
         )
         return [
-            FileChange(path=f.filename, additions=f.additions, deletions=f.deletions)
+            FileChange(
+                path=f.filename,
+                additions=f.additions,
+                deletions=f.deletions,
+                previous_path=f.previous_filename,
+                patch=f.patch,
+            )
             for f in _parse(_FILES, response)
         ]
 

@@ -18,7 +18,7 @@ credentials:
 
 # GitHub App (ADR-0019). Public identifiers; the private key is the core-only
 # credential github.app-private-key. selfRepository pins which entry of
-# config/github.yaml is the platform itself (workflows off, protected paths).
+# config/github.yaml is the platform itself.
 github:
   # Strings: Helm renders large numbers in exponent form.
   appId: "5869950"

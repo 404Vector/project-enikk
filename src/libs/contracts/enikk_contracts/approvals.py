@@ -49,6 +49,10 @@ class PullRequestCard(Contract):
     checks: Annotated[tuple[CheckResult, ...], Field(max_length=50)] = ()
     diff: Annotated[str, StringConstraints(max_length=500_000)] = ""
     diff_truncated: bool = False
+    sensitive: Annotated[tuple[str, ...], Field(max_length=100)] = ()
+    """Changed sensitive paths (ADR-0024): the owner must confirm before approving."""
+    sensitive_diff: Annotated[str, StringConstraints(max_length=40_000)] = ""
+    """The diff of just those files, shown before everything else."""
 
 
 class ApprovalRequested(Contract):

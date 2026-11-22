@@ -241,3 +241,38 @@ async def test_unrelated_payloads_are_ignored() -> None:
     core, slack = FakeCore(), FakeSlack()
     await ApprovalActions(core, slack, CONFIG).handle({"type": "view_submission"})
     assert core.decisions == []
+
+
+async def test_sensitive_changes_warn_confirm_and_show_their_diff_first() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    card = CARD.model_copy(
+        update={
+            "sensitive": ("docs/adr/0099-x.md",),
+            "sensitive_diff": "--- docs/adr/0099-x.md\n+adr",
+        }
+    )
+    core.notices.append(
+        OwnerNotice(notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=card))
+    )
+    await _relay(core, slack).relay_once()
+    [(_, parent)] = slack.messages
+    (_, _, first_reply) = slack.replies[0]
+    assert parent.text.startswith("민감 경로 변경")
+    assert "민감 경로 변경" in str(parent.payload())
+    [actions] = [b for b in parent.blocks if isinstance(b, Actions)]
+    approve = next(e for e in actions.elements if e.action_id == APPROVE_ACTION)
+    assert approve.confirm is not None
+    reject = next(e for e in actions.elements if e.action_id == REJECT_ACTION)
+    assert reject.confirm is None
+    assert "+adr" in str(first_reply.payload())
+
+
+async def test_ordinary_changes_have_no_confirmation() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.notices.append(
+        OwnerNotice(notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD))
+    )
+    await _relay(core, slack).relay_once()
+    [actions] = [b for b in slack.messages[0][1].blocks if isinstance(b, Actions)]
+    assert all(e.confirm is None for e in actions.elements)
+    assert "confirm" not in str(slack.messages[0][1].payload())

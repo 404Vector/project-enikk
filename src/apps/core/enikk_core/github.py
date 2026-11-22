@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from enikk_contracts.github import GitHubHealth, GitHubToken, PermissionGap, RepositoryCheck
 from enikk_core_domain.errors import DependencyUnavailableError, PermissionDeniedError
-from enikk_core_domain.repositories import RepositoryPolicy
+from enikk_core_domain.repositories import RepositoryPolicy, SensitivePaths
 from enikk_github.permissions import Access, TokenPurpose, required_permissions
 from enikk_kernel.errors import ConfigurationError
 
@@ -91,6 +91,15 @@ def load_repository_policy(path: Path, *, self_repository: str) -> RepositoryPol
             f"{path}: the repository marked self must be {self_repository}, not {policy.own.name}"
         )
     return policy
+
+
+def load_sensitive_paths(path: Path) -> SensitivePaths:
+    """Read ``config/sensitive-paths.yaml`` (ADR-0024). Core judges with the list it runs with."""
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return SensitivePaths.model_validate_json(pydantic_core.to_json(document))
+    except (OSError, yaml.YAMLError, ValidationError) as exc:
+        raise ConfigurationError(f"invalid sensitive path list {path}: {exc}") from exc
 
 
 class GitHubHealthCheck:

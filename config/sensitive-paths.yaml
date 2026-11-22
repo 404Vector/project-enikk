@@ -1,0 +1,19 @@
+# Sensitive paths (ADR-0024, I-20). Any PR that changes one of these gets the
+# stronger approval: a warning, the diff of these files first, and a confirmation
+# dialog. Core judges with the list it is running with, so removing an entry is
+# itself a sensitive change. A pattern ending in "/" covers everything below that
+# directory; any other pattern is one file.
+paths:
+  - .github/
+  - AGENTS.md
+  - docs/architecture/invariants.md
+  - docs/adr/
+  - agents/developer.yaml
+  - config/sensitive-paths.yaml
+  - config/github.yaml
+  - deploy/github/
+  - deploy/helm/core/
+  - deploy/helm/dev-agent/
+  - deploy/k8s/identities/
+  - src/apps/core/enikk_core/approval/
+  - src/libs/adapters/github/
