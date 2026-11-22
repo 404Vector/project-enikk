@@ -29,6 +29,14 @@ from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
 from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
 from enikk_contracts.health import HealthResponse
+from enikk_contracts.memory import (
+    ForgetRequest,
+    MemoryMatches,
+    MemorySearch,
+    MemoryWritten,
+    RememberRequest,
+    UpdateMemoryRequest,
+)
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
     ClaimRequest,
@@ -56,6 +64,7 @@ from enikk_core_domain.errors import (
     AuthenticationError,
     ConflictError,
     DependencyUnavailableError,
+    InvalidRequestError,
     NotFoundError,
     PermissionDeniedError,
     UnknownAgentError,
@@ -89,6 +98,7 @@ _ERRORS: Final[tuple[tuple[type[Exception], int, ErrorCode], ...]] = (
     (NotFoundError, 404, ErrorCode.NOT_FOUND),
     (ConflictError, 409, ErrorCode.CONFLICT),
     (UnknownAgentError, 422, ErrorCode.INVALID_REQUEST),
+    (InvalidRequestError, 422, ErrorCode.INVALID_REQUEST),
     (ValidationError, 422, ErrorCode.INVALID_REQUEST),
     (DependencyUnavailableError, 503, ErrorCode.UNAVAILABLE),
 )
@@ -205,6 +215,38 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         _dev_agent(await gate.admit(request))
         await _parse(request, ClaimRequest)
         return _json(await usecases.claim_task(task_id))
+
+    @app.post(routes.MEMORY_REMEMBER, responses={200: {"model": MemoryWritten}})
+    @requires("runtime", "dev-agent")
+    async def remember(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, RememberRequest)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).remember(task_id, body))
+
+    @app.post(routes.MEMORY_UPDATE, responses={200: {"model": MemoryWritten}})
+    @requires("runtime", "dev-agent")
+    async def update_memory(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, UpdateMemoryRequest)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).update(task_id, body))
+
+    @app.post(routes.MEMORY_FORGET, responses={200: {"model": MemoryWritten}})
+    @requires("runtime", "dev-agent")
+    async def forget_memory(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, ForgetRequest)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).forget(task_id, body))
+
+    @app.post(routes.MEMORY_SEARCH, responses={200: {"model": MemoryMatches}})
+    @requires("runtime", "dev-agent")
+    async def search_memory(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, MemorySearch)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).search(body))
 
     @app.post(routes.TASK_DELEGATE, responses={200: {"model": DelegationAccepted}})
     @requires("runtime", "dev-agent")
@@ -368,6 +410,12 @@ def _owner_channel(principal: Principal) -> ConnectorRole:
     if role.connector is not ConnectorKind.SLACK:
         raise PermissionDeniedError("only the Slack connector talks to the owner")
     return role
+
+
+def _memory(services: CoreServices) -> MemoryService:
+    if services.memory is None:
+        raise DependencyUnavailableError("enikk's memory is not enabled")
+    return services.memory
 
 
 def _deployments(services: CoreServices) -> DeploymentService:

@@ -10,6 +10,14 @@ if TYPE_CHECKING:
 
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.common import Engine
+    from enikk_contracts.memory import (
+        ForgetRequest,
+        MemoryMatches,
+        MemorySearch,
+        MemoryWritten,
+        RememberRequest,
+        UpdateMemoryRequest,
+    )
     from enikk_contracts.tasks import (
         DelegateRequest,
         DelegationAccepted,
@@ -37,6 +45,17 @@ class Delegator(Protocol):
     async def delegate_task(
         self, task_id: uuid.UUID, request: DelegateRequest
     ) -> DelegationAccepted: ...
+
+
+class MemoryKeeper(Protocol):
+    """Enikk's memory through core (ADR-0028). ``CoreClient`` implements it."""
+
+    async def remember(self, task_id: uuid.UUID, request: RememberRequest) -> MemoryWritten: ...
+    async def update_memory(
+        self, task_id: uuid.UUID, request: UpdateMemoryRequest
+    ) -> MemoryWritten: ...
+    async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten: ...
+    async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches: ...
 
 
 class PromptStore(Protocol):

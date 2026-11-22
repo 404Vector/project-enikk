@@ -30,7 +30,7 @@ from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
 from enikk_github.pulls import PullRequests
 from enikk_github.reverts import Reverter
-from enikk_github.vault import VaultReader
+from enikk_github.vault import VaultReader, VaultWriter
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
@@ -51,7 +51,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     engine = create_engine(settings.database.to_config())
     uow = SqlUnitOfWorkFactory(create_session_factory(engine))
     store = DirectoryCredentialStore(settings.credentials_dir)
-    memory = _memory(settings, store, clock, uow)
+    memory = _memory(settings, store, clock, uow, ids)
     usecases = CoreUseCases(
         uow=uow,
         catalog=YamlAgentCatalog.load(settings.agents_dir),
@@ -107,6 +107,7 @@ def _memory(
     store: DirectoryCredentialStore,
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
+    ids: RandomIdGenerator,
 ) -> MemoryService | None:
     config = settings.github.to_config()
     if config is None or not settings.memory.enabled:
@@ -121,6 +122,8 @@ def _memory(
         uow=uow,
         app=app,
         vault=VaultReader(app),
+        writer=VaultWriter(app),
+        ids=ids,
         policy=MemoryPolicy(
             repository=m.repository,
             branch=m.branch,

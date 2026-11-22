@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
-    from enikk_runtime.ports import Delegator
+    from enikk_runtime.ports import Delegator, MemoryKeeper
 
     QueryFn = Callable[..., AsyncIterator[Message]]
 
@@ -69,12 +69,14 @@ class ClaudeEngine:
         oauth_token: SecretStr,
         transcripts: TranscriptApi,
         delegator: Delegator | None = None,
+        memory: MemoryKeeper | None = None,
         query_fn: QueryFn = query,
     ) -> None:
         self._config = config
         self._token = oauth_token
         self._transcripts = transcripts
         self._delegator = delegator
+        self._memory = memory
         self._query = query_fn
 
     @property
@@ -103,8 +105,8 @@ class ClaudeEngine:
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = list(job.definition.tools.builtin)
-        server = None if self._delegator is None else platform_server(job, self._delegator)
-        platform = granted_platform_tools(job) if server is not None else []
+        server = platform_server(job, self._delegator, self._memory)
+        platform = self._platform(job) if server is not None else []
         return ClaudeAgentOptions(
             tools=builtin,
             allowed_tools=[*builtin, *platform],
@@ -132,8 +134,12 @@ class ClaudeEngine:
         )
 
     def _granted(self, job: EngineJob) -> tuple[str, ...]:
-        platform = granted_platform_tools(job) if self._delegator is not None else []
-        return (*job.definition.tools.builtin, *platform)
+        return (*job.definition.tools.builtin, *self._platform(job))
+
+    def _platform(self, job: EngineJob) -> list[str]:
+        return granted_platform_tools(
+            job, delegator=self._delegator is not None, memory=self._memory is not None
+        )
 
     async def _consume(self, job: EngineJob, stream: AsyncIterator[Message]) -> EngineResult:
         texts: list[str] = []

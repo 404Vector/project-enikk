@@ -33,6 +33,10 @@ class UnknownAgentError(DomainError):
     """The requested agent definition does not exist."""
 
 
+class InvalidRequestError(DomainError):
+    """The request is well-formed but cannot be accepted as it is."""
+
+
 class AuthenticationError(DomainError):
     """The caller could not be authenticated."""
 
