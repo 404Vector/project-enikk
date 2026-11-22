@@ -2,7 +2,7 @@
 
 - 상태: 승인
 - 날짜: 2026-11-22
-- 관련: ADR-0007, ADR-0008, ADR-0018, ADR-0019, ADR-0021, ADR-0022, ADR-0023, ADR-0024, I-01, I-18, I-19, I-20, I-33
+- 관련: ADR-0007, ADR-0008, ADR-0018, ADR-0019, ADR-0021, ADR-0022, ADR-0023, ADR-0024, ADR-0026, I-01, I-18, I-19, I-20, I-33
 
 ## 배경
 ADR-0007 은 에이전트 PR 을 소유자가 승인해야 머지되도록 정했다. 소유자의 요구는 다음과 같다.
@@ -60,12 +60,14 @@ GitHub 의 PR 리뷰 승인은 사람 계정으로만 할 수 있다. 소유자 
 - Slack 앱에 Interactivity(Socket Mode 로 수신)와 `files:write` 권한을 추가한다.
 
 ### 3. 배포 실패 대응
+> 배포 결과 알림의 *위치*(소유자 DM)는 ADR-0026 이 대체한다: #release 채널(설정값)로 보내고, 실패하면 DM 으로 보낸다. [되돌리기] 는 채널에서도 소유자만 실행한다. 이 절의 나머지 결정은 그대로 유효하다.
+
 > 세부는 ADR-0023 이 정한다. 스모크 결과는 core 에 보고하지 않고 Argo CD 동기화 결과로 나타나며, core 가 Argo CD Application 을 읽어 배포 성공·실패와 롤백 결과를 알린다.
 
 - 모든 앱 Deployment 를 RollingUpdate(`maxUnavailable: 0`)로 둔다. 새 Pod 가 readiness 를 통과하지 못하면 이전 Pod 가 계속 서비스한다.
   - connector-slack 도 Recreate 에서 바꾼다. 잠깐 Socket Mode 연결이 둘이 되어도 이벤트 ID 기반 멱등 처리(ADR-0018)로 작업은 하나만 생긴다.
-- Argo CD PostSync Job 이 `enikk-ops smoke core` 를 실행하고 결과를 core 에 보고한다. core 는 결과를 소유자 DM 으로 알린다.
-- 실패하면 DM 에 [되돌리기] 버튼을 붙인다. 누르면 core 가 개발 에이전트에 "해당 머지를 revert 하는 PR" 작업을 만든다. 이 PR 도 같은 승인 흐름을 거친다.
+- Argo CD PostSync Job 이 `enikk-ops smoke core` 를 실행하고 결과를 core 에 보고한다. core 는 결과를 소유자 DM 으로 알린다. (ADR-0026 으로 대체: #release 채널로 알린다.)
+- 실패하면 DM 에 [되돌리기] 버튼을 붙인다(ADR-0026 으로 대체: 채널 알림에 붙이고, 누른 사람이 소유자인지 확인한다). 누르면 core 가 개발 에이전트에 "해당 머지를 revert 하는 PR" 작업을 만든다. 이 PR 도 같은 승인 흐름을 거친다.
 - DB 마이그레이션은 이전 버전 코드와 호환되게만 한다(expand/contract). 이미지를 되돌려도 스키마는 되돌리지 않기 때문이다.
 
 ### 4. 구현 세부 (2026-11-22)
