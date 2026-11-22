@@ -23,6 +23,7 @@ from enikk_contracts.tasks import (
     LeaseResponse,
     ResultAccepted,
 )
+from enikk_contracts.threads import ReviewThreadLinked
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
 from enikk_core_client.tokens import BearerAuth
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
 
@@ -160,6 +162,10 @@ class CoreClient:
     async def request_revert(self, request: RevertRequest) -> RevertResult:
         """Open the revert PR of a commit (ADR-0023 §5). Slack connector only."""
         return _parse(RevertResult, await self._post(routes.REVERTS, request, 60))
+
+    async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked:
+        """Link a PR's review thread with the thread that asked for it. Slack connector only."""
+        return _parse(ReviewThreadLinked, await self._post(routes.REVIEW_THREADS, review))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

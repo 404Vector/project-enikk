@@ -19,6 +19,7 @@ from enikk_contracts.tasks import (
     TaskStatus,
 )
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
+from enikk_core.threads import delegated_status
 from enikk_core_domain.errors import (
     ConflictError,
     NotFoundError,
@@ -411,6 +412,8 @@ class CoreUseCases:
         else:
             return
         session = await self._session_of(uow, task)
+        if kind is OutboundKind.REPLY and session.reply_to is not None:
+            text = delegated_status(task.agent, text)
         await uow.outbox.add(
             OutboxMessage(
                 id=self._ids.new(),

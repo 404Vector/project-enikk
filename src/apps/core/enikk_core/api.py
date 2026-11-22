@@ -41,6 +41,7 @@ from enikk_contracts.tasks import (
     ResultAccepted,
     ResultReport,
 )
+from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 from enikk_contracts.transcripts import (
     SubpathQuery,
     TranscriptAppend,
@@ -72,6 +73,7 @@ if TYPE_CHECKING:
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.security import Gatekeeper
+    from enikk_core.threads import ReviewLinks
     from enikk_core.usecases import CoreUseCases
     from enikk_core_domain.auth import Principal
 
@@ -110,6 +112,7 @@ class CoreServices:
         watch_interval_seconds: float = 30.0,
         deployments: DeploymentService | None = None,
         deployment_interval_seconds: float = 30.0,
+        review_links: ReviewLinks | None = None,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -124,6 +127,7 @@ class CoreServices:
         self.watch_interval_seconds = watch_interval_seconds
         self.deployments = deployments
         self.deployment_interval_seconds = deployment_interval_seconds
+        self.review_links = review_links
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -275,6 +279,13 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, RevertRequest)
         return _json(await _deployments(services).request_revert(body))
 
+    @app.post(routes.REVIEW_THREADS, responses={200: {"model": ReviewThreadLinked}})
+    @requires("connector")
+    async def review_thread_opened(request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, ReviewThreadOpened)
+        return _json(await _review_links(services).opened(body))
+
     @app.post(routes.APPROVAL_DECISION, responses={200: {"model": DecisionResult}})
     @requires("connector")
     async def decide(approval_id: uuid.UUID, request: Request) -> Response:
@@ -356,6 +367,12 @@ def _deployments(services: CoreServices) -> DeploymentService:
     if services.deployments is None:
         raise DependencyUnavailableError("deployment notices are not enabled")
     return services.deployments
+
+
+def _review_links(services: CoreServices) -> ReviewLinks:
+    if services.review_links is None:
+        raise DependencyUnavailableError("review thread links are not enabled")
+    return services.review_links
 
 
 def _approvals(services: CoreServices) -> ApprovalService:

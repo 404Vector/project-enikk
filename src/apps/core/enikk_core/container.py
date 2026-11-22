@@ -20,7 +20,7 @@ from enikk_core.github import (
     load_sensitive_paths,
 )
 from enikk_core.security import Gatekeeper
-from enikk_core.threads import ThreadNotes
+from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
 from enikk_core_domain.deployments import WatchTiming
@@ -91,6 +91,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         watch_interval_seconds=settings.approval.interval_seconds,
         deployments=deployments,
         deployment_interval_seconds=settings.deployments.interval_seconds,
+        review_links=ReviewLinks(uow, ThreadNotes(clock, ids)),
     )
 
 

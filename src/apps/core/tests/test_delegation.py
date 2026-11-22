@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.events import InboundEvent
-from enikk_contracts.outbox import OutboxPoll
+from enikk_contracts.outbox import OutboxAck, OutboxPoll
 from enikk_contracts.tasks import (
     DelegateRequest,
     LeaseRequest,
@@ -19,6 +19,7 @@ from enikk_contracts.tasks import (
     Succeeded,
     TaskAssignment,
 )
+from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 from enikk_core.dispatcher import DispatchOutcome
 from enikk_core_client import (
     CoreClient,
@@ -85,11 +86,68 @@ async def test_delegated_work_answers_in_the_original_thread(harness: Harness) -
         assert work is not None
         assert work.input == "Do X"
         assert work.definition.execution is Execution.ISOLATED
-        await _finish(dev, work, "PR #7")
+        await _finish(dev, work, "PR 을 만들지 않았습니다: 요청이 모호합니다.")
 
         batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
-    assert [m.text for m in batch.messages] == ["개발 에이전트에 넘겼습니다.", "PR #7"]
+    assert [m.text for m in batch.messages] == [
+        "개발 에이전트에 넘겼습니다.",
+        "PR 을 만들지 않았습니다: 요청이 모호합니다.",
+    ]
     assert all(m.conversation == THREAD for m in batch.messages)
+
+
+REPORT = (
+    "PR: https://github.com/404Vector/project-enikk/pull/7\n"
+    "바뀐 것: `src/secret_plan.py` 에 함수 추가\n```diff\n+def x(): ...\n```"
+)
+
+
+async def test_the_asking_thread_sees_status_and_the_review_thread_the_report(
+    harness: Harness,
+) -> None:
+    turn = await _assistant_turn(harness)
+    async with (
+        harness.client("claude") as claude,
+        harness.client("dev") as dev,
+        harness.client("slack") as slack,
+    ):
+        accepted = await claude.delegate_task(
+            turn.task_id, DelegateRequest(lease_id=turn.lease_id, agent="developer", request="X")
+        )
+        await _finish(claude, turn, "넘겼습니다.")
+        await harness.dispatcher.dispatch_once()
+        work = (await dev.claim_task(accepted.task_id)).assignment
+        assert work is not None
+        await _finish(dev, work, REPORT)
+        [handed, status] = (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+        assert status.conversation == THREAD
+        assert "https://github.com/404Vector/project-enikk/pull/7" in status.text
+        assert "secret_plan" not in status.text
+        assert "diff" not in status.text
+        await slack.ack_outbox(OutboxAck(message_ids=(handed.message_id, status.message_id)))
+
+        linked = await slack.review_thread_opened(
+            ReviewThreadOpened(
+                repository="404Vector/project-enikk",
+                number=7,
+                branch=f"agent/{work.session_id}",
+                review_link="https://slack.test/archives/D1/p1",
+            )
+        )
+        assert linked.origin == THREAD
+        assert linked.report == REPORT
+        [note] = (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+    assert note.conversation == THREAD
+    assert note.text == "PR #7 검토 스레드(소유자 DM): https://slack.test/archives/D1/p1"
+
+
+async def test_review_threads_of_other_branches_link_nothing(harness: Harness) -> None:
+    async with harness.client("slack") as slack, harness.client("claude") as claude:
+        review = ReviewThreadOpened(repository="o/r", number=3, branch="feat/owner")
+        assert await slack.review_thread_opened(review) == ReviewThreadLinked()
+        assert not (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+        with pytest.raises(CoreForbiddenError):
+            await claude.review_thread_opened(review)
 
 
 async def test_thread_messages_keep_going_to_the_assistant(harness: Harness) -> None:
