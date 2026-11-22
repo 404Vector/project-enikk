@@ -1,0 +1,6 @@
+apiVersion: v2
+name: dev-agent
+description: Isolated dev agent Jobs (ADR-0021) - namespace, identity, core's Role and the Job template
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

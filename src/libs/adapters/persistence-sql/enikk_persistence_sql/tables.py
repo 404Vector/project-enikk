@@ -55,6 +55,7 @@ class TaskRow(Base):
     source_event_id: Mapped[str] = mapped_column(String(255), unique=True)
     agent: Mapped[str] = mapped_column(String(63))
     engine: Mapped[str] = mapped_column(String(16))
+    execution: Mapped[str] = mapped_column(String(16))
     input: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16))
     attempt: Mapped[int] = mapped_column(Integer)
@@ -67,6 +68,21 @@ class TaskRow(Base):
     failure: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class DispatchRow(Base):
+    """A Job started for an isolated task (ADR-0021)."""
+
+    __tablename__ = "dispatches"
+    __table_args__ = (
+        Index("ix_dispatches_created", "created_at"),
+        Index("ix_dispatches_task", "task_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))
+    job_name: Mapped[str] = mapped_column(String(63))
+    created_at: Mapped[datetime]
 
 
 class OutboxRow(Base):

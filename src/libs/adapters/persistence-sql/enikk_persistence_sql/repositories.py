@@ -4,16 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
+from enikk_contracts.agents import Execution
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import OutboxStatus
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
-from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow, TranscriptEntryRow
+from enikk_persistence_sql.tables import (
+    DispatchRow,
+    OutboxRow,
+    SessionRow,
+    TaskRow,
+    TranscriptEntryRow,
+)
 
 if TYPE_CHECKING:
     import uuid
@@ -25,7 +32,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
-    from enikk_core_domain.model import OutboxMessage, Session, Task
+    from enikk_core_domain.model import Dispatch, OutboxMessage, Session, Task
 
 
 async def _flush(db: AsyncSession, what: str) -> None:
@@ -202,6 +209,50 @@ def _transcript(
     )
 
 
+class SqlDispatchRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, dispatch: Dispatch) -> None:
+        self._db.add(mappers.dispatch_to_row(dispatch))
+        await _flush(self._db, f"dispatch {dispatch.id}")
+
+    async def count_since(self, since: datetime) -> int:
+        count = await self._db.scalar(
+            select(func.count()).select_from(DispatchRow).where(DispatchRow.created_at >= since)
+        )
+        return count or 0
+
+    async def count_for(self, task_id: uuid.UUID) -> int:
+        count = await self._db.scalar(
+            select(func.count()).select_from(DispatchRow).where(DispatchRow.task_id == task_id)
+        )
+        return count or 0
+
+
+def _session_free() -> ColumnElement[bool]:
+    """No other task of the same session is leased or queued ahead (I-29)."""
+    other = aliased(TaskRow)
+    blocking = (
+        select(other.id)
+        .where(
+            other.session_id == TaskRow.session_id,
+            or_(
+                other.status == TaskStatus.LEASED.value,
+                and_(
+                    other.status == TaskStatus.QUEUED.value,
+                    or_(
+                        other.created_at < TaskRow.created_at,
+                        and_(other.created_at == TaskRow.created_at, other.id < TaskRow.id),
+                    ),
+                ),
+            ),
+        )
+        .exists()
+    )
+    return ~blocking
+
+
 class SqlJobQueue:
     """Postgres queue over the task table (ADR-0012 §3)."""
 
@@ -209,34 +260,45 @@ class SqlJobQueue:
         self._db = db
 
     async def claim_next(self, engine: Engine) -> Task | None:
-        other = aliased(TaskRow)
-        blocking = (
-            select(other.id)
-            .where(
-                other.session_id == TaskRow.session_id,
-                or_(
-                    other.status == TaskStatus.LEASED.value,
-                    and_(
-                        other.status == TaskStatus.QUEUED.value,
-                        or_(
-                            other.created_at < TaskRow.created_at,
-                            and_(other.created_at == TaskRow.created_at, other.id < TaskRow.id),
-                        ),
-                    ),
-                ),
-            )
-            .exists()
-        )
         row = await self._db.scalar(
             select(TaskRow)
             .join(SessionRow, SessionRow.id == TaskRow.session_id)
             .where(
                 TaskRow.engine == engine.value,
+                TaskRow.execution == Execution.SHARED.value,
                 TaskRow.status == TaskStatus.QUEUED.value,
-                ~blocking,
+                _session_free(),
             )
             .order_by(TaskRow.created_at, TaskRow.id)
             .limit(1)
+            .with_for_update(skip_locked=True, of=[TaskRow, SessionRow])
+            .execution_options(populate_existing=True)
+        )
+        return mappers.task_from_row(row) if row else None
+
+    async def next_isolated(self) -> Task | None:
+        row = await self._db.scalar(
+            select(TaskRow)
+            .where(
+                TaskRow.execution == Execution.ISOLATED.value,
+                TaskRow.status == TaskStatus.QUEUED.value,
+                _session_free(),
+            )
+            .order_by(TaskRow.created_at, TaskRow.id)
+            .limit(1)
+        )
+        return mappers.task_from_row(row) if row else None
+
+    async def claim_isolated(self, task_id: uuid.UUID) -> Task | None:
+        row = await self._db.scalar(
+            select(TaskRow)
+            .join(SessionRow, SessionRow.id == TaskRow.session_id)
+            .where(
+                TaskRow.id == task_id,
+                TaskRow.execution == Execution.ISOLATED.value,
+                TaskRow.status == TaskStatus.QUEUED.value,
+                _session_free(),
+            )
             .with_for_update(skip_locked=True, of=[TaskRow, SessionRow])
             .execution_options(populate_existing=True)
         )

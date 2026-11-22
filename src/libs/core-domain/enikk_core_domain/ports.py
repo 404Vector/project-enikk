@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from enikk_contracts.credentials import CredentialName
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
-    from enikk_core_domain.model import OutboxMessage, Session, Task
+    from enikk_core_domain.model import Dispatch, OutboxMessage, Session, Task
 
 
 class SessionRepository(Protocol):
@@ -78,12 +78,21 @@ class TranscriptRepository(Protocol):
 
 class JobQueue(Protocol):
     async def claim_next(self, engine: Engine) -> Task | None:
-        """Lock and return the next ``QUEUED`` task for ``engine``.
+        """Lock and return the next ``QUEUED`` shared task for ``engine``.
 
         A task is eligible only when no other task of its session is leased and
         no older task of its session is queued (I-29). Tasks locked by another
-        unit of work are skipped, never waited for.
+        unit of work are skipped, never waited for. Isolated tasks are never
+        returned (ADR-0021).
         """
+        ...
+
+    async def next_isolated(self) -> Task | None:
+        """The oldest eligible ``QUEUED`` isolated task, without locking it."""
+        ...
+
+    async def claim_isolated(self, task_id: uuid.UUID) -> Task | None:
+        """Lock and return ``task_id`` if it is an eligible ``QUEUED`` isolated task."""
         ...
 
     async def claim_expired(self, now: datetime, limit: int) -> Sequence[Task]:
@@ -91,11 +100,21 @@ class JobQueue(Protocol):
         ...
 
 
+class DispatchRepository(Protocol):
+    """Jobs started for isolated tasks (ADR-0021)."""
+
+    async def add(self, dispatch: Dispatch) -> None: ...
+    async def count_since(self, since: datetime) -> int: ...
+    async def count_for(self, task_id: uuid.UUID) -> int: ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
     @property
     def sessions(self) -> SessionRepository: ...
+    @property
+    def dispatches(self) -> DispatchRepository: ...
     @property
     def tasks(self) -> TaskRepository: ...
     @property
@@ -129,6 +148,22 @@ class CredentialStore(Protocol):
 
     def get(self, name: CredentialName) -> SecretStr | None:
         """The current value, or ``None`` when it is not set."""
+        ...
+
+
+class JobLauncher(Protocol):
+    """Starts one isolated worker Job per task (ADR-0021)."""
+
+    async def ready(self) -> bool:
+        """Whether the Job template is deployed. Without it nothing is launched."""
+        ...
+
+    async def running(self) -> int:
+        """Jobs that have not finished yet."""
+        ...
+
+    async def launch(self, task_id: uuid.UUID) -> str:
+        """Create the Job for ``task_id`` and return its name."""
         ...
 
 

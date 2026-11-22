@@ -17,6 +17,7 @@ members = [
     "enikk-engine-claude",
     "enikk-github",
     "enikk-k8s-auth",
+    "enikk-k8s-jobs",
     "enikk-kernel",
     "enikk-langfuse",
     "enikk-ops",
@@ -691,6 +692,7 @@ dependencies = [
     { name = "enikk-core-domain" },
     { name = "enikk-github" },
     { name = "enikk-k8s-auth" },
+    { name = "enikk-k8s-jobs" },
     { name = "enikk-kernel" },
     { name = "enikk-persistence-sql" },
     { name = "fastapi" },
@@ -705,6 +707,7 @@ requires-dist = [
     { name = "enikk-core-domain", editable = "src/libs/core-domain" },
     { name = "enikk-github", editable = "src/libs/adapters/github" },
     { name = "enikk-k8s-auth", editable = "src/libs/adapters/k8s-auth" },
+    { name = "enikk-k8s-jobs", editable = "src/libs/adapters/k8s-jobs" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-persistence-sql", editable = "src/libs/adapters/persistence-sql" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -802,6 +805,25 @@ requires-dist = [
     { name = "enikk-core-domain", editable = "src/libs/core-domain" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "httpx", specifier = ">=0.28" },
+]
+
+[[package]]
+name = "enikk-k8s-jobs"
+version = "0.1.0"
+source = { editable = "src/libs/adapters/k8s-jobs" }
+dependencies = [
+    { name = "enikk-core-domain" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-core-domain", editable = "src/libs/core-domain" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 
 [[package]]

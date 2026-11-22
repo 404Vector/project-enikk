@@ -26,6 +26,14 @@ github:
   owner: 404Vector
   selfRepository: project-enikk
 
+# Isolated dev agent Jobs (ADR-0021). The Role that lets core start them is in
+# deploy/helm/dev-agent; core waits until that chart publishes the Job template.
+devAgent:
+  enabled: true
+  namespace: enikk-dev
+  maxConcurrent: 1
+  dailyLimit: 10
+
 # ServiceAccounts allowed to call core, their roles (ADR-0011 §5) and the
 # credentials each may fetch (ADR-0013). Any other ServiceAccount is rejected.
 # Accounts live in deploy/k8s/identities.
@@ -44,7 +52,7 @@ roleBindings:
     service_account: enikk-runtime-gemini
     role: runtime
     engine: gemini
-  - namespace: enikk
+  - namespace: enikk-dev
     service_account: enikk-dev-agent
     role: dev-agent
   - namespace: enikk

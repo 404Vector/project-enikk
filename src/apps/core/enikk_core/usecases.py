@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from enikk_contracts.agents import Execution
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import (
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core.settings import TaskSettings
+    from enikk_core_domain.model import WorkerScope
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_kernel.clock import Clock
     from enikk_kernel.ids import IdGenerator
@@ -73,8 +75,8 @@ class CoreUseCases:
             session = await uow.sessions.find_by_conversation(event.conversation)
             if session is None and event.continue_only:
                 raise NotFoundError("no conversation to continue in this thread")
+            definition = self._catalog.get(session.agent if session else event.agent)
             if session is None:
-                definition = self._catalog.get(event.agent)
                 if definition is None:
                     raise UnknownAgentError(f"agent '{event.agent}' is not defined")
                 session = Session.start(
@@ -91,6 +93,7 @@ class CoreUseCases:
                 text=event.text,
                 max_attempts=self._policy.max_attempts,
                 now=now,
+                execution=definition.execution if definition else Execution.SHARED,
             )
             await uow.tasks.add(task)
             await uow.commit()
@@ -145,10 +148,14 @@ class CoreUseCases:
             if leased.lease is None or leased.last_lease_id is None:
                 raise RuntimeError("leased task without a lease")
             definition = self._catalog.get(leased.agent)
-            if definition is None or definition.engine is not engine:
+            if (
+                definition is None
+                or definition.engine is not engine
+                or definition.execution is not Execution.SHARED
+            ):
                 failed = leased.fail(
                     lease_id=leased.last_lease_id,
-                    reason=f"agent '{leased.agent}' is no longer defined for engine {engine}",
+                    reason=f"agent '{leased.agent}' no longer runs on the shared {engine} runtime",
                     retryable=False,
                     now=now,
                 )
@@ -171,9 +178,52 @@ class CoreUseCases:
             input=leased.input,
         )
 
-    async def heartbeat(self, engine: Engine, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended:
+    async def claim_task(self, task_id: uuid.UUID) -> LeaseResponse:
+        """Lease the isolated task a Job was started for (ADR-0021)."""
         async with self._uow() as uow:
-            task = await self._task_of(uow, engine, task_id)
+            queued = await uow.queue.claim_isolated(task_id)
+            if queued is None:
+                raise NotFoundError(f"task {task_id} is not waiting for an isolated worker")
+            session = await self._session_of(uow, queued)
+            now = self._clock.now()
+            leased = queued.grant_lease(
+                lease_id=self._ids.new(), now=now, duration=self._policy.lease_duration
+            )
+            if leased.lease is None or leased.last_lease_id is None:
+                raise RuntimeError("leased task without a lease")
+            definition = self._catalog.get(leased.agent)
+            if definition is None or definition.execution is not Execution.ISOLATED:
+                failed = leased.fail(
+                    lease_id=leased.last_lease_id,
+                    reason=f"agent '{leased.agent}' is no longer an isolated agent",
+                    retryable=False,
+                    now=now,
+                )
+                await uow.tasks.update(failed)
+                await self._publish_outcome(uow, failed)
+                await uow.commit()
+                raise NotFoundError(f"task {task_id} has no isolated agent definition")
+            await uow.tasks.update(leased)
+            await uow.commit()
+        _log.info("isolated task %s claimed (attempt %d)", leased.id, leased.attempt)
+        return LeaseResponse(
+            assignment=TaskAssignment(
+                task_id=leased.id,
+                lease_id=leased.last_lease_id,
+                lease_expires_at=leased.lease.expires_at,
+                attempt=leased.attempt,
+                definition=definition,
+                session_id=session.id,
+                engine_session_id=session.engine_session_id,
+                input=leased.input,
+            )
+        )
+
+    async def heartbeat(
+        self, scope: WorkerScope, task_id: uuid.UUID, beat: Heartbeat
+    ) -> LeaseExtended:
+        async with self._uow() as uow:
+            task = await self._task_of(uow, scope, task_id)
             extended = task.extend_lease(
                 lease_id=beat.lease_id,
                 now=self._clock.now(),
@@ -187,10 +237,10 @@ class CoreUseCases:
         return LeaseExtended(lease_expires_at=extended.lease.expires_at)
 
     async def report_result(
-        self, engine: Engine, task_id: uuid.UUID, report: ResultReport
+        self, scope: WorkerScope, task_id: uuid.UUID, report: ResultReport
     ) -> ResultAccepted:
         async with self._uow() as uow:
-            task = await self._task_of(uow, engine, task_id)
+            task = await self._task_of(uow, scope, task_id)
             if task.already_reported(report.lease_id):
                 return ResultAccepted(task_id=task.id, status=task.status, duplicate=True)
             now = self._clock.now()
@@ -218,27 +268,27 @@ class CoreUseCases:
     # ------------------------------------------------------------ transcripts (ADR-0014)
 
     async def append_transcript(
-        self, engine: Engine, task_id: uuid.UUID, request: TranscriptAppend
+        self, scope: WorkerScope, task_id: uuid.UUID, request: TranscriptAppend
     ) -> TranscriptAppended:
         async with self._uow() as uow:
-            task = await self._leased_task(uow, engine, task_id, request.lease_id)
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
             stored = await uow.transcripts.append(task.session_id, request.key, request.entries)
             await uow.commit()
         return TranscriptAppended(stored=stored)
 
     async def load_transcript(
-        self, engine: Engine, task_id: uuid.UUID, query: TranscriptQuery
+        self, scope: WorkerScope, task_id: uuid.UUID, query: TranscriptQuery
     ) -> TranscriptLoaded:
         async with self._uow() as uow:
-            task = await self._leased_task(uow, engine, task_id, query.lease_id)
+            task = await self._leased_task(uow, scope, task_id, query.lease_id)
             entries = await uow.transcripts.load(task.session_id, query.key)
         return TranscriptLoaded(entries=tuple(entries))
 
     async def transcript_subpaths(
-        self, engine: Engine, task_id: uuid.UUID, query: SubpathQuery
+        self, scope: WorkerScope, task_id: uuid.UUID, query: SubpathQuery
     ) -> TranscriptSubpaths:
         async with self._uow() as uow:
-            task = await self._leased_task(uow, engine, task_id, query.lease_id)
+            task = await self._leased_task(uow, scope, task_id, query.lease_id)
             subpaths = await uow.transcripts.subpaths(
                 task.session_id, query.project_key, query.engine_session_id
             )
@@ -260,16 +310,16 @@ class CoreUseCases:
 
     # ------------------------------------------------------------ helpers
 
-    async def _task_of(self, uow: UnitOfWork, engine: Engine, task_id: uuid.UUID) -> Task:
+    async def _task_of(self, uow: UnitOfWork, scope: WorkerScope, task_id: uuid.UUID) -> Task:
         task = await uow.tasks.get_for_update(task_id)
-        if task is None or task.engine is not engine:
+        if task is None or not scope.admits(task):
             raise NotFoundError(f"task {task_id} not found")
         return task
 
     async def _leased_task(
-        self, uow: UnitOfWork, engine: Engine, task_id: uuid.UUID, lease_id: uuid.UUID
+        self, uow: UnitOfWork, scope: WorkerScope, task_id: uuid.UUID, lease_id: uuid.UUID
     ) -> Task:
-        task = await self._task_of(uow, engine, task_id)
+        task = await self._task_of(uow, scope, task_id)
         task.verify_lease(lease_id, self._clock.now())
         return task
 

@@ -22,6 +22,7 @@ from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
+    ClaimRequest,
     Heartbeat,
     LeaseExtended,
     LeaseRequest,
@@ -38,7 +39,7 @@ from enikk_contracts.transcripts import (
     TranscriptSubpaths,
 )
 from enikk_core.security import declared_roles, requires
-from enikk_core_domain.auth import ConnectorRole, RuntimeRole
+from enikk_core_domain.auth import ConnectorRole, DevAgentRole, RuntimeRole
 from enikk_core_domain.errors import (
     AuthenticationError,
     ConflictError,
@@ -47,6 +48,7 @@ from enikk_core_domain.errors import (
     PermissionDeniedError,
     UnknownAgentError,
 )
+from enikk_core_domain.model import WorkerScope
 from enikk_kernel.errors import ConfigurationError
 
 if TYPE_CHECKING:
@@ -54,6 +56,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.base import Contract
     from enikk_core.credentials import CredentialIssuer
+    from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import GitHubHealthCheck
     from enikk_core.security import Gatekeeper
     from enikk_core.usecases import CoreUseCases
@@ -87,6 +90,8 @@ class CoreServices:
         gatekeeper: Gatekeeper,
         github: GitHubHealthCheck,
         reaper_interval_seconds: float,
+        dispatcher: DevJobDispatcher | None = None,
+        dispatch_interval_seconds: float = 10.0,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -94,19 +99,25 @@ class CoreServices:
         self.gatekeeper = gatekeeper
         self.github = github
         self.reaper_interval_seconds = reaper_interval_seconds
+        self.dispatcher = dispatcher
+        self.dispatch_interval_seconds = dispatch_interval_seconds
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        reaper = asyncio.create_task(_reap_forever(services)) if run_reaper else None
+        loops: list[asyncio.Task[None]] = []
+        if run_reaper:
+            loops.append(asyncio.create_task(_reap_forever(services)))
+            if services.dispatcher is not None:
+                loops.append(asyncio.create_task(_dispatch_forever(services)))
         try:
             yield
         finally:
-            if reaper is not None:
-                reaper.cancel()
+            for loop in loops:
+                loop.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await reaper
+                    await loop
 
     app = FastAPI(title=SERVICE_NAME, version=services.version, lifespan=lifespan)
     gate = services.gatekeeper
@@ -150,40 +161,47 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         lease = await _parse(request, LeaseRequest)
         return _json(await usecases.lease_task(role.engine, lease))
 
+    @app.post(routes.TASK_CLAIM, responses={200: {"model": LeaseResponse}})
+    @requires("dev-agent")
+    async def claim_task(task_id: uuid.UUID, request: Request) -> Response:
+        _dev_agent(await gate.admit(request))
+        await _parse(request, ClaimRequest)
+        return _json(await usecases.claim_task(task_id))
+
     @app.post(routes.TASK_HEARTBEAT, responses={200: {"model": LeaseExtended}})
-    @requires("runtime")
+    @requires("runtime", "dev-agent")
     async def heartbeat(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
+        scope = _worker(await gate.admit(request))
         beat = await _parse(request, Heartbeat)
-        return _json(await usecases.heartbeat(role.engine, task_id, beat))
+        return _json(await usecases.heartbeat(scope, task_id, beat))
 
     @app.post(routes.TASK_RESULT, responses={200: {"model": ResultAccepted}})
-    @requires("runtime")
+    @requires("runtime", "dev-agent")
     async def report_result(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
+        scope = _worker(await gate.admit(request))
         report = await _parse(request, ResultReport)
-        return _json(await usecases.report_result(role.engine, task_id, report))
+        return _json(await usecases.report_result(scope, task_id, report))
 
     @app.post(routes.TRANSCRIPT_APPEND, responses={200: {"model": TranscriptAppended}})
-    @requires("runtime")
+    @requires("runtime", "dev-agent")
     async def append_transcript(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
+        scope = _worker(await gate.admit(request))
         body = await _parse(request, TranscriptAppend)
-        return _json(await usecases.append_transcript(role.engine, task_id, body))
+        return _json(await usecases.append_transcript(scope, task_id, body))
 
     @app.post(routes.TRANSCRIPT_LOAD, responses={200: {"model": TranscriptLoaded}})
-    @requires("runtime")
+    @requires("runtime", "dev-agent")
     async def load_transcript(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
+        scope = _worker(await gate.admit(request))
         query = await _parse(request, TranscriptQuery)
-        return _json(await usecases.load_transcript(role.engine, task_id, query))
+        return _json(await usecases.load_transcript(scope, task_id, query))
 
     @app.post(routes.TRANSCRIPT_SUBPATHS, responses={200: {"model": TranscriptSubpaths}})
-    @requires("runtime")
+    @requires("runtime", "dev-agent")
     async def transcript_subpaths(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
+        scope = _worker(await gate.admit(request))
         query = await _parse(request, SubpathQuery)
-        return _json(await usecases.transcript_subpaths(role.engine, task_id, query))
+        return _json(await usecases.transcript_subpaths(scope, task_id, query))
 
     @app.post(routes.CREDENTIALS, responses={200: {"model": Credentials}})
     @requires("connector", "runtime", "dev-agent")
@@ -233,10 +251,37 @@ def _connector(principal: Principal) -> ConnectorRole:
     return principal.role
 
 
+def _dev_agent(principal: Principal) -> DevAgentRole:
+    if not isinstance(principal.role, DevAgentRole):
+        raise PermissionDeniedError("dev-agent role required")
+    return principal.role
+
+
+def _worker(principal: Principal) -> WorkerScope:
+    """Shared runtimes see their engine's shared tasks; dev agents see isolated ones."""
+    if isinstance(principal.role, RuntimeRole):
+        return WorkerScope.shared(principal.role.engine)
+    if isinstance(principal.role, DevAgentRole):
+        return WorkerScope.isolated()
+    raise PermissionDeniedError("worker role required")
+
+
 def _runtime(principal: Principal) -> RuntimeRole:
     if not isinstance(principal.role, RuntimeRole):
         raise PermissionDeniedError("runtime role required")
     return principal.role
+
+
+async def _dispatch_forever(services: CoreServices) -> None:
+    dispatcher = services.dispatcher
+    if dispatcher is None:
+        return
+    while True:
+        try:
+            await dispatcher.dispatch_once()
+        except Exception:
+            _log.exception("dev Job dispatch iteration failed")
+        await asyncio.sleep(services.dispatch_interval_seconds)
 
 
 async def _reap_forever(services: CoreServices) -> None:

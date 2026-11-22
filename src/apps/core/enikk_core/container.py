@@ -10,12 +10,14 @@ from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
+from enikk_core.dispatcher import DevJobDispatcher
 from enikk_core.github import GitHubHealthCheck, load_repository_policy
 from enikk_core.security import Gatekeeper
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
 from enikk_github.app import GitHubApp
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
+from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
 from enikk_persistence_sql.engine import create_engine, create_session_factory
@@ -29,15 +31,28 @@ if TYPE_CHECKING:
 
 def build_services(settings: CoreSettings) -> CoreServices:
     clock = SystemClock()
+    ids = RandomIdGenerator()
     engine = create_engine(settings.database.to_config())
+    uow = SqlUnitOfWorkFactory(create_session_factory(engine))
     usecases = CoreUseCases(
-        uow=SqlUnitOfWorkFactory(create_session_factory(engine)),
+        uow=uow,
         catalog=YamlAgentCatalog.load(settings.agents_dir),
         clock=clock,
-        ids=RandomIdGenerator(),
+        ids=ids,
         policy=settings.tasks,
         sleep=asyncio.sleep,
     )
+    dispatcher = None
+    dev = settings.dev_agent
+    if dev.enabled:
+        launcher = KubeJobLauncher.in_cluster(
+            KubeJobConfig(
+                namespace=dev.namespace,
+                template_configmap=dev.template_configmap,
+                api_url=dev.api_url,
+            )
+        )
+        dispatcher = DevJobDispatcher(uow=uow, launcher=launcher, clock=clock, ids=ids, policy=dev)
     authenticator = TokenReviewAuthenticator.in_cluster(
         TokenReviewConfig(
             api_url=settings.token_review.api_url,
@@ -54,6 +69,8 @@ def build_services(settings: CoreSettings) -> CoreServices:
         gatekeeper=Gatekeeper(authenticator, directory),
         github=_github(settings, store, clock),
         reaper_interval_seconds=settings.tasks.reaper_interval_seconds,
+        dispatcher=dispatcher,
+        dispatch_interval_seconds=dev.interval_seconds,
     )
 
 

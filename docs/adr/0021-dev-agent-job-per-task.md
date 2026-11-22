@@ -49,6 +49,14 @@ ADR-0007 은 개발 에이전트를 작업마다 새로 만드는 격리된 Pod 
 - 이미지 `enikk-dev-agent` 는 runtime-claude 와 같은 엔진 코드에 git, uv 를 더한 것이다. CI 가 같은 방식으로 빌드한다.
 - 에이전트 정의 `agents/developer.yaml` 이 셸·파일 편집 도구를 허용하는 유일한 정의다(I-14).
 
+### 6. 공용 런타임과의 분리 (구현 세부, 2026-11-22)
+- 에이전트 정의에 `execution: shared | isolated` 를 둔다(기본 `shared`). 작업은 접수될 때 자기 에이전트의 값을 기록한다.
+- 공용 런타임(엔진별 Deployment)은 `shared` 작업만 임대한다. 임대 직전에 정의가 `isolated` 로 바뀌었으면 그 작업을 실패로 처리한다.
+- 격리 Job 은 `POST /v1/tasks/{id}/claim` 으로 자기 작업 하나만 임대한다(`dev-agent` 역할). heartbeat, 결과, 대화 이력 API 는 두 역할이 함께 쓰되, 각자 자기 쪽 작업에만 접근한다.
+- Job 템플릿은 ConfigMap `enikk-dev-agent-job` 의 `job.yaml` 이다. core 는 `${TASK_ID}` 만 바꾸고, 결과가 `enikk-dev` 네임스페이스의 Job 이며 `enikk.dev/role=dev-agent`, `enikk.dev/task=<작업>` 라벨을 가졌는지 확인한 뒤 만든다. 이미지 태그가 없으면 템플릿이 배포되지 않고, core 는 Job 을 만들지 않는다.
+- 시작한 Job 은 DB 의 `dispatches` 에 기록한다. 하루 상한은 최근 24시간의 기록 수로 센다. 상한에 걸린 작업은 대기하고, 위임 단계(ADR-0022)에서 접수 전에 거부한다.
+- 한 작업에 Job 을 `max_attempts` 번 시작했는데도 결과 보고가 없으면, 그 작업을 실패로 처리하고 스레드에 알린다.
+
 ## 근거
 - 격리 단위가 Pod 이면 작업 사이에 파일, 프로세스, 자격증명이 남지 않는다.
 - core 의 Kubernetes 권한을 `enikk-dev` 한 네임스페이스의 Job 으로 한정하면, 권한이 늘어나는 범위가 개발 에이전트 실행에 그친다.
@@ -59,6 +67,9 @@ ADR-0007 은 개발 에이전트를 작업마다 새로 만드는 격리된 Pod 
 - Docker Desktop 의 기본 네트워크는 NetworkPolicy 를 적용하지 않는다. 개발 Pod 와 다른 Pod 사이의 네트워크 격리는 이 환경에서 보장되지 않는다. core API 는 모든 요청을 인증하므로(I-28) 개발 Pod 는 자기 역할의 API 만 쓸 수 있다.
 - Job 시작마다 이미지를 띄우고 저장소를 clone 하므로 작업 시작이 수십 초 늦다.
 - 개발 Pod 는 인터넷(GitHub, Anthropic, PyPI)에 나갈 수 있어야 한다.
+- **감수하는 위험 (소유자 결정, 2026-11-22)**: push 와 PR 생성을 위해 개발 Pod 안의 git·gh 가 개발용 GitHub 토큰을 쓰므로, 셸 도구를 가진 모델도 이 토큰을 읽을 수 있다. 모델이 출력하면 대화 이력이나 트레이스에 남을 수 있다.
+  - 제한 장치: 저장소 하나, 승인·설정 권한 없음, 1시간 만료, 작업이 끝나면 폐기, `agent/**` 브랜치에만 push 가능, 머지는 Slack 승인 필요. 토큰은 git credential helper 로만 전달하고 환경변수 전체에 넣지 않는다.
+  - 완전히 막으려면 push·PR 생성을 모델 밖의 플랫폼 도구로 빼야 한다. 재검토 조건에 둔다.
 
 ## 재검토 조건
 - NetworkPolicy 를 적용하는 클러스터로 옮길 때 → 개발 Pod 의 나가는 연결을 허용 목록으로 제한.

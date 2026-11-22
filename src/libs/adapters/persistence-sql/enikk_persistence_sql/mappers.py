@@ -6,11 +6,12 @@ so corrupted rows surface as validation errors instead of bad objects.
 
 from __future__ import annotations
 
+from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
-from enikk_core_domain.model import Lease, OutboxMessage, OutboxStatus, Session, Task
-from enikk_persistence_sql.tables import OutboxRow, SessionRow, TaskRow
+from enikk_core_domain.model import Dispatch, Lease, OutboxMessage, OutboxStatus, Session, Task
+from enikk_persistence_sql.tables import DispatchRow, OutboxRow, SessionRow, TaskRow
 
 
 def session_to_row(session: Session, row: SessionRow | None = None) -> SessionRow:
@@ -46,6 +47,7 @@ def task_to_row(task: Task, row: TaskRow | None = None) -> TaskRow:
     row.source_event_id = task.source_event_id
     row.agent = task.agent
     row.engine = task.engine.value
+    row.execution = task.execution.value
     row.input = task.input
     row.status = task.status.value
     row.attempt = task.attempt
@@ -71,6 +73,7 @@ def task_from_row(row: TaskRow) -> Task:
         source_event_id=row.source_event_id,
         agent=row.agent,
         engine=Engine(row.engine),
+        execution=Execution(row.execution),
         input=row.input,
         status=TaskStatus(row.status),
         attempt=row.attempt,
@@ -82,6 +85,15 @@ def task_from_row(row: TaskRow) -> Task:
         failure=row.failure,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def dispatch_to_row(dispatch: Dispatch) -> DispatchRow:
+    return DispatchRow(
+        id=dispatch.id,
+        task_id=dispatch.task_id,
+        job_name=dispatch.job_name,
+        created_at=dispatch.created_at,
     )
 
 
