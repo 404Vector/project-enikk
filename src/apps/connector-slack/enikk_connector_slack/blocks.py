@@ -238,6 +238,15 @@ def summary(body: str) -> str:
     return text
 
 
+def sent_to_dm_instead(message: Message, channel: str) -> Message:
+    """``message`` with a line saying it could not be posted in ``channel``."""
+    note = Context(elements=(Text(text=f"<#{channel}> 에 올리지 못해 DM 으로 보냅니다."),))
+    return Message(text=message.text, blocks=(note, *message.blocks))
+
+
+NOT_OWNER_TEXT: Final = "이 버튼은 소유자만 누를 수 있습니다. 아무것도 바뀌지 않았습니다."
+
+
 def resolved(notice: ApprovalResolved) -> Message:
     line = (
         f"<{notice.url}|#{notice.number} {_escape(notice.title)}> — {OUTCOME_TEXT[notice.outcome]}"

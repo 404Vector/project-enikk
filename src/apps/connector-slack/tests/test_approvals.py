@@ -280,6 +280,8 @@ async def test_anyone_but_the_owner_is_ignored() -> None:
     await ApprovalActions(core, slack, CONFIG).handle(_press("U0SOMEONE"))
     assert core.decisions == []
     assert slack.updates == []
+    [(_, user, _)] = slack.ephemerals
+    assert user == "U0SOMEONE"
 
 
 async def test_core_refusal_is_told_in_the_thread_and_keeps_the_buttons() -> None:

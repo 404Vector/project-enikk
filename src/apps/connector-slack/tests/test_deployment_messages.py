@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from pathlib import Path
 
 import pytest
 
 from enikk_connector_slack.approvals import ApprovalActions, NoticeRelay
-from enikk_connector_slack.blocks import REVERT_ACTION, Actions
+from enikk_connector_slack.blocks import NOT_OWNER_TEXT, REVERT_ACTION, Actions, Context
+from enikk_connector_slack.config import DEFAULT_DEPLOY_NOTIFY_CHANNEL, SlackConfig
 from enikk_connector_slack.outbound import RelayPolicy
+from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_connector_slack.testing import CONFIG, OWNER, FakeCore, FakeSlack
 from enikk_contracts.approvals import OwnerNotice
 from enikk_contracts.deployments import (
@@ -16,23 +20,119 @@ from enikk_contracts.deployments import (
     DeploymentFinished,
     PullLink,
 )
+from enikk_kernel.errors import ConfigurationError
 
 pytestmark = pytest.mark.anyio
 
 POLICY = RelayPolicy(wait_seconds=0, batch=10, backoff_max_seconds=1)
 SHA = "f" * 40
 PULL = PullLink(number=40, title="feat: <new> thing", url="https://github.com/x/y/pull/40")
+RELEASE = CONFIG.deploy_notify_channel
+SLACK_YAML = Path(__file__).resolve().parents[4] / "config" / "slack.yaml"
+FAILED_BUILD = BuildFailed(
+    repository="404Vector/project-enikk",
+    commit=SHA,
+    run_url="https://github.com/x/y/actions/runs/9",
+    conclusion="failure",
+)
 
 
-async def _relay(*bodies: DeploymentFinished | BuildFailed) -> FakeSlack:
-    core, slack = FakeCore(), FakeSlack()
+async def _relay(
+    *bodies: DeploymentFinished | BuildFailed, slack: FakeSlack | None = None
+) -> FakeSlack:
+    core, slack = FakeCore(), slack or FakeSlack()
     core.notices += [OwnerNotice(notice_id=uuid.uuid4(), body=b) for b in bodies]
     assert await NoticeRelay(core, slack, CONFIG, POLICY).relay_once() == len(bodies)
+    assert core.notices_acked
     assert slack.uploads == []
     return slack
 
 
-async def test_deployment_results_go_to_the_owner_without_buttons() -> None:
+def _revert_press(user: str, channel: str) -> dict[str, object]:
+    return {
+        "type": "block_actions",
+        "user": {"id": user},
+        "container": {"type": "message", "channel_id": channel, "message_ts": "2.0"},
+        "message": {
+            "text": "배포 실패",
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": "x"}},
+                {"type": "actions", "elements": []},
+            ],
+        },
+        "actions": [{"action_id": REVERT_ACTION, "value": SHA}],
+    }
+
+
+def test_the_deployment_channel_defaults_to_release_and_can_be_set() -> None:
+    assert DEFAULT_DEPLOY_NOTIFY_CHANNEL == "C0CKT1ZNZ43"
+    assert SlackConfig.load(SLACK_YAML).deploy_notify_channel == "C0CKT1ZNZ43"
+    bare = SlackConfig.parse("owner: U0OWNER\nroutes: {direct_message: a, mention: a}\n")
+    assert bare.deploy_notify_channel == "C0CKT1ZNZ43"
+    assert bare.with_deploy_channel(None) is bare
+    assert bare.with_deploy_channel("C0OTHER").deploy_notify_channel == "C0OTHER"
+    with pytest.raises(ConfigurationError):
+        bare.with_deploy_channel("#release")
+
+
+async def test_notices_go_to_the_configured_channel() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    config = CONFIG.with_deploy_channel("C0OTHER")
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=FAILED_BUILD))
+    await NoticeRelay(core, slack, config, POLICY).relay_once()
+    assert [channel for channel, _ in slack.messages] == ["C0OTHER"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SlackDeliveryError("chat.postMessage: not_in_channel", transient=False),
+        SlackDeliveryError("chat.postMessage: channel_not_found", transient=False),
+        SlackDeliveryError("chat.postMessage: ClientError()", transient=True),
+    ],
+)
+async def test_a_channel_failure_is_logged_and_sent_to_the_owner_dm(
+    error: SlackDeliveryError, caplog: pytest.LogCaptureFixture
+) -> None:
+    slack = FakeSlack()
+    slack.fail_channels[RELEASE] = error
+    with caplog.at_level(logging.ERROR):
+        await _relay(FAILED_BUILD, slack=slack)
+    [(channel, message)] = slack.messages
+    assert channel == OWNER
+    assert isinstance(message.blocks[0], Context)
+    assert RELEASE in str(message.blocks[0].model_dump())
+    [revert] = [b for b in message.blocks if isinstance(b, Actions)]
+    assert revert.elements[0].action_id == REVERT_ACTION
+    assert f"in {RELEASE}, sending it to the owner's DM" in caplog.text
+
+
+async def test_a_failed_dm_fallback_is_retried_when_transient() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    slack.fail_channels[RELEASE] = SlackDeliveryError("x: not_in_channel", transient=False)
+    slack.fail_channels[OWNER] = SlackDeliveryError("x: ratelimited", transient=True)
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=FAILED_BUILD))
+    with pytest.raises(SlackDeliveryError):
+        await NoticeRelay(core, slack, CONFIG, POLICY).relay_once()
+    assert core.notices_acked == []
+
+
+@pytest.mark.parametrize("channel", [RELEASE, "D0OWNER"])
+async def test_only_the_owner_can_revert_from_the_channel_or_the_dm(channel: str) -> None:
+    core, slack = FakeCore(), FakeSlack()
+    await ApprovalActions(core, slack, CONFIG).handle(_revert_press("U0SOMEONE", channel))
+    assert core.reverts == []
+    assert slack.updates == []
+    assert slack.ephemerals == [(channel, "U0SOMEONE", NOT_OWNER_TEXT)]
+
+    await ApprovalActions(core, slack, CONFIG).handle(_revert_press(OWNER, channel))
+    [request] = core.reverts
+    assert request.requested_by == OWNER
+    [(updated_channel, _, _)] = slack.updates
+    assert updated_channel == channel
+
+
+async def test_deployment_results_go_to_the_channel() -> None:
     ok = DeploymentFinished(
         repository="404Vector/project-enikk",
         commit=SHA,
@@ -52,7 +152,7 @@ async def test_deployment_results_go_to_the_owner_without_buttons() -> None:
     )
     slack = await _relay(ok, failed)
     [(channel, first), (_, second)] = slack.messages
-    assert channel == OWNER
+    assert channel == RELEASE
     assert first.text.startswith("배포 성공")
     assert "feat: &lt;new&gt; thing" in str(first.payload())
     assert second.text.startswith("배포 실패")
@@ -73,7 +173,8 @@ async def test_rollback_results_have_no_revert_button() -> None:
         apps=(AppDeployment(app="enikk-core", result=AppResult.FAILED),),
     )
     slack = await _relay(rollback)
-    [(_, message)] = slack.messages
+    [(channel, message)] = slack.messages
+    assert channel == RELEASE
     assert message.text.startswith("롤백 실패")
     assert not any(isinstance(b, Actions) for b in message.blocks)
 
@@ -103,15 +204,8 @@ async def test_revert_button_asks_core_and_replaces_the_button() -> None:
 
 
 async def test_build_failure_links_the_run() -> None:
-    slack = await _relay(
-        BuildFailed(
-            repository="404Vector/project-enikk",
-            commit=SHA,
-            pull=None,
-            run_url="https://github.com/x/y/actions/runs/9",
-            conclusion="failure",
-        )
-    )
-    [(_, message)] = slack.messages
+    slack = await _relay(FAILED_BUILD)
+    [(channel, message)] = slack.messages
+    assert channel == RELEASE
     assert message.text == f"이미지 빌드 실패: {SHA[:7]}"
     assert "actions/runs/9" in str(message.payload())

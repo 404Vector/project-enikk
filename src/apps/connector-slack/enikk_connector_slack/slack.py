@@ -101,6 +101,14 @@ class SlackWebApi:
         except (aiohttp.ClientError, TimeoutError) as exc:
             _log.warning("could not update message %s: %r", ts, exc)
 
+    async def post_ephemeral(self, channel: str, user: str, text: str) -> None:
+        try:
+            await self._web.chat_postEphemeral(channel=channel, user=user, text=text)
+        except SlackApiError as exc:
+            _log.warning("could not tell %s privately: %s", user, _error_code(exc))
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not tell %s privately: %r", user, exc)
+
     async def permalink(self, channel: str, ts: str) -> str | None:
         try:
             response = await self._web.chat_getPermalink(channel=channel, message_ts=ts)

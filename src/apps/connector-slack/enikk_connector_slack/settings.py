@@ -26,3 +26,5 @@ class ConnectorSlackSettings(ServiceSettings, env_prefix="ENIKK_CONNECTOR_"):
     submit_timeout_seconds: float = Field(default=2.5, gt=0, lt=3)
     verbose: bool = False
     outbox: OutboxSettings = OutboxSettings()
+    deploy_notify_channel: str | None = None
+    """Overrides ``deploy_notify_channel`` of the Slack config (ADR-0026)."""
