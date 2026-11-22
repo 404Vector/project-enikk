@@ -24,6 +24,7 @@ from enikk_contracts.approvals import (
 )
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
+from enikk_contracts.deployments import RevertRequest, RevertResult
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
 from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
@@ -267,6 +268,13 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         ack = await _parse(request, NoticeAck)
         return _json(await _approvals(services).ack_notices(ack))
 
+    @app.post(routes.REVERTS, responses={200: {"model": RevertResult}})
+    @requires("connector")
+    async def request_revert(request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, RevertRequest)
+        return _json(await _deployments(services).request_revert(body))
+
     @app.post(routes.APPROVAL_DECISION, responses={200: {"model": DecisionResult}})
     @requires("connector")
     async def decide(approval_id: uuid.UUID, request: Request) -> Response:
@@ -342,6 +350,12 @@ def _owner_channel(principal: Principal) -> ConnectorRole:
     if role.connector is not ConnectorKind.SLACK:
         raise PermissionDeniedError("only the Slack connector talks to the owner")
     return role
+
+
+def _deployments(services: CoreServices) -> DeploymentService:
+    if services.deployments is None:
+        raise DependencyUnavailableError("deployment notices are not enabled")
+    return services.deployments
 
 
 def _approvals(services: CoreServices) -> ApprovalService:

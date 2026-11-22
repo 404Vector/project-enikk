@@ -19,10 +19,13 @@ from enikk_contracts.deployments import (
     BuildFailed,
     DeploymentFinished,
     PullLink,
+    RevertOutcome,
+    RevertResult,
 )
 
 APPROVE_ACTION: Final = "enikk.approve"
 REJECT_ACTION: Final = "enikk.reject"
+REVERT_ACTION: Final = "enikk.revert"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
 SUMMARY_LIMIT: Final = 200
@@ -74,12 +77,20 @@ class Button(_Block):
     action_id: str
     value: str
     style: Literal["primary", "danger"]
+    confirm: Confirm | None = None
 
 
 class Actions(_Block):
     type: Literal["actions"] = "actions"
     block_id: str = "enikk.decision"
     elements: tuple[Button, ...]
+
+
+class Confirm(_Block):
+    title: Text
+    text: Text
+    confirm: Text
+    deny: Text
 
 
 Block = Section | Context | Actions
@@ -92,7 +103,7 @@ class Message(_Block):
     blocks: tuple[Block, ...]
 
     def payload(self) -> list[dict[str, object]]:
-        return [b.model_dump() for b in self.blocks]
+        return [b.model_dump(exclude_none=True) for b in self.blocks]
 
 
 _HEADING: Final = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
@@ -193,12 +204,15 @@ def resolved(notice: ApprovalResolved) -> Message:
 
 def deployment_finished(notice: DeploymentFinished) -> Message:
     what = _what(notice.commit, notice.pull)
+    kind = "롤백" if notice.rollback_of else "배포"
     if notice.succeeded:
-        heading = f":rocket: *배포 성공* {what}"
-        summary = f"배포 성공: {_plain(notice.commit, notice.pull)}"
+        heading = f":rocket: *{kind} 성공* {what}"
+        summary = f"{kind} 성공: {_plain(notice.commit, notice.pull)}"
     else:
-        heading = f":rotating_light: *배포 실패* {what}"
-        summary = f"배포 실패: {_plain(notice.commit, notice.pull)}"
+        heading = f":rotating_light: *{kind} 실패* {what}"
+        summary = f"{kind} 실패: {_plain(notice.commit, notice.pull)}"
+    if notice.rollback_of:
+        heading += f"\n되돌린 커밋 `{notice.rollback_of[:7]}`"
     lines = [heading]
     for app in notice.apps:
         line = f"• `{app.app}` {APP_RESULT_TEXT[app.result]}"
@@ -217,6 +231,8 @@ def deployment_finished(notice: DeploymentFinished) -> Message:
                 )
             )
         )
+        if notice.rollback_of is None:
+            blocks.append(_revert_button(notice.commit))
     return Message(text=summary, blocks=tuple(blocks))
 
 
@@ -226,13 +242,59 @@ def build_failed(notice: BuildFailed) -> Message:
         f":hammer_and_wrench: *이미지 빌드 실패* {what}\n"
         f"<{notice.run_url}|빌드 기록> · 결과 `{_escape(notice.conclusion)}`"
     )
+    if notice.rollback_of:
+        text = f":rotating_light: *롤백 실패* (되돌린 커밋 `{notice.rollback_of[:7]}`)\n" + text
+    blocks: list[Block] = [
+        _section(text),
+        Context(elements=(Text(text="배포는 시작되지 않았고 이전 버전이 그대로 동작합니다."),)),
+    ]
+    if notice.rollback_of is None:
+        blocks.append(_revert_button(notice.commit))
     return Message(
-        text=f"이미지 빌드 실패: {_plain(notice.commit, notice.pull)}",
-        blocks=(
-            _section(text),
-            Context(elements=(Text(text="배포는 시작되지 않았고 이전 버전이 그대로 동작합니다."),)),
+        text=f"이미지 빌드 실패: {_plain(notice.commit, notice.pull)}", blocks=tuple(blocks)
+    )
+
+
+def _revert_button(commit: str) -> Actions:
+    return Actions(
+        block_id="enikk.revert",
+        elements=(
+            Button(
+                text=Text(type="plain_text", text="되돌리기"),
+                action_id=REVERT_ACTION,
+                value=commit,
+                style="danger",
+                confirm=Confirm(
+                    title=Text(type="plain_text", text="되돌리기"),
+                    text=Text(
+                        type="plain_text",
+                        text=f"커밋 {commit[:7]} 을 되돌리는 PR 을 엽니다. "
+                        "머지는 평소처럼 승인을 거칩니다.",
+                    ),
+                    confirm=Text(type="plain_text", text="PR 열기"),
+                    deny=Text(type="plain_text", text="취소"),
+                ),
+            ),
         ),
     )
+
+
+REVERT_TEXT: Final = {
+    RevertOutcome.OPENED: ":leftwards_arrow_with_hook: 되돌리는 PR 을 열었습니다.",
+    RevertOutcome.EXISTING: ":leftwards_arrow_with_hook: 되돌리는 PR 이 이미 열려 있습니다.",
+    RevertOutcome.REFUSED: ":warning: 자동으로 되돌릴 수 없습니다.",
+}
+
+
+def revert_requested(result: RevertResult, by: str) -> Context:
+    text = f"{REVERT_TEXT[result.outcome]} (<@{by}>)"
+    if result.pull is not None:
+        text += f" <{result.pull.url}|#{result.pull.number}> — 검사가 끝나면 승인 요청이 옵니다."
+    if result.detail:
+        text += f"\n> {_escape(result.detail)}"
+    if result.outcome is RevertOutcome.REFUSED:
+        text += "\nassistant 에게 이 커밋을 되돌려 달라고 요청할 수 있습니다."
+    return Context(elements=(Text(text=text[:SECTION_LIMIT]),))
 
 
 def _what(commit: str, pull: PullLink | None) -> str:

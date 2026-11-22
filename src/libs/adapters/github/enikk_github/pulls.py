@@ -49,6 +49,7 @@ class _Pull(_Body):
     draft: bool = False
     state: str
     merged: bool = False
+    mergeable_state: str | None = None
     user: _User
     head: _Ref
     base: _Ref
@@ -95,6 +96,8 @@ class PullInfo(FrozenModel):
     head_sha: str
     branch: str
     from_fork: bool
+    mergeable_state: str | None = None
+    """Only on a single-PR read; ``behind`` means main moved on since the branch."""
 
 
 class CheckRun(FrozenModel):
@@ -128,6 +131,10 @@ class _MergeBody(FrozenModel):
     sha: str
     merge_method: str
     commit_title: str
+
+
+class _UpdateBranchBody(FrozenModel):
+    expected_head_sha: str
 
 
 class _CloseBody(FrozenModel):
@@ -226,6 +233,22 @@ class PullRequests:
         result = _parse(_MERGE, response)
         return MergeResult(merged=result.merged, detail=result.message)
 
+    async def update_branch(self, token: InstallationToken, pull: PullInfo) -> bool:
+        """Merge main into the PR branch, only while its head is ``pull.head_sha``."""
+        body = _UpdateBranchBody(expected_head_sha=pull.head_sha)
+        try:
+            await self._app.call(
+                "PUT",
+                f"{self._repo(token)}/pulls/{pull.number}/update-branch",
+                token,
+                body=body.model_dump_json(),
+            )
+        except GitHubRequestError as exc:
+            if exc.status in {403, 409, 422}:
+                return False
+            raise
+        return True
+
     async def close(self, token: InstallationToken, number: int) -> None:
         await self._app.call(
             "PATCH",
@@ -264,4 +287,5 @@ def _pull(p: _Pull) -> PullInfo:
         head_sha=p.head.sha,
         branch=p.head.ref,
         from_fork=head_repo is None or head_repo != base_repo,
+        mergeable_state=p.mergeable_state,
     )

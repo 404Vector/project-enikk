@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         NoticeBatch,
         NoticePoll,
     )
+    from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 
@@ -37,6 +38,8 @@ class CoreApi(Protocol):
     async def ack_notices(self, ack: NoticeAck) -> NoticeAcked: ...
 
     async def decide(self, approval_id: uuid.UUID, request: DecisionRequest) -> DecisionResult: ...
+
+    async def request_revert(self, request: RevertRequest) -> RevertResult: ...
 
 
 class SlackDeliveryError(EnikkError):
