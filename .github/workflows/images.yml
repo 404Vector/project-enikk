@@ -1,7 +1,7 @@
 name: images
 
-# Builds app images. Pushes to GHCR only for commits on main (ADR-0008);
-# pull requests build without pushing to verify the Dockerfile.
+# Builds app images (ADR-0008). Pull requests only verify the Dockerfile and
+# never receive a token that can write packages; commits on main publish.
 on:
   push:
     branches: [main]
@@ -35,7 +35,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  verify:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [core, runtime-claude, connector-slack]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/python-app.Dockerfile
+          build-args: PACKAGE=enikk-${{ matrix.app }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.app }}
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -47,7 +73,6 @@ jobs:
         app: [core, runtime-claude, connector-slack]
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
-      PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -55,8 +80,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - if: env.PUSH == 'true'
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -67,7 +91,7 @@ jobs:
           context: .
           file: deploy/docker/python-app.Dockerfile
           build-args: PACKAGE=enikk-${{ matrix.app }}
-          push: ${{ env.PUSH == 'true' }}
+          push: true
           tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
