@@ -72,6 +72,13 @@ resources:
   requests: { cpu: 50m, memory: 128Mi }
   limits: { memory: 320Mi }
 
+# PostSync check of the deployed core (ADR-0023 §2), as the enikk-smoke identity.
+selfcheck:
+  deadlineSeconds: 180
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 160Mi }
+
 migration:
   resources:
     requests: { cpu: 50m, memory: 96Mi }
