@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -10,19 +11,23 @@ from pydantic import ValidationError
 from slack_sdk.errors import SlackApiError
 from slack_sdk.socket_mode.response import SocketModeResponse
 
-from enikk_connector_slack.events import AuthIdentity, EventCallback
+from enikk_connector_slack.events import AuthIdentity, EventCallback, PostedMessage
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_kernel.errors import ConfigurationError
 
 if TYPE_CHECKING:
+    from pydantic import JsonValue
     from slack_sdk.socket_mode.async_client import AsyncBaseSocketModeClient
     from slack_sdk.socket_mode.request import SocketModeRequest
     from slack_sdk.web.async_client import AsyncWebClient
 
+    from enikk_connector_slack.approvals import ApprovalActions
+    from enikk_connector_slack.blocks import Message
     from enikk_connector_slack.events import MessageRef
     from enikk_connector_slack.inbound import InboundHandler
 
 EVENTS_API: Final = "events_api"
+INTERACTIVE: Final = "interactive"
 MARKDOWN_LIMIT: Final = 12_000
 """Longest text ``chat.postMessage`` accepts as ``markdown_text``."""
 TRANSIENT_ERRORS: Final = frozenset(
@@ -53,12 +58,46 @@ class SlackWebApi:
             else:
                 await self._web.chat_postMessage(channel=channel, thread_ts=thread, text=text)
         except SlackApiError as exc:
-            error = _error_code(exc)
-            status = exc.response.status_code
-            transient = status == 429 or status >= 500 or error in TRANSIENT_ERRORS
-            raise SlackDeliveryError(f"chat.postMessage: {error}", transient=transient) from exc
+            raise _delivery_error("chat.postMessage", exc) from exc
         except (aiohttp.ClientError, TimeoutError) as exc:
             raise SlackDeliveryError(f"chat.postMessage: {exc!r}", transient=True) from exc
+
+    async def post_message(self, channel: str, message: Message) -> PostedMessage:
+        try:
+            response = await self._web.chat_postMessage(
+                channel=channel, text=message.text, blocks=message.payload()
+            )
+            return PostedMessage.model_validate(
+                {"channel": response.get("channel"), "ts": response.get("ts")}
+            )
+        except SlackApiError as exc:
+            raise _delivery_error("chat.postMessage", exc) from exc
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise SlackDeliveryError(f"chat.postMessage: {exc!r}", transient=True) from exc
+        except ValidationError as exc:
+            raise SlackDeliveryError("chat.postMessage: no channel/ts", transient=False) from exc
+
+    async def upload_text(
+        self, channel: str, thread: str, filename: str, content: str, title: str
+    ) -> None:
+        try:
+            await self._web.files_upload_v2(
+                channel=channel, thread_ts=thread, filename=filename, content=content, title=title
+            )
+        except SlackApiError as exc:
+            _log.warning("could not attach %s: %s", filename, _error_code(exc))
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not attach %s: %r", filename, exc)
+
+    async def update_message(
+        self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
+    ) -> None:
+        try:
+            await self._web.chat_update(channel=channel, ts=ts, text=text, blocks=blocks)
+        except SlackApiError as exc:
+            _log.warning("could not update message %s: %s", ts, _error_code(exc))
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not update message %s: %r", ts, exc)
 
     async def react(self, message: MessageRef, emoji: str) -> None:
         try:
@@ -85,12 +124,24 @@ class SlackWebApi:
 
 
 class SocketListener:
-    """Socket Mode request listener: settles each events_api envelope through the handler."""
+    """Socket Mode request listener.
 
-    def __init__(self, handler: InboundHandler) -> None:
+    ``events_api`` envelopes are settled through the inbound handler. ``interactive``
+    envelopes (button presses) are acknowledged at once, then handled (ADR-0020).
+    """
+
+    def __init__(self, handler: InboundHandler, actions: ApprovalActions | None = None) -> None:
         self._handler = handler
+        self._actions = actions
+        self._running: set[asyncio.Task[None]] = set()
 
     async def __call__(self, client: AsyncBaseSocketModeClient, request: SocketModeRequest) -> None:
+        if request.type == INTERACTIVE and self._actions is not None:
+            await _acknowledge(client, request)
+            task = asyncio.create_task(self._actions.handle(request.payload))
+            self._running.add(task)
+            task.add_done_callback(self._running.discard)
+            return
         if request.type != EVENTS_API:
             await _acknowledge(client, request)
             return
@@ -107,6 +158,13 @@ class SocketListener:
 
 async def _acknowledge(client: AsyncBaseSocketModeClient, request: SocketModeRequest) -> None:
     await client.send_socket_mode_response(SocketModeResponse(envelope_id=request.envelope_id))
+
+
+def _delivery_error(method: str, exc: SlackApiError) -> SlackDeliveryError:
+    error = _error_code(exc)
+    status = exc.response.status_code
+    transient = status == 429 or status >= 500 or error in TRANSIENT_ERRORS
+    return SlackDeliveryError(f"{method}: {error}", transient=transient)
 
 
 def _error_code(exc: SlackApiError) -> str:

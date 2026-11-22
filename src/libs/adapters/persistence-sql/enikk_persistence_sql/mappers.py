@@ -6,12 +6,34 @@ so corrupted rows surface as validation errors instead of bad objects.
 
 from __future__ import annotations
 
+import pydantic_core
+from pydantic import TypeAdapter
+
 from enikk_contracts.agents import Execution
+from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
-from enikk_core_domain.model import Dispatch, Lease, OutboxMessage, OutboxStatus, Session, Task
-from enikk_persistence_sql.tables import DispatchRow, OutboxRow, SessionRow, TaskRow
+from enikk_core_domain.model import (
+    Approval,
+    ApprovalState,
+    Dispatch,
+    Lease,
+    Notice,
+    NoticeStatus,
+    OutboxMessage,
+    OutboxStatus,
+    Session,
+    Task,
+)
+from enikk_persistence_sql.tables import (
+    ApprovalRow,
+    DispatchRow,
+    NoticeRow,
+    OutboxRow,
+    SessionRow,
+    TaskRow,
+)
 
 
 def session_to_row(session: Session, row: SessionRow | None = None) -> SessionRow:
@@ -92,6 +114,57 @@ def task_from_row(row: TaskRow) -> Task:
         failure=row.failure,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+_NOTICE_BODY: TypeAdapter[OwnerNoticeBody] = TypeAdapter(OwnerNoticeBody)
+
+
+def approval_to_row(approval: Approval, row: ApprovalRow | None = None) -> ApprovalRow:
+    row = row or ApprovalRow(id=approval.id)
+    row.repository = approval.repository
+    row.number = approval.number
+    row.head_sha = approval.head_sha
+    row.branch = approval.branch
+    row.title = approval.title
+    row.url = approval.url
+    row.state = approval.state.value
+    row.created_at = approval.created_at
+    row.decided_at = approval.decided_at
+    row.decided_by = approval.decided_by
+    return row
+
+
+def approval_from_row(row: ApprovalRow) -> Approval:
+    return Approval(
+        id=row.id,
+        repository=row.repository,
+        number=row.number,
+        head_sha=row.head_sha,
+        branch=row.branch,
+        title=row.title,
+        url=row.url,
+        state=ApprovalState(row.state),
+        created_at=row.created_at,
+        decided_at=row.decided_at,
+        decided_by=row.decided_by,
+    )
+
+
+def notice_to_row(notice: Notice, row: NoticeRow | None = None) -> NoticeRow:
+    row = row or NoticeRow(id=notice.id)
+    row.body = _NOTICE_BODY.dump_python(notice.body, mode="json")
+    row.status = notice.status.value
+    row.created_at = notice.created_at
+    return row
+
+
+def notice_from_row(row: NoticeRow) -> Notice:
+    return Notice(
+        id=row.id,
+        body=_NOTICE_BODY.validate_json(pydantic_core.to_json(row.body)),
+        status=NoticeStatus(row.status),
+        created_at=row.created_at,
     )
 
 

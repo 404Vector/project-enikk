@@ -14,6 +14,14 @@ from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
 from enikk_contracts import routes
+from enikk_contracts.approvals import (
+    DecisionRequest,
+    DecisionResult,
+    NoticeAck,
+    NoticeAcked,
+    NoticeBatch,
+    NoticePoll,
+)
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.errors import ErrorCode, ErrorResponse
@@ -57,6 +65,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
     from enikk_contracts.base import Contract
+    from enikk_core.approval.service import ApprovalService
     from enikk_core.credentials import CredentialIssuer
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
@@ -95,6 +104,8 @@ class CoreServices:
         reaper_interval_seconds: float,
         dispatcher: DevJobDispatcher | None = None,
         dispatch_interval_seconds: float = 10.0,
+        approvals: ApprovalService | None = None,
+        watch_interval_seconds: float = 30.0,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -105,6 +116,8 @@ class CoreServices:
         self.reaper_interval_seconds = reaper_interval_seconds
         self.dispatcher = dispatcher
         self.dispatch_interval_seconds = dispatch_interval_seconds
+        self.approvals = approvals
+        self.watch_interval_seconds = watch_interval_seconds
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -115,6 +128,8 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
             loops.append(asyncio.create_task(_reap_forever(services)))
             if services.dispatcher is not None:
                 loops.append(asyncio.create_task(_dispatch_forever(services)))
+            if services.approvals is not None:
+                loops.append(asyncio.create_task(_watch_forever(services)))
         try:
             yield
         finally:
@@ -231,6 +246,27 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
             raise PermissionDeniedError("only the smoke check reads the GitHub status")
         return _json(await services.github.check())
 
+    @app.post(routes.NOTICES_POLL, responses={200: {"model": NoticeBatch}})
+    @requires("connector")
+    async def poll_notices(request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        poll = await _parse(request, NoticePoll)
+        return _json(await _approvals(services).poll_notices(poll))
+
+    @app.post(routes.NOTICES_ACK, responses={200: {"model": NoticeAcked}})
+    @requires("connector")
+    async def ack_notices(request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        ack = await _parse(request, NoticeAck)
+        return _json(await _approvals(services).ack_notices(ack))
+
+    @app.post(routes.APPROVAL_DECISION, responses={200: {"model": DecisionResult}})
+    @requires("connector")
+    async def decide(approval_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, DecisionRequest)
+        return _json(await _approvals(services).decide(approval_id, body))
+
     @app.post(routes.GITHUB_TOKEN, responses={200: {"model": GitHubToken}})
     @requires("dev-agent")
     async def github_token(request: Request) -> Response:
@@ -291,6 +327,32 @@ def _runtime(principal: Principal) -> RuntimeRole:
     if not isinstance(principal.role, RuntimeRole):
         raise PermissionDeniedError("runtime role required")
     return principal.role
+
+
+def _owner_channel(principal: Principal) -> ConnectorRole:
+    """The owner's DM (approvals) is reached through the Slack connector only (ADR-0020)."""
+    role = _connector(principal)
+    if role.connector is not ConnectorKind.SLACK:
+        raise PermissionDeniedError("only the Slack connector talks to the owner")
+    return role
+
+
+def _approvals(services: CoreServices) -> ApprovalService:
+    if services.approvals is None:
+        raise DependencyUnavailableError("Slack approval is not enabled")
+    return services.approvals
+
+
+async def _watch_forever(services: CoreServices) -> None:
+    approvals = services.approvals
+    if approvals is None:
+        return
+    while True:
+        try:
+            await approvals.watch_once()
+        except Exception:
+            _log.exception("pull request watch iteration failed")
+        await asyncio.sleep(services.watch_interval_seconds)
 
 
 async def _dispatch_forever(services: CoreServices) -> None:

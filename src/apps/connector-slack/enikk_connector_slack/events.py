@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 from enikk_kernel.models import FrozenModel
 
@@ -36,6 +36,57 @@ class EventCallback(SlackPayload):
 
     type: str
     event: SlackMessage
+
+
+class _Id(SlackPayload):
+    id: str
+
+
+class _Action(SlackPayload):
+    action_id: str
+    value: str = ""
+
+
+class _Container(SlackPayload):
+    channel_id: str
+    message_ts: str
+
+
+class _InteractiveMessage(SlackPayload):
+    text: str = ""
+    blocks: tuple[dict[str, JsonValue], ...] = ()
+    """Kept as Slack sent them, to redraw the message without its buttons."""
+
+
+class BlockActions(SlackPayload):
+    """Payload of a Socket Mode ``interactive`` envelope for a button press."""
+
+    type: Literal["block_actions"]
+    user: _Id
+    container: _Container
+    message: _InteractiveMessage = _InteractiveMessage()
+    actions: tuple[_Action, ...] = ()
+
+    @property
+    def channel_id(self) -> str:
+        return self.container.channel_id
+
+    @property
+    def message_ts(self) -> str:
+        return self.container.message_ts
+
+    @property
+    def message_text(self) -> str:
+        return self.message.text or "PR 승인 요청"
+
+    @property
+    def message_blocks(self) -> tuple[dict[str, JsonValue], ...]:
+        return self.message.blocks
+
+
+class PostedMessage(FrozenModel):
+    channel: str
+    ts: str
 
 
 class AuthIdentity(SlackPayload):

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.web.async_client import AsyncWebClient
 
+from enikk_connector_slack.approvals import ApprovalActions, NoticeRelay
 from enikk_connector_slack.config import SlackConfig
 from enikk_connector_slack.inbound import InboundHandler
 from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
@@ -60,7 +61,18 @@ class ConnectorSlackApp:
                 ),
             )
             socket = SocketModeClient(app_token=app_token.get_secret_value(), web_client=web)
-            socket.socket_mode_request_listeners.append(SocketListener(handler))
+            notices = NoticeRelay(
+                core,
+                slack,
+                config,
+                RelayPolicy(
+                    wait_seconds=s.outbox.wait_seconds,
+                    batch=s.outbox.batch,
+                    backoff_max_seconds=s.outbox.backoff_max_seconds,
+                ),
+            )
+            actions = ApprovalActions(core, slack, config)
+            socket.socket_mode_request_listeners.append(SocketListener(handler, actions))
 
             stop = asyncio.Event()
             loop = asyncio.get_running_loop()
@@ -71,14 +83,18 @@ class ConnectorSlackApp:
             # slack-sdk leaves connect/close unannotated.
             await socket.connect()  # type: ignore[no-untyped-call]
             relaying = asyncio.create_task(relay.run(stop))
+            noticing = asyncio.create_task(notices.run(stop))
             stopping = asyncio.create_task(stop.wait())
             _log.info("%s ready: core %s, owner %s", SERVICE_NAME, s.core_url, config.owner)
             try:
-                await asyncio.wait({relaying, stopping}, return_when=asyncio.FIRST_COMPLETED)
-                if relaying.done():
-                    relaying.result()  # re-raise why the relay ended
+                await asyncio.wait(
+                    {relaying, noticing, stopping}, return_when=asyncio.FIRST_COMPLETED
+                )
+                for relay_task in (relaying, noticing):
+                    if relay_task.done():
+                        relay_task.result()  # re-raise why a relay ended
             finally:
-                for task in (relaying, stopping):
+                for task in (relaying, noticing, stopping):
                     task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await task

@@ -11,12 +11,23 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Self
 
 from enikk_contracts.agents import AgentDefinition, Execution, PromptRef
+from enikk_contracts.approvals import ChecksFailed, PullRequestCard
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
-from enikk_core_domain.model import Dispatch, OutboxMessage, OutboxStatus, Session, Task
+from enikk_core_domain.model import (
+    Approval,
+    ApprovalState,
+    Dispatch,
+    Notice,
+    NoticeStatus,
+    OutboxMessage,
+    OutboxStatus,
+    Session,
+    Task,
+)
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 
 if TYPE_CHECKING:
@@ -104,6 +115,8 @@ class InMemoryDatabase:
         self.outbox: dict[uuid.UUID, OutboxMessage] = {}
         self.transcripts: dict[_Slot, tuple[TranscriptEntry, ...]] = {}
         self.dispatches: dict[uuid.UUID, Dispatch] = {}
+        self.approvals: dict[uuid.UUID, Approval] = {}
+        self.notices: dict[uuid.UUID, Notice] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -117,6 +130,55 @@ class _Staged:
         self.outbox = dict(db.outbox)
         self.transcripts = dict(db.transcripts)
         self.dispatches = dict(db.dispatches)
+        self.approvals = dict(db.approvals)
+        self.notices = dict(db.notices)
+
+
+class _Approvals:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def add(self, approval: Approval) -> None:
+        self._s.approvals[approval.id] = approval
+
+    async def update(self, approval: Approval) -> None:
+        self._s.approvals[approval.id] = approval
+
+    async def get_for_update(self, approval_id: uuid.UUID) -> Approval | None:
+        return self._s.approvals.get(approval_id)
+
+    async def find(self, repository: str, number: int, head_sha: str) -> Approval | None:
+        return next(
+            (
+                a
+                for a in self._s.approvals.values()
+                if (a.repository, a.number, a.head_sha) == (repository, number, head_sha)
+            ),
+            None,
+        )
+
+    async def in_state(self, state: ApprovalState) -> Sequence[Approval]:
+        found = [a for a in self._s.approvals.values() if a.state is state]
+        return sorted(found, key=lambda a: (a.created_at, a.id))
+
+
+class _Notices:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def add(self, notice: Notice) -> None:
+        self._s.notices[notice.id] = notice
+
+    async def pending(self, limit: int) -> Sequence[Notice]:
+        found = [n for n in self._s.notices.values() if n.status is NoticeStatus.PENDING]
+        return sorted(found, key=lambda n: (n.created_at, n.id))[:limit]
+
+    async def get_many(self, notice_ids: Sequence[uuid.UUID]) -> Sequence[Notice]:
+        wanted = set(notice_ids)
+        return [n for n in self._s.notices.values() if n.id in wanted]
+
+    async def update(self, notice: Notice) -> None:
+        self._s.notices[notice.id] = notice
 
 
 class _Dispatches:
@@ -310,6 +372,8 @@ class InMemoryUnitOfWork:
         self.outbox = _Outbox(self._staged)
         self.transcripts = _Transcripts(self._staged)
         self.dispatches = _Dispatches(self._staged)
+        self.approvals = _Approvals(self._staged)
+        self.notices = _Notices(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -332,6 +396,8 @@ class InMemoryUnitOfWork:
         self._db.outbox = dict(self._staged.outbox)
         self._db.transcripts = dict(self._staged.transcripts)
         self._db.dispatches = dict(self._staged.dispatches)
+        self._db.approvals = dict(self._staged.approvals)
+        self._db.notices = dict(self._staged.notices)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -341,6 +407,9 @@ class InMemoryUnitOfWork:
             raise ConcurrentUpdateError("a session for this conversation already exists")
         if _has_duplicates([t.source_event_id for t in tasks]):
             raise ConcurrentUpdateError("a task for this event already exists")
+        approvals = {**self._db.approvals, **self._staged.approvals}.values()
+        if _has_duplicates([(a.repository, a.number, a.head_sha) for a in approvals]):
+            raise ConcurrentUpdateError("an approval for this commit already exists")
 
 
 def _has_duplicates(values: Sequence[object]) -> bool:
@@ -648,6 +717,68 @@ async def check_dispatches(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.dispatches.count_for(uuid.uuid4()) == 0, "other task")
 
 
+def approval(number: int = 1, sha: str = "a" * 40, *, now: datetime = T0) -> Approval:
+    return Approval(
+        id=uuid.uuid4(),
+        repository="404Vector/project-enikk",
+        number=number,
+        head_sha=sha,
+        branch=f"agent/{number}",
+        title=f"PR {number}",
+        url=f"https://github.com/404Vector/project-enikk/pull/{number}",
+        state=ApprovalState.REQUESTED,
+        created_at=now,
+    )
+
+
+async def check_approvals_and_notices(new_uow: UnitOfWorkFactory) -> None:
+    first = approval(1)
+    second = approval(2, "b" * 40, now=T0 + timedelta(seconds=1))
+    notice = Notice(
+        id=uuid.uuid4(),
+        body=ChecksFailed(
+            pull=PullRequestCard(
+                repository="404Vector/project-enikk",
+                number=1,
+                url=first.url,
+                title=first.title,
+                author="enikk-deployer[bot]",
+                branch=first.branch,
+                head_sha=first.head_sha,
+            )
+        ),
+        created_at=T0,
+    )
+    async with new_uow() as uow:
+        await uow.approvals.add(first)
+        await uow.approvals.add(second)
+        await uow.notices.add(notice)
+        await uow.commit()
+    async with new_uow() as uow:
+        found = await uow.approvals.find("404Vector/project-enikk", 1, "a" * 40)
+        _expect(found == first, "approval by commit")
+        locked = await uow.approvals.get_for_update(second.id)
+        _expect(locked == second, "approval by id")
+        requested = list(await uow.approvals.in_state(ApprovalState.REQUESTED))
+        _expect(requested == [first, second], "approvals in state, oldest first")
+        merged = first.resolve(ApprovalState.MERGED, T0, by="U1")
+        await uow.approvals.update(merged)
+        _expect(list(await uow.notices.pending(10)) == [notice], "pending notice")
+        await uow.notices.update(notice.mark_delivered())
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.approvals.get_for_update(first.id) == merged, "approval update")
+        _expect(not await uow.notices.pending(10), "delivered notice not pending")
+        _expect(len(await uow.notices.get_many([notice.id])) == 1, "notice by id")
+    try:
+        async with new_uow() as uow:
+            await uow.approvals.add(approval(1))
+            await uow.commit()
+    except ConcurrentUpdateError:
+        return
+    raise AssertionError("a second approval for the same commit must be rejected")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -662,4 +793,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_isolated_tasks_stay_out_of_shared_queue,
     check_dispatches,
     check_delegated_session_round_trip,
+    check_approvals_and_notices,
 )

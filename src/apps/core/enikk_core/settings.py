@@ -125,6 +125,13 @@ class DevAgentSettings(SettingsModel):
     interval_seconds: float = Field(default=10.0, gt=0, le=300)
 
 
+class ApprovalSettings(SettingsModel):
+    """Slack approval of pull requests (ADR-0020). Needs the GitHub App."""
+
+    enabled: bool = False
+    interval_seconds: float = Field(default=30.0, ge=5, le=600)
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -137,5 +144,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     token_review: TokenReviewSettings = TokenReviewSettings()
     github: GitHubSettings = GitHubSettings()
     dev_agent: DevAgentSettings = DevAgentSettings()
+    approval: ApprovalSettings = ApprovalSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()
