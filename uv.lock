@@ -15,6 +15,7 @@ members = [
     "enikk-core-client",
     "enikk-core-domain",
     "enikk-engine-claude",
+    "enikk-github",
     "enikk-k8s-auth",
     "enikk-kernel",
     "enikk-langfuse",
@@ -688,6 +689,7 @@ source = { editable = "src/apps/core" }
 dependencies = [
     { name = "enikk-contracts" },
     { name = "enikk-core-domain" },
+    { name = "enikk-github" },
     { name = "enikk-k8s-auth" },
     { name = "enikk-kernel" },
     { name = "enikk-persistence-sql" },
@@ -701,6 +703,7 @@ dependencies = [
 requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-core-domain", editable = "src/libs/core-domain" },
+    { name = "enikk-github", editable = "src/libs/adapters/github" },
     { name = "enikk-k8s-auth", editable = "src/libs/adapters/k8s-auth" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-persistence-sql", editable = "src/libs/adapters/persistence-sql" },
@@ -761,6 +764,25 @@ requires-dist = [
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-runtime", editable = "src/libs/runtime" },
+]
+
+[[package]]
+name = "enikk-github"
+version = "0.1.0"
+source = { editable = "src/libs/adapters/github" }
+dependencies = [
+    { name = "enikk-core-domain" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+    { name = "pyjwt", extra = ["crypto"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-core-domain", editable = "src/libs/core-domain" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
 ]
 
 [[package]]

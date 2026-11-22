@@ -16,6 +16,16 @@ credentials:
   secret: enikk-core-credentials
   mountPath: /var/run/secrets/enikk/credentials
 
+# GitHub App (ADR-0019). Public identifiers; the private key is the core-only
+# credential github.app-private-key. selfRepository pins which entry of
+# config/github.yaml is the platform itself (workflows off, protected paths).
+github:
+  # Strings: Helm renders large numbers in exponent form.
+  appId: "5869950"
+  installationId: "184545127"
+  owner: 404Vector
+  selfRepository: project-enikk
+
 # ServiceAccounts allowed to call core, their roles (ADR-0011 §5) and the
 # credentials each may fetch (ADR-0013). Any other ServiceAccount is rejected.
 # Accounts live in deploy/k8s/identities.

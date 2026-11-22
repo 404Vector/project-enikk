@@ -84,6 +84,7 @@ uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
 
 ```bash
 uv run enikk-ops secret set slack.bot-token   # 숨김 입력으로 저장
+uv run enikk-ops secret set github.app-private-key --from-file ~/.config/enikk/github-app.pem  # 여러 줄 값은 파일에서
 uv run enikk-ops secret list                  # 설정 여부만 표시 (값은 출력하지 않음)
 uv run enikk-ops secret unset slack.bot-token
 uv run enikk-ops secret sync                  # 파일 내용을 클러스터에 반영

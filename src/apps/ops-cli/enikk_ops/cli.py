@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -67,10 +68,25 @@ def argocd_ui(ctx: typer.Context) -> None:
     raise typer.Exit(container.argocd.open_ui())
 
 
+FromFile = Annotated[
+    Path | None,
+    typer.Option(
+        "--from-file",
+        help="Read the value from this file (for multi-line values such as a PEM key).",
+        exists=True,
+        dir_okay=False,
+        readable=True,
+    ),
+]
+
+
 @secret_app.command("set")
-def secret_set(ctx: typer.Context, name: CredentialName) -> None:
-    """Store a credential. The value is read from a hidden prompt, never from argv."""
-    value = typer.prompt(name.value, hide_input=True).strip()
+def secret_set(ctx: typer.Context, name: CredentialName, from_file: FromFile = None) -> None:
+    """Store a credential. The value is read from a hidden prompt or a file, never from argv."""
+    if from_file is None:
+        value = typer.prompt(name.value, hide_input=True).strip()
+    else:
+        value = from_file.read_text(encoding="utf-8").strip()
     if not value:
         raise typer.BadParameter("the value must not be empty")
     file = _container(ctx).secret_file

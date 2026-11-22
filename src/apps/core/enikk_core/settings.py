@@ -9,7 +9,7 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, model_validator
 
 from enikk_contracts.common import ConnectorKind, Engine
-from enikk_contracts.credentials import CredentialName
+from enikk_contracts.credentials import CORE_ONLY, CredentialName
 from enikk_core_domain.auth import (
     ConnectorRole,
     DevAgentRole,
@@ -18,6 +18,7 @@ from enikk_core_domain.auth import (
     RuntimeRole,
     ServiceIdentity,
 )
+from enikk_github.app import GitHubAppConfig
 from enikk_kernel.settings import ServiceSettings, SettingsModel
 from enikk_persistence_sql.engine import DatabaseConfig
 
@@ -57,6 +58,9 @@ class RoleBindingSettings(SettingsModel):
             raise ValueError("'connector' is required exactly for the connector role")
         if (self.role == "runtime") != (self.engine is not None):
             raise ValueError("'engine' is required exactly for the runtime role")
+        core_only = sorted(set(self.credentials) & CORE_ONLY)
+        if core_only:
+            raise ValueError(f"{core_only} never leave core (I-32)")
         return self
 
     def to_binding(self) -> RoleBinding:
@@ -88,6 +92,27 @@ class TokenReviewSettings(SettingsModel):
     cache_seconds: int = Field(default=90, ge=1, le=300)
 
 
+class GitHubSettings(SettingsModel):
+    """The GitHub App (ADR-0019). Without both IDs, core does not use GitHub."""
+
+    app_id: int | None = Field(default=None, gt=0)
+    installation_id: int | None = Field(default=None, gt=0)
+    owner: str = "404Vector"
+    api_url: str = "https://api.github.com"
+    self_repository: str = "project-enikk"
+    repositories_file: Path = Path("config/github.yaml")
+
+    def to_config(self) -> GitHubAppConfig | None:
+        if self.app_id is None or self.installation_id is None:
+            return None
+        return GitHubAppConfig(
+            app_id=self.app_id,
+            installation_id=self.installation_id,
+            owner=self.owner,
+            api_url=self.api_url,
+        )
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -98,5 +123,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     database: DatabaseSettings = DatabaseSettings()
     tasks: TaskSettings = TaskSettings()
     token_review: TokenReviewSettings = TokenReviewSettings()
+    github: GitHubSettings = GitHubSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

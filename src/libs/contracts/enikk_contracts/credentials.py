@@ -18,6 +18,12 @@ class CredentialName(StrEnum):
     CLAUDE_OAUTH_TOKEN = "claude.oauth-token"
     LANGFUSE_PUBLIC_KEY = "langfuse.public-key"
     LANGFUSE_SECRET_KEY = "langfuse.secret-key"
+    GITHUB_APP_PRIVATE_KEY = "github.app-private-key"
+    """Used by core alone and never handed out (I-32)."""
+
+
+CORE_ONLY: frozenset[CredentialName] = frozenset({CredentialName.GITHUB_APP_PRIVATE_KEY})
+"""Credentials no role binding may grant."""
 
 
 def _reveal(value: SecretStr) -> str:

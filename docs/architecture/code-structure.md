@@ -52,6 +52,7 @@ src/
    └─ adapters/                          ── 포트 구현 (외부와 닿는 곳). 서로 import 하지 않음
       ├─ persistence-sql/ enikk_persistence_sql  SQLAlchemy 레포지토리·UoW·Postgres 큐, Alembic
       ├─ k8s-auth/        enikk_k8s_auth         TokenReview 검증기 (core 용)
+      ├─ github/          enikk_github           GitHub App JWT·용도별 설치 토큰 (core 전용, I-32)
       ├─ engine-claude/   enikk_engine_claude    ModelEngine 구현: Claude Agent SDK
       ├─ engine-gemini/   enikk_engine_gemini    ModelEngine 구현: Google ADK
       ├─ langfuse/        enikk_langfuse         PromptStore·FeedbackSink 구현, OTel 내보내기 설정
@@ -89,7 +90,7 @@ src/
 | apps/* | 위 전부 (조립 목적) | 다른 apps |
 
 - 이 규칙은 import-linter 계약으로 기계적으로 강제한다 (P-01).
-- 외부 SDK 의 import 위치도 제한한다: SQLAlchemy 는 `persistence-sql`, Anthropic·Claude SDK 는 `engine-claude`, Google ADK 는 `engine-gemini`, Langfuse 는 `langfuse`, Slack SDK 는 `connector-slack` 에서만 (I-06, I-08, I-26).
+- 외부 SDK 의 import 위치도 제한한다: SQLAlchemy 는 `persistence-sql`, Anthropic·Claude SDK 는 `engine-claude`, Google ADK 는 `engine-gemini`, Langfuse 는 `langfuse`, Slack SDK 는 `connector-slack`, PyJWT 는 `github` 에서만 (I-06, I-08, I-26, I-32). `github` 어댑터는 core 만 import 한다.
 
 ## 5. 설계 판단 메모
 

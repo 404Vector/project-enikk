@@ -15,6 +15,7 @@ TRANSCRIPT_SUBPATHS: Final = "/v1/tasks/{task_id}/transcript/subpaths"
 OUTBOX_POLL: Final = "/v1/outbox/poll"
 OUTBOX_ACK: Final = "/v1/outbox/ack"
 CREDENTIALS: Final = "/v1/credentials"
+GITHUB_HEALTH: Final = "/v1/github/health"
 
 AUDIENCE: Final = "enikk-core"
 """Audience of the ServiceAccount tokens that core accepts (ADR-0011)."""

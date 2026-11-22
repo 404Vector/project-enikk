@@ -111,3 +111,30 @@ def test_cli_set_reads_hidden_prompt_and_list_hides_values(
     assert "slack.bot-token" in listed.output
     assert "xoxb-cli" not in listed.output
     assert "xoxb-cli" in (tmp_path / ".config" / "enikk" / "secrets.yaml").read_text()
+
+
+def test_cli_set_reads_a_multi_line_value_from_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nline-one\nline-two\n-----END RSA PRIVATE KEY-----\n"
+    source = tmp_path / "app.pem"
+    source.write_text(pem)
+    stored = CliRunner().invoke(
+        app, ["secret", "set", "github.app-private-key", "--from-file", str(source)]
+    )
+    assert stored.exit_code == 0, stored.output
+    assert "line-one" not in stored.output
+    secrets = (tmp_path / ".config" / "enikk" / "secrets.yaml").read_text()
+    assert "line-one" in secrets
+    assert "line-two" in secrets
+
+
+def test_cli_set_refuses_an_empty_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    source = tmp_path / "empty.pem"
+    source.write_text("\n")
+    stored = CliRunner().invoke(
+        app, ["secret", "set", "github.app-private-key", "--from-file", str(source)]
+    )
+    assert stored.exit_code != 0
