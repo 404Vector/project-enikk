@@ -137,7 +137,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 **소유자 준비물**: GitHub App 생성·설치, 그 자격증명.
 **세부 결정**: ADR-0019 ~ ADR-0024. 프롬프트 개선 경로는 M6 에서 다룬다.
 **작업 순서**:
-1. CI 보강: PR 빌드에서 이미지 push 권한 제거(ADR-0008 위험), 보호 경로 검사, `main` ruleset 과 auto-merge 설정.
+1. CI 보강: PR 빌드에서 이미지 push 권한 제거(ADR-0008 위험), 보호 경로 검사, `main` ruleset 과 auto-merge 설정. (보호 경로 검사는 7 에서 민감 경로로 대체)
 2. GitHub 어댑터와 core 의 토큰 발급(ADR-0019), 키 등록(`secret set` 의 파일 입력).
 3. 개발 에이전트: `enikk-dev` 네임스페이스, Job 템플릿 차트, 이미지, `agents/developer.yaml`, core dispatcher 와 실행 제한(ADR-0021).
 4. 위임: `delegate` 도구, 하위 작업과 세션, 스레드 게시(ADR-0022).
