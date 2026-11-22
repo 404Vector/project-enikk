@@ -22,6 +22,10 @@
 | [0016](0016-langfuse-adapter.md) | Langfuse 어댑터 — 프롬프트 조회와 트레이스 전송 설정 | 승인 | 2026-11-22 |
 | [0017](0017-claude-engine-runtime.md) | Claude 엔진 런타임 — 도구 차단, 대화 이어 가기, 트레이스 | 승인 | 2026-11-22 |
 | [0018](0018-slack-connector.md) | Slack 커넥터 — 연결 규칙, 중복 처리, 진행 표시 | 승인 | 2026-11-22 |
+| [0019](0019-github-app-scoped-tokens.md) | GitHub App 신원과 용도별로 좁힌 설치 토큰 | 승인 | 2026-11-22 |
+| [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 | 2026-11-22 |
+| [0021](0021-dev-agent-job-per-task.md) | 개발 에이전트는 작업마다 새 Pod(Job)로 실행한다 | 승인 | 2026-11-22 |
+| [0022](0022-delegation-to-developer.md) | assistant 가 개발 에이전트에 작업을 위임한다 | 승인 | 2026-11-22 |
 
 ## 상태 정의
 
