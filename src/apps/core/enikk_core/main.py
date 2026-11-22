@@ -1,7 +1,8 @@
-"""Process entry point: ``enikk-core serve`` and ``enikk-core migrate``."""
+"""Process entry point: ``enikk-core serve``, ``migrate`` and ``selfcheck``."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 
@@ -10,6 +11,7 @@ import uvicorn
 
 from enikk_core.api import SERVICE_NAME, create_app
 from enikk_core.container import build_services
+from enikk_core.selfcheck import SelfCheck, SelfCheckSettings
 from enikk_core.settings import CoreSettings
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.logging import configure_logging
@@ -38,6 +40,13 @@ def migrate() -> None:
     _log.info("applying migrations to %s", settings.database.host)
     upgrade(settings.database.to_config())
     _log.info("migrations applied")
+
+
+@cli.command()
+def selfcheck() -> None:
+    """Check the deployed core through its Service (run by the PostSync Job, ADR-0023)."""
+    configure_logging(verbose=False)
+    asyncio.run(SelfCheck(SelfCheckSettings()).run())
 
 
 def main() -> None:
