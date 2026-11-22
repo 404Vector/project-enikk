@@ -32,6 +32,7 @@
 | [0026](0026-slack-notice-destinations.md) | Slack 알림을 어디에 올리는가 — 배포 알림은 #release, 개발 요청은 상태와 상세를 나눈다 | 승인 | 2026-11-22 |
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 에이전트는 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
 | [0028](0028-memory-in-the-owners-vault.md) | 에닉의 기억은 소유자의 Obsidian 볼트에 둔다 | 승인 | 2026-11-22 |
+| [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 제안 | 2026-11-23 |
 
 ## 상태 정의
 
