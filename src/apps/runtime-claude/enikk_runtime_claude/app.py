@@ -57,6 +57,7 @@ class RuntimeClaudeApp:
                 config=ClaudeEngineConfig(workdir=s.workdir, scratch_dir=s.scratch_dir),
                 oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
                 transcripts=core,
+                delegator=core,
             )
             worker = TaskWorker(
                 core=core,

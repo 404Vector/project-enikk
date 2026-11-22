@@ -23,6 +23,8 @@ from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
     ClaimRequest,
+    DelegateRequest,
+    DelegationAccepted,
     Heartbeat,
     LeaseExtended,
     LeaseRequest,
@@ -169,6 +171,13 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         _dev_agent(await gate.admit(request))
         await _parse(request, ClaimRequest)
         return _json(await usecases.claim_task(task_id))
+
+    @app.post(routes.TASK_DELEGATE, responses={200: {"model": DelegationAccepted}})
+    @requires("runtime", "dev-agent")
+    async def delegate(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, DelegateRequest)
+        return _json(await usecases.delegate(scope, task_id, body))
 
     @app.post(routes.TASK_HEARTBEAT, responses={200: {"model": LeaseExtended}})
     @requires("runtime", "dev-agent")

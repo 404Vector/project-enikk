@@ -24,6 +24,8 @@ from claude_agent_sdk import (
 from pydantic import Field, SecretStr
 
 from enikk_contracts.common import Engine
+from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
+from enikk_engine_claude.platform_tools import granted_platform_tools, platform_server
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.errors import EngineError
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
 
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
+    from enikk_runtime.ports import Delegator
 
     QueryFn = Callable[..., AsyncIterator[Message]]
 
@@ -65,11 +68,13 @@ class ClaudeEngine:
         config: ClaudeEngineConfig,
         oauth_token: SecretStr,
         transcripts: TranscriptApi,
+        delegator: Delegator | None = None,
         query_fn: QueryFn = query,
     ) -> None:
         self._config = config
         self._token = oauth_token
         self._transcripts = transcripts
+        self._delegator = delegator
         self._query = query_fn
 
     @property
@@ -98,9 +103,12 @@ class ClaudeEngine:
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = list(job.definition.tools.builtin)
+        server = None if self._delegator is None else platform_server(job, self._delegator)
+        platform = granted_platform_tools(job) if server is not None else []
         return ClaudeAgentOptions(
             tools=builtin,
-            allowed_tools=builtin,
+            allowed_tools=[*builtin, *platform],
+            mcp_servers={} if server is None else {PLATFORM_SERVER: server},
             setting_sources=[],
             strict_mcp_config=True,
             permission_mode="dontAsk",
@@ -123,6 +131,10 @@ class ClaudeEngine:
             stderr=lambda line: _log.debug("claude: %s", line),
         )
 
+    def _granted(self, job: EngineJob) -> tuple[str, ...]:
+        platform = granted_platform_tools(job) if self._delegator is not None else []
+        return (*job.definition.tools.builtin, *platform)
+
     async def _consume(self, job: EngineJob, stream: AsyncIterator[Message]) -> EngineResult:
         texts: list[str] = []
         model: str | None = None
@@ -132,7 +144,7 @@ class ClaudeEngine:
                 if isinstance(message, MirrorErrorMessage):
                     raise EngineError("the conversation could not be saved to core", retryable=True)
                 if isinstance(message, SystemMessage) and message.subtype == "init":
-                    _require_only_granted_tools(message.data, job.definition.tools.builtin)
+                    _require_only_granted_tools(message.data, self._granted(job))
                 elif isinstance(message, AssistantMessage) and message.parent_tool_use_id is None:
                     model = message.model or model
                     texts.extend(b.text for b in message.content if isinstance(b, TextBlock))

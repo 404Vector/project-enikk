@@ -41,6 +41,9 @@ class Session(Entity):
     agent: AgentName
     engine: Engine
     engine_session_id: Identifier | None = None
+    reply_to: ConversationRef | None = None
+    """Where answers go when they belong elsewhere: a delegated session posts into the
+    thread it was delegated from, without receiving that thread's messages (ADR-0022)."""
     created_at: AwareDatetime
     updated_at: AwareDatetime
 
@@ -52,15 +55,27 @@ class Session(Entity):
         conversation: ConversationRef,
         agent: AgentDefinition,
         now: datetime,
+        reply_to: ConversationRef | None = None,
     ) -> Self:
         return cls(
             id=session_id,
             conversation=conversation,
             agent=agent.name,
             engine=agent.engine,
+            reply_to=reply_to,
             created_at=now,
             updated_at=now,
         )
+
+    @model_validator(mode="after")
+    def _reply_through_own_connector(self) -> Self:
+        if self.reply_to is not None and self.reply_to.connector is not self.conversation.connector:
+            raise ValueError("a session replies only through its own connector")
+        return self
+
+    @property
+    def outbox_conversation(self) -> ConversationRef:
+        return self.reply_to or self.conversation
 
     def bind_engine_session(self, engine_session_id: str, now: datetime) -> Self:
         if engine_session_id == self.engine_session_id:

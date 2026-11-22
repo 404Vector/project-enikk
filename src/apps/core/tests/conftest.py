@@ -170,6 +170,7 @@ def harness() -> Harness:
         ids=SequentialIds(),
         policy=TaskSettings(lease_seconds=60, max_attempts=2),
         sleep=sleep,
+        isolated_daily_limit=3,
     )
     directory = RoleDirectory(
         (

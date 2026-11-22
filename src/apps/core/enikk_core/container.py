@@ -41,6 +41,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         ids=ids,
         policy=settings.tasks,
         sleep=asyncio.sleep,
+        isolated_daily_limit=settings.dev_agent.daily_limit,
     )
     dispatcher = None
     dev = settings.dev_agent

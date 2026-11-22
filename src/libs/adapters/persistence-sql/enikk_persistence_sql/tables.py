@@ -38,6 +38,8 @@ class SessionRow(Base):
     agent: Mapped[str] = mapped_column(String(63))
     engine: Mapped[str] = mapped_column(String(16))
     engine_session_id: Mapped[str | None] = mapped_column(String(255))
+    reply_channel: Mapped[str | None] = mapped_column(String(255))
+    reply_thread: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
 

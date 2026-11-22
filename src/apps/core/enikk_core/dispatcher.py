@@ -93,7 +93,7 @@ class DevJobDispatcher:
                     id=self._ids.new(),
                     task_id=task.id,
                     source_event_id=task.source_event_id,
-                    conversation=session.conversation,
+                    conversation=session.outbox_conversation,
                     kind=OutboundKind.FAILURE,
                     text=reason,
                     created_at=now,

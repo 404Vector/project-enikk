@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.common import Engine
     from enikk_contracts.tasks import (
+        DelegateRequest,
+        DelegationAccepted,
         Heartbeat,
         LeaseExtended,
         LeaseRequest,
@@ -27,6 +29,14 @@ class TaskSource(Protocol):
     async def lease_task(self, request: LeaseRequest) -> LeaseResponse: ...
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended: ...
     async def report_result(self, task_id: uuid.UUID, report: ResultReport) -> ResultAccepted: ...
+
+
+class Delegator(Protocol):
+    """Hands a request to another agent through core (ADR-0022). ``CoreClient`` implements it."""
+
+    async def delegate_task(
+        self, task_id: uuid.UUID, request: DelegateRequest
+    ) -> DelegationAccepted: ...
 
 
 class PromptStore(Protocol):
