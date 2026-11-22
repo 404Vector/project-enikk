@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from enikk_connector_slack.config import SlackConfig
     from enikk_connector_slack.outbound import RelayPolicy
     from enikk_connector_slack.ports import CoreApi, SlackApi
-    from enikk_contracts.approvals import OwnerNotice
+    from enikk_contracts.approvals import OwnerNotice, PullRequestCard
 
     Sleep = Callable[[float], Awaitable[None]]
 
@@ -95,12 +95,23 @@ class NoticeRelay:
             _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
             return
         pull = getattr(body, "pull", None)
-        if pull is not None and pull.diff:
+        if pull is None:
+            return
+        await self._post_details(posted.channel, posted.ts, pull)
+        if pull.diff:
             name = f"pr-{pull.number}-{pull.head_sha[:7]}.diff"
             note = " (잘림)" if pull.diff_truncated else ""
             await self._slack.upload_text(
                 posted.channel, posted.ts, name, pull.diff, f"#{pull.number} diff{note}"
             )
+
+    async def _post_details(self, channel: str, thread: str, pull: PullRequestCard) -> None:
+        for reply in blocks.details(pull):
+            try:
+                await self._slack.post_message(channel, reply, thread=thread)
+            except SlackDeliveryError as exc:
+                _log.warning("could not post details of PR #%d: %s", pull.number, exc)
+                return
 
 
 class ApprovalActions:

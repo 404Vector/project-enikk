@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 import pytest
 
 from enikk_connector_slack.approvals import ApprovalActions, NoticeRelay
-from enikk_connector_slack.blocks import APPROVE_ACTION, REJECT_ACTION, Actions
+from enikk_connector_slack.blocks import (
+    APPROVE_ACTION,
+    REJECT_ACTION,
+    SECTION_LIMIT,
+    SUMMARY_LIMIT,
+    Actions,
+    details,
+    summary,
+)
 from enikk_connector_slack.outbound import RelayPolicy
+from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_connector_slack.testing import CONFIG, OWNER, FakeCore, FakeSlack
 from enikk_contracts.approvals import (
     ApprovalRequested,
@@ -59,13 +69,94 @@ async def test_request_goes_to_the_owner_dm_with_buttons_and_diff() -> None:
     assert all(e.value == str(APPROVAL) for e in actions.elements)
     rendered = str(message.payload())
     assert "docs: add &lt;a&gt; line" in rendered
-    assert "README.md" in rendered
+    assert "원래 요청: README 에 한 줄" in rendered
     assert CARD.url in rendered
     [(upload_channel, thread, filename, content)] = slack.uploads
     assert (upload_channel, thread) == ("D0OWNER", "1.0")
     assert filename == "pr-7-1111111.diff"
     assert content == "+one line\n"
     assert core.notices_acked == [notice.notice_id]
+
+
+async def test_request_keeps_details_out_of_the_parent_and_in_its_thread() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.notices.append(
+        OwnerNotice(notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD))
+    )
+    await _relay(core, slack).relay_once()
+
+    [(_, message)] = slack.messages
+    assert [b.type for b in message.blocks] == ["section", "section", "actions"]
+    parent = str(message.payload())
+    assert "README.md" not in parent
+    assert "agent/abc" not in parent
+    [(channel, thread, reply)] = slack.replies
+    assert (channel, thread) == ("D0OWNER", "1.0")
+    detail = str(reply.payload())
+    assert "README.md" in detail
+    assert "agent/abc" in detail
+    assert "checks" in detail
+
+
+async def test_long_details_are_split_into_several_replies() -> None:
+    files = tuple(
+        ChangedFile(path=f"src/{'deep/' * 8}module_{i:03}.py", additions=i, deletions=0)
+        for i in range(100)
+    )
+    pull = CARD.model_copy(update={"body": "요약 문단\n\n" + "본문 " * 900, "files": files})
+    core, slack = FakeCore(), FakeSlack()
+    core.notices.append(
+        OwnerNotice(notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=pull))
+    )
+    await _relay(core, slack).relay_once()
+
+    assert len(slack.replies) > 1
+    texts = [r.blocks[0].model_dump()["text"]["text"] for _, _, r in slack.replies]
+    assert all(len(t) <= SECTION_LIMIT for t in texts)
+    joined = "\n".join(texts)
+    assert all(f.path in joined for f in files)
+    assert slack.replies[0][2].text == f"PR #7 상세 (1/{len(texts)})"
+
+
+async def test_failed_details_still_leave_the_request_and_its_buttons(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    core, slack = FakeCore(), FakeSlack()
+    slack.fail_replies.append(SlackDeliveryError("chat.postMessage: boom", transient=True))
+    notice = OwnerNotice(
+        notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD)
+    )
+    core.notices.append(notice)
+    with caplog.at_level(logging.WARNING):
+        assert await _relay(core, slack).relay_once() == 1
+
+    [(_, message)] = slack.messages
+    assert any(isinstance(b, Actions) for b in message.blocks)
+    assert slack.replies == []
+    assert len(slack.uploads) == 1
+    assert core.notices_acked == [notice.notice_id]
+    assert "could not post details of PR #7" in caplog.text
+
+
+def test_summary_prefers_a_summary_section() -> None:
+    body = "## 원래 요청\n긴 요청 문장\n\n## 요약\n짧은 **요약**\n둘째 줄\n셋째 줄\n\n## 변경\n- a"
+    assert summary(body) == "짧은 요약\n둘째 줄"
+
+
+def test_summary_falls_back_to_the_first_paragraph_and_truncates() -> None:
+    assert summary("# 제목\n\n첫 문단\n\n둘째 문단") == "첫 문단"
+    long = summary("가" * 500)
+    assert len(long) == SUMMARY_LIMIT
+    assert long.endswith("…")
+    assert summary("") == ""
+
+
+def test_details_render_markdown_headings_as_bold() -> None:
+    [reply] = details(CARD.model_copy(update={"body": "## 변경 내용\n**굵게** 설명"}))
+    text = reply.blocks[0].model_dump()["text"]["text"]
+    assert "*변경 내용*" in text
+    assert "*굵게* 설명" in text
+    assert "#" not in text
 
 
 async def test_failed_checks_and_resolutions_have_no_buttons() -> None:
@@ -85,6 +176,8 @@ async def test_failed_checks_and_resolutions_have_no_buttons() -> None:
         ),
     ]
     assert await _relay(core, slack).relay_once() == 2
+    assert [b["type"] for b in slack.messages[0][1].payload()] == ["section", "section"]
+    assert len(slack.replies) == 1
     for _, message in slack.messages:
         assert all(b["type"] != "actions" for b in message.payload())
 

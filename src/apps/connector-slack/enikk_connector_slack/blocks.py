@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -18,6 +19,9 @@ APPROVE_ACTION: Final = "enikk.approve"
 REJECT_ACTION: Final = "enikk.reject"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
+SUMMARY_LIMIT: Final = 200
+SUMMARY_LINES: Final = 2
+SUMMARY_HEADINGS: Final = frozenset({"요약", "summary", "개요"})
 PASSING: Final = frozenset({"success", "neutral", "skipped"})
 
 OUTCOME_TEXT: Final = {
@@ -78,13 +82,18 @@ class Message(_Block):
         return [b.model_dump() for b in self.blocks]
 
 
+_HEADING: Final = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+_BOLD_LINE: Final = re.compile(r"^\s*\*\*(.+?)\*\*:?\s*$")
+_STRONG: Final = re.compile(r"\*\*(.+?)\*\*")
+
+
 def approval_request(notice: ApprovalRequested) -> Message:
     pull = notice.pull
     approval = str(notice.approval_id)
     return Message(
         text=f"PR 승인 요청: #{pull.number} {pull.title}",
         blocks=(
-            *_describe(pull, heading=":inbox_tray: *승인 요청*"),
+            *_headline(pull, heading=":inbox_tray: *승인 요청*"),
             Actions(
                 elements=(
                     Button(
@@ -109,8 +118,55 @@ def checks_failed(notice: ChecksFailed) -> Message:
     pull = notice.pull
     return Message(
         text=f"PR 검사 실패: #{pull.number} {pull.title}",
-        blocks=_describe(pull, heading=":x: *검사 실패* (승인할 수 없습니다)"),
+        blocks=_headline(pull, heading=":x: *검사 실패* (승인할 수 없습니다)"),
     )
+
+
+def details(pull: PullRequestCard) -> tuple[Message, ...]:
+    """Thread replies under a request: metadata, PR body, changed files and checks."""
+    parts = [
+        f"`{pull.repository}` · 작성자 `{pull.author}` · 브랜치 `{pull.branch}` "
+        f"· 커밋 `{pull.head_sha[:7]}`"
+    ]
+    if pull.body.strip():
+        parts.append(_mrkdwn(pull.body))
+    if pull.files:
+        added = sum(f.additions for f in pull.files)
+        removed = sum(f.deletions for f in pull.files)
+        lines = [f"*바뀐 파일* {len(pull.files) + pull.more_files}개 (+{added} -{removed})"]
+        lines += [f"• `{f.path}` +{f.additions} -{f.deletions}" for f in pull.files]
+        if pull.more_files:
+            lines.append(f"• …외 {pull.more_files}개")
+        parts.append("\n".join(lines))
+    if pull.checks:
+        marks = "\n".join(f"{_mark(c.conclusion)} {_escape(c.name)}" for c in pull.checks)
+        parts.append(f"*검사*\n{marks}")
+    chunks = _chunks("\n\n".join(parts), SECTION_LIMIT)
+    total = len(chunks)
+    return tuple(
+        Message(
+            text=f"PR #{pull.number} 상세 ({i}/{total})"
+            if total > 1
+            else f"PR #{pull.number} 상세",
+            blocks=(_section(chunk),),
+        )
+        for i, chunk in enumerate(chunks, start=1)
+    )
+
+
+def summary(body: str) -> str:
+    """One or two lines from a PR body: its summary section, else its first paragraph."""
+    paragraphs = _paragraphs(body)
+    chosen = next(
+        (text for title, text in paragraphs if title.lower() in SUMMARY_HEADINGS and text), None
+    )
+    if chosen is None:
+        chosen = next((text for _, text in paragraphs if text), "")
+    lines = [line.strip() for line in chosen.splitlines() if line.strip()][:SUMMARY_LINES]
+    text = _STRONG.sub(r"\1", "\n".join(lines))
+    if len(text) > SUMMARY_LIMIT:
+        text = text[: SUMMARY_LIMIT - 1].rstrip() + "…"
+    return text
 
 
 def resolved(notice: ApprovalResolved) -> Message:
@@ -129,32 +185,65 @@ def decided(outcome: ResolutionOutcome, detail: str, by: str) -> Context:
     return Context(elements=(Text(text=text[:SECTION_LIMIT]),))
 
 
-def _describe(pull: PullRequestCard, *, heading: str) -> tuple[Block, ...]:
-    blocks: list[Block] = [
-        _section(
-            f"{heading} <{pull.url}|#{pull.number} {_escape(pull.title)}>\n"
-            f"`{pull.repository}` · 작성자 `{pull.author}` · 브랜치 `{pull.branch}` "
-            f"· 커밋 `{pull.head_sha[:7]}`"
-        )
-    ]
-    if pull.body.strip():
-        quoted = "\n".join(f"> {line}" for line in _escape(pull.body).splitlines()[:15])
-        blocks.append(_section(quoted))
-    if pull.files:
-        added = sum(f.additions for f in pull.files)
-        removed = sum(f.deletions for f in pull.files)
-        lines = [f"*바뀐 파일* {len(pull.files) + pull.more_files}개 (+{added} -{removed})"]
-        lines += [
-            f"• `{f.path}` +{f.additions} -{f.deletions}" for f in pull.files[:MAX_FILE_LINES]
-        ]
-        hidden = len(pull.files) - MAX_FILE_LINES + pull.more_files
-        if hidden > 0:
-            lines.append(f"• …외 {hidden}개")
-        blocks.append(_section("\n".join(lines)))
-    if pull.checks:
-        marks = ", ".join(f"{_mark(c.conclusion)} {_escape(c.name)}" for c in pull.checks)
-        blocks.append(Context(elements=(Text(text=f"검사: {marks}"[:SECTION_LIMIT]),)))
+def _headline(pull: PullRequestCard, *, heading: str) -> tuple[Block, ...]:
+    blocks: list[Block] = [_section(f"{heading} <{pull.url}|#{pull.number} {_escape(pull.title)}>")]
+    short = summary(pull.body)
+    if short:
+        blocks.append(_section("\n".join(f"> {line}" for line in _escape(short).splitlines())))
     return tuple(blocks)
+
+
+def _paragraphs(body: str) -> list[tuple[str, str]]:
+    """``(heading, text)`` for each paragraph. ``heading`` is the nearest one above it."""
+    found: list[tuple[str, str]] = []
+    heading = ""
+    current: list[str] = []
+
+    def flush() -> None:
+        if current:
+            found.append((heading, "\n".join(current)))
+            current.clear()
+
+    for line in body.splitlines():
+        title = _HEADING.match(line) or _BOLD_LINE.match(line)
+        if title:
+            flush()
+            heading = title.group(1).strip().rstrip(":")
+        elif line.strip():
+            current.append(line)
+        else:
+            flush()
+    flush()
+    return found
+
+
+def _mrkdwn(body: str) -> str:
+    lines = []
+    for line in _escape(body).splitlines():
+        title = _HEADING.match(line)
+        lines.append(f"*{title.group(1)}*" if title else _STRONG.sub(r"*\1*", line))
+    return "\n".join(lines)
+
+
+def _chunks(text: str, limit: int) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines():
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current)
+    return chunks
 
 
 def _mark(conclusion: str) -> str:

@@ -62,10 +62,12 @@ class SlackWebApi:
         except (aiohttp.ClientError, TimeoutError) as exc:
             raise SlackDeliveryError(f"chat.postMessage: {exc!r}", transient=True) from exc
 
-    async def post_message(self, channel: str, message: Message) -> PostedMessage:
+    async def post_message(
+        self, channel: str, message: Message, thread: str | None = None
+    ) -> PostedMessage:
         try:
             response = await self._web.chat_postMessage(
-                channel=channel, text=message.text, blocks=message.payload()
+                channel=channel, thread_ts=thread, text=message.text, blocks=message.payload()
             )
             return PostedMessage.model_validate(
                 {"channel": response.get("channel"), "ts": response.get("ts")}
