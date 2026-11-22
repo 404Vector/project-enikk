@@ -67,6 +67,7 @@ class FakePulls:
         self.deleted: list[str] = []
         self.merge_result = MergeResult(merged=True)
         self.purposes: list[TokenPurpose] = []
+        self.updated: list[int] = []
 
     async def open_pulls(self, token: InstallationToken, base: str = "main") -> list[PullInfo]:
         if token.repository != "project-enikk":
@@ -98,6 +99,10 @@ class FakePulls:
 
     async def delete_branch(self, token: InstallationToken, branch: str) -> None:
         self.deleted.append(branch)
+
+    async def update_branch(self, token: InstallationToken, pull: PullInfo) -> bool:
+        self.updated.append(pull.number)
+        return True
 
 
 def _passed(*names: str) -> list[CheckRun]:
@@ -298,3 +303,18 @@ async def test_only_the_slack_connector_reaches_the_owner(harness: Harness) -> N
 def test_long_poll_waits_for_a_notice(service: ApprovalService) -> None:
     batch = asyncio.run(service.poll_notices(NoticePoll(wait_seconds=2)))
     assert batch.notices == ()
+
+
+async def test_agent_branch_behind_main_is_updated_instead_of_asked(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    pulls.pulls[7] = _pull().model_copy(update={"mergeable_state": "behind"})
+    pulls.pulls[8] = _pull(number=8, branch="feat/owner").model_copy(
+        update={"mergeable_state": "behind"}
+    )
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    assert pulls.updated == [7]
+    notices = await _notices(service)
+    assert [n.pull.number for n in notices if isinstance(n, ApprovalRequested)] == [8]
+    assert ("project-enikk", TokenPurpose.APPROVE) in harness.github.issued

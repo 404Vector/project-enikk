@@ -21,6 +21,7 @@ from enikk_core_domain.deployments import WatchTiming
 from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
 from enikk_github.pulls import PullRequests
+from enikk_github.reverts import Reverter
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
@@ -124,6 +125,7 @@ def _github(
             ),
             app=app,
             activity=RepositoryActivity(app),
+            reverter=Reverter(app),
             policy=DeploymentPolicy(
                 apps=watch.apps,
                 repository=settings.github.self_repository,

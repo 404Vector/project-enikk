@@ -76,6 +76,7 @@ class PullsApi(Protocol):
     async def merge(self, token: InstallationToken, pull: PullInfo) -> MergeResult: ...
     async def close(self, token: InstallationToken, number: int) -> None: ...
     async def delete_branch(self, token: InstallationToken, branch: str) -> None: ...
+    async def update_branch(self, token: InstallationToken, pull: PullInfo) -> bool: ...
 
 
 class ApprovalService:
@@ -125,8 +126,35 @@ class ApprovalService:
             runs = await self._pulls.check_runs(token, pull.head_sha)
             if not runs or not all(r.completed for r in runs):
                 continue
+            if await self._brought_up_to_date(token, pull):
+                continue
             card = await self._card(token, full_name, pull, runs)
             await self._record(full_name, pull, card, failed=any(r.failed for r in runs))
+
+    async def _brought_up_to_date(self, token: InstallationToken, pull: PullInfo) -> bool:
+        """An agent branch behind main is updated instead of asked about.
+
+        ``main`` requires branches to be up to date, so approving it would only be
+        refused. The update is a new commit; its checks run and then the owner is asked.
+        Other branches belong to the owner, whom the ruleset lets update them.
+        """
+        if not pull.branch.startswith(AGENT_BRANCH_PREFIX):
+            return False
+        current = await self._pulls.get(token, pull.number)
+        if current.mergeable_state != "behind" or current.head_sha != pull.head_sha:
+            return False
+        writer = await self._app.installation_token(token.repository, TokenPurpose.APPROVE)
+        try:
+            updated = await self._pulls.update_branch(writer, current)
+        finally:
+            await self._app.revoke(writer)
+        _log.info(
+            "%s#%d is behind main: %s",
+            token.repository,
+            pull.number,
+            "updated the branch" if updated else "could not update the branch",
+        )
+        return updated
 
     async def _close_vanished(self, full_name: str, open_numbers: set[int]) -> None:
         async with self._uow() as uow:

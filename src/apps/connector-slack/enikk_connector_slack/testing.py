@@ -13,6 +13,7 @@ from enikk_contracts.approvals import (
     NoticeBatch,
     ResolutionOutcome,
 )
+from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_core_client import CoreNotFoundError
@@ -42,6 +43,11 @@ class FakeCore:
         self.notices_acked: list[uuid.UUID] = []
         self.decisions: list[tuple[uuid.UUID, DecisionRequest]] = []
         self.decision_result = DecisionResult(outcome=ResolutionOutcome.MERGED)
+        self.reverts: list[RevertRequest] = []
+        self.revert_result = RevertResult(
+            outcome=RevertOutcome.OPENED,
+            pull=PullLink(number=60, title="Revert", url="https://github.com/x/y/pull/60"),
+        )
 
     async def submit_event(self, event: InboundEvent) -> EventAccepted:
         if self.fail_with is not None:
@@ -78,6 +84,12 @@ class FakeCore:
             raise self.fail_with
         self.decisions.append((approval_id, request))
         return self.decision_result
+
+    async def request_revert(self, request: RevertRequest) -> RevertResult:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.reverts.append(request)
+        return self.revert_result
 
 
 class FakeSlack:

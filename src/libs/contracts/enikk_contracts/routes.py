@@ -20,6 +20,7 @@ CREDENTIALS: Final = "/v1/credentials"
 NOTICES_POLL: Final = "/v1/notices/poll"
 NOTICES_ACK: Final = "/v1/notices/ack"
 APPROVAL_DECISION: Final = "/v1/approvals/{approval_id}/decision"
+REVERTS: Final = "/v1/reverts"
 GITHUB_HEALTH: Final = "/v1/github/health"
 GITHUB_TOKEN: Final = "/v1/github/token"  # noqa: S105 - URL path
 

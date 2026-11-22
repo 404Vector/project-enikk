@@ -20,6 +20,7 @@ IMAGE_TAG: Final = re.compile(r"^sha-([0-9a-f]{40})$")
 COMMIT: Final = re.compile(r"^[0-9a-f]{40}$")
 FAILED_PHASES: Final = frozenset({"Failed", "Error"})
 MAX_SEEN_RUNS: Final = 200
+MAX_REVERTS: Final = 50
 MAX_DETAIL: Final = 500
 
 
@@ -80,6 +81,16 @@ class FinishedDeployment(FrozenModel):
         return any(r.outcome is not RolloutOutcome.REPLACED for r in self.rollouts)
 
 
+class RevertRecord(FrozenModel):
+    """A revert PR core opened for a failed deployment or build (ADR-0023 §5)."""
+
+    commit: Annotated[str, Field(pattern=COMMIT.pattern)]
+    """The commit being reverted."""
+    pull_number: Annotated[int, Field(ge=1)]
+    pull_url: str
+    requested_at: AwareDatetime
+
+
 class WatchTiming(FrozenModel):
     timeout: timedelta
     """A rollout that has not succeeded by then has failed."""
@@ -95,6 +106,7 @@ class DeploymentWatch(FrozenModel):
     seen_build_runs: tuple[int, ...] = ()
     builds_since: AwareDatetime | None = None
     """Build runs created before the watcher first ran are history, not news."""
+    reverts: tuple[RevertRecord, ...] = ()
 
     def observe(
         self, observations: list[AppObservation], now: AwareDatetime, timing: WatchTiming
@@ -149,6 +161,17 @@ class DeploymentWatch(FrozenModel):
             }
         )
         return state, finished
+
+    def revert_of(self, commit: str) -> RevertRecord | None:
+        return next((r for r in self.reverts if r.commit == commit), None)
+
+    def rollback_target(self, pull_number: int) -> str | None:
+        """The commit a merged revert PR reverted, if ``pull_number`` is one of ours."""
+        return next((r.commit for r in self.reverts if r.pull_number == pull_number), None)
+
+    def with_revert(self, record: RevertRecord) -> DeploymentWatch:
+        kept = tuple(r for r in self.reverts if r.commit != record.commit)
+        return self.model_copy(update={"reverts": (*kept, record)[-MAX_REVERTS:]})
 
     def is_new_build_run(self, run_id: int, created_at: AwareDatetime) -> bool:
         since = self.builds_since

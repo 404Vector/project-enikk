@@ -7,11 +7,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from enikk_contracts.deployments import AppResult, BuildFailed, DeploymentFinished
+from enikk_contracts.deployments import (
+    AppResult,
+    BuildFailed,
+    DeploymentFinished,
+    RevertOutcome,
+    RevertRequest,
+)
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
 from enikk_core_domain.deployments import AppObservation, WatchTiming
 from enikk_github.activity import CommitPull, WorkflowRun
 from enikk_github.permissions import TokenPurpose
+from enikk_github.reverts import RevertPull, RevertRefused
 from enikk_kernel.ids import RandomIdGenerator
 
 if TYPE_CHECKING:
@@ -71,6 +78,25 @@ class FakeActivity:
         return CommitPull(number=40, title="feat: something", url="https://github.com/x/y/pull/40")
 
 
+class FakeReverter:
+    def __init__(self) -> None:
+        self.result: RevertPull | RevertRefused = RevertPull(
+            number=41, url="https://github.com/x/y/pull/41", branch="agent/revert-b"
+        )
+        self.requested: list[str] = []
+
+    async def open_revert(
+        self, token: InstallationToken, sha: str, *, base: str = "main", note: str = ""
+    ) -> RevertPull | RevertRefused:
+        self.requested.append(sha)
+        return self.result
+
+
+@pytest.fixture
+def reverter() -> FakeReverter:
+    return FakeReverter()
+
+
 @pytest.fixture
 def reader() -> FakeReader:
     return FakeReader()
@@ -82,12 +108,15 @@ def activity() -> FakeActivity:
 
 
 @pytest.fixture
-def service(harness: Harness, reader: FakeReader, activity: FakeActivity) -> DeploymentService:
+def service(
+    harness: Harness, reader: FakeReader, activity: FakeActivity, reverter: FakeReverter
+) -> DeploymentService:
     return DeploymentService(
         uow=harness.db.unit_of_work,
         reader=reader,
         app=harness.github,
         activity=activity,
+        reverter=reverter,
         policy=POLICY,
         clock=harness.clock,
         ids=RandomIdGenerator(),
@@ -175,3 +204,44 @@ async def test_failed_image_builds_are_reported_once(
     assert isinstance(notice, BuildFailed)
     assert notice.commit == NEW
     assert notice.conclusion == "failure"
+
+
+async def test_revert_opens_a_pull_request_and_its_deployment_is_a_rollback(
+    harness: Harness,
+    service: DeploymentService,
+    reader: FakeReader,
+    activity: FakeActivity,
+    reverter: FakeReverter,
+) -> None:
+    reader.show(OLD, harness.clock.now())
+    await service.watch_once()
+    result = await service.request_revert(RevertRequest(commit=NEW, requested_by="U1"))
+    assert result.outcome is RevertOutcome.OPENED
+    assert result.pull is not None
+    assert result.pull.number == 41
+    assert reverter.requested == [NEW]
+    assert ("project-enikk", TokenPurpose.DEVELOP) in harness.github.issued
+
+    async def merged_revert(token: InstallationToken, sha: str) -> CommitPull:
+        return CommitPull(number=41, title='Revert "x"', url="https://github.com/x/y/pull/41")
+
+    activity.pull_of_commit = merged_revert  # type: ignore[method-assign]
+    harness.clock.advance(timedelta(seconds=30))
+    reverted = "9" * 40
+    reader.show(reverted, harness.clock.now())
+    await service.watch_once()
+    harness.clock.advance(timedelta(seconds=61))
+    await service.watch_once()
+    [notice] = await _notices(harness)
+    assert isinstance(notice, DeploymentFinished)
+    assert notice.succeeded
+    assert notice.rollback_of == NEW
+
+
+async def test_refused_revert_says_why(service: DeploymentService, reverter: FakeReverter) -> None:
+    reverter.result = RevertRefused(
+        reason="later commits changed the same files", conflicts=("README.md",)
+    )
+    result = await service.request_revert(RevertRequest(commit=NEW, requested_by="U1"))
+    assert result.outcome is RevertOutcome.REFUSED
+    assert "README.md" in result.detail

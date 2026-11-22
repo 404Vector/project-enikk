@@ -21,7 +21,7 @@ from enikk_contracts.approvals import (
     NoticeAck,
     NoticePoll,
 )
-from enikk_contracts.deployments import BuildFailed, DeploymentFinished
+from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
 from enikk_core_client import CoreApiError, CoreUnavailableError
 
 if TYPE_CHECKING:
@@ -137,6 +137,9 @@ class ApprovalActions:
             _log.warning("ignored a button press by %s", actions.user.id)
             return
         for action in actions.actions:
+            if action.action_id == blocks.REVERT_ACTION:
+                await self._revert(actions, action.value)
+                continue
             decision = DECISIONS.get(action.action_id)
             if decision is None:
                 continue
@@ -162,6 +165,30 @@ class ApprovalActions:
             return
         kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
         footer = blocks.decided(result.outcome, result.detail, actions.user.id)
+        await self._slack.update_message(
+            actions.channel_id,
+            actions.message_ts,
+            actions.message_text,
+            [*kept, footer.model_dump()],
+        )
+
+    async def _revert(self, actions: BlockActions, commit: str) -> None:
+        try:
+            request = RevertRequest(commit=commit, requested_by=actions.user.id)
+        except ValidationError:
+            return
+        try:
+            result = await self._core.request_revert(request)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("revert of %s failed: %s", commit[:7], exc)
+            await self._slack.post_reply(
+                actions.channel_id,
+                actions.message_ts,
+                f":warning: 되돌리기를 요청하지 못했습니다. 잠시 뒤 다시 눌러 주세요. ({exc})",
+            )
+            return
+        kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
+        footer = blocks.revert_requested(result, actions.user.id)
         await self._slack.update_message(
             actions.channel_id,
             actions.message_ts,

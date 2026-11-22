@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from enikk_contracts import routes
 from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
+from enikk_contracts.deployments import RevertResult
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth, GitHubToken
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
+    from enikk_contracts.deployments import RevertRequest
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
@@ -154,6 +156,10 @@ class CoreClient:
         """The owner's decision on a pull request. Merging can take a few seconds."""
         path = routes.APPROVAL_DECISION.format(approval_id=approval_id)
         return _parse(DecisionResult, await self._post(path, request, 60))
+
+    async def request_revert(self, request: RevertRequest) -> RevertResult:
+        """Open the revert PR of a commit (ADR-0023 §5). Slack connector only."""
+        return _parse(RevertResult, await self._post(routes.REVERTS, request, 60))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

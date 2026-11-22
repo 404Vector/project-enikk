@@ -4,6 +4,10 @@ Every tick reads the Argo CD Applications, judges the rollouts they show and rep
 each settled deployment once, grouped by commit. It also reports failed image builds
 of main, which never reach Argo CD. Its memory lives in the database, so a restart
 (including core's own rollout) continues where the previous process stopped.
+
+[되돌리기] on a failed deployment or build opens a revert PR (built by the GitHub
+adapter without an LLM). The revert goes through the same Slack approval; when its
+merge commit deploys or fails to build, the notice says it is a rollback result.
 """
 
 from __future__ import annotations
@@ -17,19 +21,24 @@ from enikk_contracts.deployments import (
     BuildFailed,
     DeploymentFinished,
     PullLink,
+    RevertOutcome,
+    RevertResult,
 )
-from enikk_core_domain.deployments import DeploymentWatch, WatchTiming
+from enikk_core_domain.deployments import DeploymentWatch, RevertRecord, WatchTiming
 from enikk_core_domain.errors import DependencyUnavailableError
 from enikk_core_domain.model import Notice
 from enikk_github.permissions import TokenPurpose
+from enikk_github.reverts import RevertRefused
 from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
+    from enikk_contracts.deployments import RevertRequest
     from enikk_core.github import GitHubAppApi
     from enikk_core_domain.deployments import FinishedDeployment
     from enikk_core_domain.ports import ApplicationReader, UnitOfWorkFactory
     from enikk_github.activity import CommitPull, WorkflowRun
     from enikk_github.app import InstallationToken
+    from enikk_github.reverts import RevertPull
     from enikk_kernel.clock import Clock
     from enikk_kernel.ids import IdGenerator
 
@@ -44,12 +53,20 @@ class ActivityApi(Protocol):
     async def pull_of_commit(self, token: InstallationToken, sha: str) -> CommitPull | None: ...
 
 
+class RevertApi(Protocol):
+    async def open_revert(
+        self, token: InstallationToken, sha: str, *, base: str = "main", note: str = ""
+    ) -> RevertPull | RevertRefused: ...
+
+
 class DeploymentPolicy(FrozenModel):
     apps: tuple[str, ...]
     """Argo CD Applications to watch."""
     repository: str
     """The platform's own repository, whose main the apps deploy."""
     images_workflow: str = "images.yml"
+    workflows: bool = False
+    """Whether development tokens of the repository may write workflow files."""
     timing: WatchTiming
 
 
@@ -61,6 +78,7 @@ class DeploymentService:
         reader: ApplicationReader,
         app: GitHubAppApi,
         activity: ActivityApi,
+        reverter: RevertApi,
         policy: DeploymentPolicy,
         clock: Clock,
         ids: IdGenerator,
@@ -69,6 +87,7 @@ class DeploymentService:
         self._reader = reader
         self._app = app
         self._activity = activity
+        self._reverter = reverter
         self._policy = policy
         self._clock = clock
         self._ids = ids
@@ -83,7 +102,7 @@ class DeploymentService:
                 now = self._clock.now()
                 watch, finished = watch.observe(observations, now, self._policy.timing)
                 for deployment in finished:
-                    bodies.append(await self._deployment_notice(token, deployment))
+                    bodies.append(await self._deployment_notice(token, deployment, watch))
                 if token is not None:
                     watch, failed = await self._failed_builds(token, watch)
                     bodies.extend(failed)
@@ -117,13 +136,18 @@ class DeploymentService:
         return PullLink(number=pull.number, title=pull.title[:300], url=pull.url[:500])
 
     async def _deployment_notice(
-        self, token: InstallationToken | None, deployment: FinishedDeployment
+        self,
+        token: InstallationToken | None,
+        deployment: FinishedDeployment,
+        watch: DeploymentWatch,
     ) -> DeploymentFinished:
+        pull = await self._pull(token, deployment.commit)
         return DeploymentFinished(
             repository=self._full_name,
             commit=deployment.commit,
-            pull=await self._pull(token, deployment.commit),
+            pull=pull,
             succeeded=deployment.succeeded,
+            rollback_of=watch.rollback_target(pull.number) if pull else None,
             apps=tuple(
                 AppDeployment(
                     app=r.app[:100],
@@ -143,18 +167,67 @@ class DeploymentService:
             _log.warning("cannot read image builds: %s", exc)
             return watch, []
         fresh = [r for r in runs if r.completed and watch.is_new_build_run(r.id, r.created_at)]
-        notices = [
-            BuildFailed(
-                repository=self._full_name,
-                commit=run.head_sha,
-                pull=await self._pull(token, run.head_sha),
-                run_url=run.url[:500],
-                conclusion=(run.conclusion or "unknown")[:50],
+        notices = []
+        for run in fresh:
+            if not run.build_failed:
+                continue
+            pull = await self._pull(token, run.head_sha)
+            notices.append(
+                BuildFailed(
+                    repository=self._full_name,
+                    commit=run.head_sha,
+                    pull=pull,
+                    run_url=run.url[:500],
+                    conclusion=(run.conclusion or "unknown")[:50],
+                    rollback_of=watch.rollback_target(pull.number) if pull else None,
+                )
             )
-            for run in fresh
-            if run.build_failed
-        ]
         return watch.saw_build_runs([r.id for r in fresh]), notices
+
+    # ------------------------------------------------------------ reverting
+
+    async def request_revert(self, request: RevertRequest) -> RevertResult:
+        """Open (or find) the revert PR of ``request.commit``. The owner pressed the button."""
+        token = await self._app.installation_token(
+            self._policy.repository, TokenPurpose.DEVELOP, workflows=self._policy.workflows
+        )
+        try:
+            async with self._uow() as uow:
+                watch = await uow.deployment_watch.load_for_update() or DeploymentWatch()
+                note = "배포 또는 빌드가 실패해 소유자가 Slack 에서 되돌리기를 요청했습니다."
+                try:
+                    outcome = await self._reverter.open_revert(token, request.commit, note=note)
+                except DependencyUnavailableError as exc:
+                    _log.warning("revert of %s failed: %s", request.commit[:7], exc)
+                    return RevertResult(outcome=RevertOutcome.REFUSED, detail=str(exc)[:3000])
+                if isinstance(outcome, RevertRefused):
+                    detail = outcome.reason
+                    if outcome.conflicts:
+                        detail += ": " + ", ".join(outcome.conflicts)
+                    _log.info("revert of %s refused: %s", request.commit[:7], detail)
+                    return RevertResult(outcome=RevertOutcome.REFUSED, detail=detail[:3000])
+                record = RevertRecord(
+                    commit=request.commit,
+                    pull_number=outcome.number,
+                    pull_url=outcome.url,
+                    requested_at=self._clock.now(),
+                )
+                await uow.deployment_watch.save(watch.with_revert(record))
+                await uow.commit()
+        finally:
+            await self._app.revoke(token)
+        _log.info(
+            "revert of %s by the owner -> #%d%s",
+            request.commit[:7],
+            outcome.number,
+            " (already open)" if outcome.existing else "",
+        )
+        return RevertResult(
+            outcome=RevertOutcome.EXISTING if outcome.existing else RevertOutcome.OPENED,
+            pull=PullLink(
+                number=outcome.number, title=f"Revert {request.commit[:7]}", url=outcome.url
+            ),
+        )
 
     @property
     def _full_name(self) -> str:

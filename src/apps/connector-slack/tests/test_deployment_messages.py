@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from enikk_connector_slack.approvals import NoticeRelay
-from enikk_connector_slack.blocks import Actions
+from enikk_connector_slack.approvals import ApprovalActions, NoticeRelay
+from enikk_connector_slack.blocks import REVERT_ACTION, Actions
 from enikk_connector_slack.outbound import RelayPolicy
 from enikk_connector_slack.testing import CONFIG, OWNER, FakeCore, FakeSlack
 from enikk_contracts.approvals import OwnerNotice
@@ -58,8 +58,48 @@ async def test_deployment_results_go_to_the_owner_without_buttons() -> None:
     assert second.text.startswith("배포 실패")
     assert "PostSync hook failed" in str(second.payload())
     assert "이전 버전" in str(second.payload())
-    for _, message in slack.messages:
-        assert not any(isinstance(b, Actions) for b in message.blocks)
+    assert not any(isinstance(b, Actions) for b in first.blocks)
+    [revert] = [b for b in second.blocks if isinstance(b, Actions)]
+    assert [(e.action_id, e.value) for e in revert.elements] == [(REVERT_ACTION, SHA)]
+    assert revert.elements[0].confirm is not None
+
+
+async def test_rollback_results_have_no_revert_button() -> None:
+    rollback = DeploymentFinished(
+        repository="404Vector/project-enikk",
+        commit=SHA,
+        succeeded=False,
+        rollback_of="1" * 40,
+        apps=(AppDeployment(app="enikk-core", result=AppResult.FAILED),),
+    )
+    slack = await _relay(rollback)
+    [(_, message)] = slack.messages
+    assert message.text.startswith("롤백 실패")
+    assert not any(isinstance(b, Actions) for b in message.blocks)
+
+
+async def test_revert_button_asks_core_and_replaces_the_button() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    press = {
+        "type": "block_actions",
+        "user": {"id": OWNER},
+        "container": {"type": "message", "channel_id": "D0OWNER", "message_ts": "2.0"},
+        "message": {
+            "text": "배포 실패",
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": "x"}},
+                {"type": "actions", "elements": []},
+            ],
+        },
+        "actions": [{"action_id": REVERT_ACTION, "value": SHA}],
+    }
+    await ApprovalActions(core, slack, CONFIG).handle(press)
+    [request] = core.reverts
+    assert (request.commit, request.requested_by) == (SHA, OWNER)
+    [(channel, ts, updated)] = slack.updates
+    assert (channel, ts) == ("D0OWNER", "2.0")
+    assert [b["type"] for b in updated] == ["section", "context"]
+    assert "pull/60" in str(updated[-1])
 
 
 async def test_build_failure_links_the_run() -> None:

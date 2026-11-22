@@ -136,3 +136,15 @@ def test_build_runs_are_reported_once_and_only_after_the_watcher_started() -> No
     assert watch.is_new_build_run(2, _at(10))
     watch = watch.saw_build_runs([2])
     assert not watch.is_new_build_run(2, _at(10))
+
+
+def test_revert_records_identify_rollbacks() -> None:
+    from enikk_core_domain.deployments import RevertRecord
+
+    record = RevertRecord(commit=NEW, pull_number=50, pull_url="https://x/50", requested_at=T0)
+    watch = DeploymentWatch().with_revert(record)
+    assert watch.revert_of(NEW) == record
+    assert watch.rollback_target(50) == NEW
+    assert watch.rollback_target(51) is None
+    again = watch.with_revert(record.model_copy(update={"pull_number": 52}))
+    assert [r.pull_number for r in again.reverts] == [52]
