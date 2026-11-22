@@ -58,6 +58,7 @@ class RuntimeClaudeApp:
                 oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
                 transcripts=core,
                 delegator=core,
+                memory=core,
             )
             worker = TaskWorker(
                 core=core,

@@ -123,6 +123,7 @@ class DevAgentApp:
             ),
             oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
             transcripts=core,
+            memory=core,
         )
         worker = TaskWorker(
             core=core,

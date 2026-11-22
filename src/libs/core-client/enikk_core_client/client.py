@@ -15,6 +15,7 @@ from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth, GitHubToken
 from enikk_contracts.health import HealthResponse
+from enikk_contracts.memory import MemoryMatches, MemoryWritten
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import (
     ClaimRequest,
@@ -38,6 +39,12 @@ if TYPE_CHECKING:
     from enikk_contracts.deployments import RevertRequest
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.github import GitHubTokenRequest
+    from enikk_contracts.memory import (
+        ForgetRequest,
+        MemorySearch,
+        RememberRequest,
+        UpdateMemoryRequest,
+    )
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
@@ -166,6 +173,25 @@ class CoreClient:
     async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked:
         """Link a PR's review thread with the thread that asked for it. Slack connector only."""
         return _parse(ReviewThreadLinked, await self._post(routes.REVIEW_THREADS, review))
+
+    async def remember(self, task_id: uuid.UUID, request: RememberRequest) -> MemoryWritten:
+        """Keep a note in enikk's memory, the owner's vault (ADR-0028)."""
+        path = routes.MEMORY_REMEMBER.format(task_id=task_id)
+        return _parse(MemoryWritten, await self._post(path, request, 60))
+
+    async def update_memory(
+        self, task_id: uuid.UUID, request: UpdateMemoryRequest
+    ) -> MemoryWritten:
+        path = routes.MEMORY_UPDATE.format(task_id=task_id)
+        return _parse(MemoryWritten, await self._post(path, request, 60))
+
+    async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten:
+        path = routes.MEMORY_FORGET.format(task_id=task_id)
+        return _parse(MemoryWritten, await self._post(path, request, 60))
+
+    async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches:
+        path = routes.MEMORY_SEARCH.format(task_id=task_id)
+        return _parse(MemoryMatches, await self._post(path, request))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

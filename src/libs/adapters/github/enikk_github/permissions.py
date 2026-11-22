@@ -18,6 +18,8 @@ class TokenPurpose(StrEnum):
     """Core's approval module: records ``enikk/owner-approval`` and enables auto-merge."""
     WATCH = "watch"
     """Core's pull request and deployment watchers. Read-only."""
+    MEMORY = "memory"
+    """Core's memory: writes notes into the owner's vault repository (ADR-0028)."""
     SETUP = "setup"
     """Core's repository onboarding: applies the standard ruleset."""
 
@@ -45,6 +47,10 @@ _FIXED: Final[dict[TokenPurpose, Permissions]] = {
         "pull_requests": Access.READ,
         "checks": Access.READ,
         "statuses": Access.READ,
+    },
+    TokenPurpose.MEMORY: {
+        "metadata": Access.READ,
+        "contents": Access.WRITE,
     },
     TokenPurpose.SETUP: {
         "metadata": Access.READ,
