@@ -52,8 +52,13 @@ class SlackApi(Protocol):
         """Post ``text`` in the thread. Raises ``SlackDeliveryError``."""
         ...
 
-    async def post_message(self, channel: str, message: Message) -> PostedMessage:
-        """Post a Block Kit message. ``channel`` may be a user ID (their DM with the app)."""
+    async def post_message(
+        self, channel: str, message: Message, thread: str | None = None
+    ) -> PostedMessage:
+        """Post a Block Kit message, in ``thread`` if given.
+
+        ``channel`` may be a user ID (their DM with the app). Raises ``SlackDeliveryError``.
+        """
         ...
 
     async def upload_text(

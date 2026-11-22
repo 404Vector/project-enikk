@@ -86,6 +86,8 @@ class FakeSlack:
         self.reactions: list[tuple[str, str, str]] = []
         self.fail_posts: list[Exception] = []
         self.messages: list[tuple[str, Message]] = []
+        self.replies: list[tuple[str, str, Message]] = []
+        self.fail_replies: list[Exception] = []
         self.uploads: list[tuple[str, str, str, str]] = []
         self.updates: list[tuple[str, str, list[dict[str, JsonValue]]]] = []
 
@@ -94,7 +96,14 @@ class FakeSlack:
             raise self.fail_posts.pop(0)
         self.posts.append((channel, thread, text))
 
-    async def post_message(self, channel: str, message: Message) -> PostedMessage:
+    async def post_message(
+        self, channel: str, message: Message, thread: str | None = None
+    ) -> PostedMessage:
+        if thread is not None:
+            if self.fail_replies:
+                raise self.fail_replies.pop(0)
+            self.replies.append((channel, thread, message))
+            return PostedMessage(channel=channel, ts=f"{thread}.{len(self.replies)}")
         if self.fail_posts:
             raise self.fail_posts.pop(0)
         self.messages.append((channel, message))
