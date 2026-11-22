@@ -31,6 +31,7 @@
 | [0025](0025-thread-follow-up-on-agent-prs.md) | 위임한 스레드에서 PR 을 끝까지 따라가고, 같은 PR 을 이어서 고친다 | 승인 | 2026-11-22 |
 | [0026](0026-slack-notice-destinations.md) | Slack 알림을 어디에 올리는가 — 배포 알림은 #release, 개발 요청은 상태와 상세를 나눈다 | 승인 | 2026-11-22 |
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 에이전트는 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
+| [0028](0028-shared-memory.md) | 스레드를 넘어 쌓이고 공유되는 기억(메모리) | 제안 | 2026-11-22 |
 
 ## 상태 정의
 
