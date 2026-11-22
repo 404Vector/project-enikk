@@ -89,10 +89,11 @@ class GitWorkspace:
             raise WorkspaceError(f"git ls-remote failed: {found.stderr.strip()[:500]}")
         continuing = bool(found.stdout.strip())
         if continuing:
-            remote = f"refs/remotes/origin/{branch}"
-            self._git(
-                "fetch", "--depth", "100", "origin", f"+refs/heads/{branch}:{remote}", cwd=repo_dir
-            )
+            # A shallow clone fetches only main. Add the branch to origin's fetch
+            # refspec too, or git refuses to track origin/<branch> as a branch.
+            refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+            self._git("config", "--add", "remote.origin.fetch", refspec, cwd=repo_dir)
+            self._git("fetch", "--depth", "100", "origin", refspec, cwd=repo_dir)
             self._git("switch", "--create", branch, "--track", f"origin/{branch}", cwd=repo_dir)
         else:
             self._git("switch", "--create", branch, cwd=repo_dir)

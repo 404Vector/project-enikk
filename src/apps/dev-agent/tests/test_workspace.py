@@ -125,15 +125,10 @@ def test_an_existing_branch_is_continued(tmp_path: Path) -> None:
     runner.when("git", "ls-remote", stdout=f"abc123\trefs/heads/{BRANCH}\n")
     workspace = GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
     assert workspace.continuing
-    assert runner.argvs[-2:] == [
-        (
-            "git",
-            "fetch",
-            "--depth",
-            "100",
-            "origin",
-            f"+refs/heads/{BRANCH}:refs/remotes/origin/{BRANCH}",
-        ),
+    refspec = f"+refs/heads/{BRANCH}:refs/remotes/origin/{BRANCH}"
+    assert runner.argvs[-3:] == [
+        ("git", "config", "--add", "remote.origin.fetch", refspec),
+        ("git", "fetch", "--depth", "100", "origin", refspec),
         ("git", "switch", "--create", BRANCH, "--track", f"origin/{BRANCH}"),
     ]
     brief = task_brief(_assignment(), _token(), workspace)
