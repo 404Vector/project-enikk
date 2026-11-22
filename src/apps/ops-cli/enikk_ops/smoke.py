@@ -112,6 +112,35 @@ class CoreSmokeTest:
                 raise SmokeTestError("outbox acknowledgement failed")
             self._ok("connector received the reply from the outbox and acknowledged it")
 
+            await self.check_github(connector)
+
+    async def check_github(self, connector: CoreClient) -> None:
+        """Report whether core can act through the GitHub App (ADR-0019)."""
+        health = await connector.github_health()
+        if not health.configured:
+            self._report(f"  --  GitHub App not configured, skipped ({health.detail})")
+            return
+        if not health.key_registered:
+            self._report(
+                "  --  GitHub App key not registered, skipped "
+                "(enikk-ops secret set github.app-private-key --from-file <pem>)"
+            )
+            return
+        if health.detail is not None:
+            raise SmokeTestError(f"GitHub App check failed: {health.detail}")
+        for gap in health.gaps:
+            self._report(
+                f"  !!  App permission {gap.permission}: needs {gap.required}, "
+                f"granted {gap.granted or 'none'}"
+            )
+        for repository in health.repositories:
+            if not repository.reachable:
+                self._report(f"  !!  repository {repository.name} is not reachable by the App")
+        if not health.ok:
+            raise SmokeTestError("GitHub App lacks permissions or repositories (see above)")
+        names = ", ".join(r.name for r in health.repositories)
+        self._ok(f"GitHub App has every permission it needs and reaches {names}")
+
     async def _lease(self, runtime: CoreClient, task_id: uuid.UUID) -> TaskAssignment:
         for _ in range(self._settings.max_foreign_tasks + 1):
             response = await runtime.lease_task(LeaseRequest(wait_seconds=10))

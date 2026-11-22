@@ -32,22 +32,50 @@ ADR-0007 은 개발 에이전트가 소유자 계정이 아닌 별도 GitHub 신
 
 | 용도 | 받는 쪽 | 저장소 | 권한 |
 |---|---|---|---|
-| 개발 | 개발 에이전트 Pod (core API 로 전달) | `project-enikk` | `contents: write`, `pull_requests: write`, `checks: read`, `statuses: read`, `metadata: read` |
-| 승인 | core 의 승인 모듈 (core 밖으로 나가지 않음) | `project-enikk` | `statuses: write`, `pull_requests: write`, `contents: write`, `metadata: read` |
-| 감시 | core 의 PR 감시 (core 밖으로 나가지 않음) | `project-enikk` | `pull_requests: read`, `checks: read`, `statuses: read`, `contents: read`, `metadata: read` |
+| 개발 | 개발 에이전트 Pod (core API 로 전달) | 작업 대상 저장소 **하나** | `contents: write`, `pull_requests: write`, `checks: read`, `statuses: read`, `metadata: read`, 정책이 허용하면 `workflows: write` |
+| 승인 | core 의 승인 모듈 (core 밖으로 나가지 않음) | 승인할 PR 의 저장소 하나 | `statuses: write`, `pull_requests: write`, `contents: write`, `metadata: read` |
+| 감시 | core 의 PR 감시 (core 밖으로 나가지 않음) | 관리 대상 저장소 전체 | `pull_requests: read`, `checks: read`, `statuses: read`, `contents: read`, `metadata: read` |
+| 설정 | core 의 저장소 등록 (core 밖으로 나가지 않음) | 새로 등록하는 저장소 하나 | `administration: write`, `metadata: read` |
 
 - 개발 토큰에는 다음 권한이 **없다**. 이것이 이 결정의 핵심이다.
   - `statuses: write`, `checks: write`: 승인 상태(ADR-0020)를 스스로 기록할 수 없다.
-  - `workflows`: GitHub 가 `.github/workflows/` 를 바꾸는 push 를 거부한다(I-20 의 두 번째 방어선).
   - `administration`: 브랜치 보호 규칙(ruleset)을 바꿀 수 없다.
+  - `workflows` (`project-enikk` 에서는 항상): GitHub 가 `.github/workflows/` 를 바꾸는 push 를 거부한다(I-20 의 두 번째 방어선).
+- 토큰의 범위는 항상 저장소 하나다. 한 작업이 여러 저장소에 동시에 쓰지 않는다.
+
+### 3. 관리 대상 저장소
+에이전트가 작업할 수 있는 저장소는 `config/github.yaml` 의 목록에 있는 것뿐이다. App 이 설치된 다른 저장소는 대상이 아니다.
+
+```yaml
+repositories:
+  - name: project-enikk
+    self: true          # 이 플랫폼 자신. workflows 권한을 절대 주지 않고, 보호 경로 검사를 적용한다
+  - name: some-new-app
+    workflows: true     # 에이전트가 이 저장소의 CI 워크플로를 만들고 고칠 수 있다
+```
+
+- 목록에 저장소를 추가하는 것도 PR 이므로 소유자 Slack 승인을 거친다(ADR-0020).
+- `self: true` 인 저장소는 하나뿐이며 `workflows` 를 켤 수 없다. core 가 설정을 읽을 때 검증한다.
+- `self` 인 저장소의 이름은 core Helm values 의 `github.selfRepository` 와 같아야 한다. 목록 파일은 에이전트도 바꿀 수 있지만 core values 는 보호 경로이므로, 목록을 고쳐 이 플랫폼의 보호를 다른 저장소로 옮길 수 없다.
+- 다른 저장소의 `workflows` 는 기본값이 꺼짐이다. 켜면 에이전트가 그 저장소에서 승인 전에 Actions 를 실행할 수 있다. 영향은 그 저장소와 그 저장소의 비밀값에 한정된다.
+- 목록에 추가된 저장소는 core 가 설정 토큰으로 `project-enikk` 과 같은 기본 ruleset(PR 필수, 강제 push·삭제 금지, 필수 검사 `enikk/owner-approval`, 예외 없음)을 적용한다. 그래서 모든 관리 대상 저장소의 `main` 머지가 같은 Slack 승인을 거친다.
+
+### 4. 새 저장소 만들기
+- 저장소는 소유자가 만든다. 에이전트는 이름과 설정을 미리 채운 생성 링크(`https://github.com/new?name=...`)를 Slack 으로 보내고, 소유자가 만들면 목록 추가 PR 부터 이어서 진행한다.
+- App 이 모든 저장소에 설치되어 있으므로 새 저장소에도 바로 쓸 수 있다.
+- 검토한 대안:
+  - GitHub 조직에 App 을 설치해 App 이 직접 만들기: Slack 만으로 끝나지만 새 프로젝트가 조직 아래에 생긴다. → 소유자 결정으로 보류.
+  - 소유자 계정 권한의 토큰을 클러스터에 두기: 에이전트가 소유자로 승인·머지할 길이 생긴다(I-19). → 기각.
+- 근거: 개인 계정 아래 저장소 생성(`POST /user/repos`)에 대해 공식 문서는 OAuth 토큰과 classic PAT 만 언급하고, 설치 토큰 지원을 확인하지 못했다(2026-11-22).
 - 승인 토큰의 `contents: write` 와 `pull_requests: write` 는 auto-merge 를 켜고, 반려된 PR 을 닫고 브랜치를 지우는 데 쓴다. `main` 에 직접 쓰는 것은 브랜치 보호 규칙이 막는다(ADR-0020).
 - 개발 토큰은 core 의 `POST /v1/github/token` 으로 `dev-agent` 역할에만, 활성 임대를 가진 작업이 있을 때만 발급한다. 토큰 값은 로그와 트레이스에 남기지 않는다(I-07).
 - 커밋 작성자는 App 의 봇 계정(`enikk-deployer[bot]`)이다.
 
 ## 근거
+- 설치 토큰의 저장소·권한 축소와 1시간 만료는 GitHub REST 문서 "Create an installation access token for an app" 에서 확인했다(2026-11-22): 지정하지 않으면 설치된 모든 저장소와 App 의 모든 권한을 갖고, App 보다 넓게는 줄 수 없다.
 - 토큰 범위는 GitHub 가 서버에서 강제한다. 개발 에이전트 코드나 프롬프트가 잘못돼도 토큰 밖의 권한은 쓸 수 없다.
 - 키가 core 를 떠나지 않으면, 키 유출 경로는 core 손상과 소유자 PC 의 원본 파일뿐이다. 둘은 이미 모든 비밀값의 유출 경로다(ADR-0013).
-- 설치 토큰의 저장소·권한 축소와 1시간 만료는 GitHub REST API 문서("Create an installation access token for an app")에 근거한다. App 토큰으로 워크플로 파일을 push 하려면 `workflows` 권한이 필요하다는 점도 GitHub 문서에 근거한다. 이 ADR 을 쓰면서 문서를 다시 열어 보지는 않았고, M7 구현에서 실제 API 로 확인한다.
+- App 토큰으로 워크플로 파일을 push 하려면 `workflows` 권한이 필요하다는 점은 GitHub 문서에 근거한다. 이 부분은 문서를 다시 열어 보지 않았고, M7 구현에서 실제 push 로 확인한다.
 
 ## 결과
 - 새 불변식 I-32 를 추가한다.

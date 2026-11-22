@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import httpx
@@ -12,6 +12,7 @@ from enikk_contracts.common import ConnectorKind, Engine
 from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
 from enikk_core.credentials import CredentialIssuer
+from enikk_core.github import GitHubHealthCheck
 from enikk_core.security import Gatekeeper
 from enikk_core.settings import TaskSettings
 from enikk_core.usecases import CoreUseCases
@@ -23,6 +24,7 @@ from enikk_core_domain.auth import (
     RuntimeRole,
     ServiceIdentity,
 )
+from enikk_core_domain.repositories import RepositoryPolicy
 from enikk_core_domain.testing import (
     InMemoryDatabase,
     StaticAgentCatalog,
@@ -30,6 +32,8 @@ from enikk_core_domain.testing import (
     StaticCredentialStore,
     agent,
 )
+from enikk_github.app import InstallationToken
+from enikk_github.permissions import TokenPurpose, required_permissions
 from enikk_kernel.testing import ManualClock, SequentialIds
 
 if TYPE_CHECKING:
@@ -51,6 +55,42 @@ TOKENS = {
     "smoke": SMOKE,
 }
 
+POLICY = RepositoryPolicy.model_validate_json(
+    '{"repositories": [{"name": "project-enikk", "self": true}, {"name": "side-project"}]}'
+)
+
+
+class FakeGitHubApp:
+    """Grants everything required; repositories in ``unreachable`` cannot be read."""
+
+    def __init__(self) -> None:
+        self.permissions: dict[str, str] = {
+            name: access.value for name, access in required_permissions(workflows=False).items()
+        }
+        self.unreachable: set[str] = set()
+        self.issued: list[tuple[str, TokenPurpose]] = []
+        self.revoked: list[str] = []
+
+    async def installation_permissions(self) -> dict[str, str]:
+        return dict(self.permissions)
+
+    async def installation_token(
+        self, repository: str, purpose: TokenPurpose, *, workflows: bool = False
+    ) -> InstallationToken:
+        self.issued.append((repository, purpose))
+        return InstallationToken(
+            token=SecretStr(f"ghs-{repository}"),
+            expires_at=datetime(2026, 1, 1, 1, tzinfo=UTC),
+            repository=repository,
+            permissions={},
+        )
+
+    async def repository_reachable(self, token: InstallationToken) -> bool:
+        return token.repository not in self.unreachable
+
+    async def revoke(self, token: InstallationToken) -> None:
+        self.revoked.append(token.repository)
+
 
 @dataclass
 class Harness:
@@ -59,6 +99,7 @@ class Harness:
     clock: ManualClock
     usecases: CoreUseCases
     catalog: StaticAgentCatalog
+    github: FakeGitHubApp
 
     def client(self, token: str) -> CoreClient:
         return CoreClient.connect(
@@ -109,11 +150,13 @@ def harness() -> Harness:
             CredentialName.SLACK_APP_TOKEN: SecretStr("xapp-test"),
         }
     )
+    github = FakeGitHubApp()
     services = CoreServices(
         version="test",
         usecases=usecases,
         credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(StaticAuthenticator(TOKENS), directory),
+        github=GitHubHealthCheck(github, POLICY, lambda: SecretStr("pem")),
         reaper_interval_seconds=60,
     )
     return Harness(
@@ -122,6 +165,7 @@ def harness() -> Harness:
         clock=clock,
         usecases=usecases,
         catalog=catalog,
+        github=github,
     )
 
 

@@ -38,6 +38,16 @@ spec:
               value: {{ .Values.roleBindings | toJson | quote }}
             - name: ENIKK_CORE_CREDENTIALS_DIR
               value: {{ .Values.credentials.mountPath | quote }}
+            - name: ENIKK_CORE_GITHUB__APP_ID
+              value: {{ .Values.github.appId | quote }}
+            - name: ENIKK_CORE_GITHUB__INSTALLATION_ID
+              value: {{ .Values.github.installationId | quote }}
+            - name: ENIKK_CORE_GITHUB__OWNER
+              value: {{ .Values.github.owner | quote }}
+            - name: ENIKK_CORE_GITHUB__SELF_REPOSITORY
+              value: {{ .Values.github.selfRepository | quote }}
+            - name: ENIKK_CORE_GITHUB__REPOSITORIES_FILE
+              value: /app/config/github.yaml
             {{- include "enikk-core.databaseEnv" . | nindent 12 }}
           volumeMounts:
             - name: credentials

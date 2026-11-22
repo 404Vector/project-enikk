@@ -11,6 +11,7 @@ from enikk_contracts import routes
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
+from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import LeaseExtended, LeaseResponse, ResultAccepted
@@ -115,6 +116,10 @@ class CoreClient:
     async def fetch_credentials(self, request: CredentialRequest) -> Credentials:
         """Credentials granted to this caller. Keep them in memory only (ADR-0013)."""
         return _parse(Credentials, await self._post(routes.CREDENTIALS, request))
+
+    async def github_health(self) -> GitHubHealth:
+        """Whether core can act through the GitHub App. Smoke identity only."""
+        return _parse(GitHubHealth, await self._send("GET", routes.GITHUB_HEALTH, timeout=60))
 
     # ------------------------------------------------------------ transport
 

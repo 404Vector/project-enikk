@@ -14,9 +14,11 @@ from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
 from enikk_contracts import routes
+from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
+from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.base import Contract
     from enikk_core.credentials import CredentialIssuer
+    from enikk_core.github import GitHubHealthCheck
     from enikk_core.security import Gatekeeper
     from enikk_core.usecases import CoreUseCases
     from enikk_core_domain.auth import Principal
@@ -82,12 +85,14 @@ class CoreServices:
         usecases: CoreUseCases,
         credentials: CredentialIssuer,
         gatekeeper: Gatekeeper,
+        github: GitHubHealthCheck,
         reaper_interval_seconds: float,
     ) -> None:
         self.version = version
         self.usecases = usecases
         self.credentials = credentials
         self.gatekeeper = gatekeeper
+        self.github = github
         self.reaper_interval_seconds = reaper_interval_seconds
 
 
@@ -188,6 +193,14 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         response = _json(services.credentials.issue(principal, wanted))
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    @app.get(routes.GITHUB_HEALTH, responses={200: {"model": GitHubHealth}})
+    @requires("connector")
+    async def github_health(request: Request) -> Response:
+        role = _connector(await gate.admit(request))
+        if role.connector is not ConnectorKind.SMOKE:
+            raise PermissionDeniedError("only the smoke check reads the GitHub status")
+        return _json(await services.github.check())
 
     verify_declared_roles(app)
     return app
