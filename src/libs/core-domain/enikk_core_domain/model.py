@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from pydantic import AwareDatetime, Field, model_validator
 
+from enikk_contracts.agents import Execution
 from enikk_contracts.common import AgentName, ConversationRef, Engine, Identifier, NonEmptyText
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import FailureReason, ProgressNote, TaskStatus
@@ -83,6 +84,7 @@ class Task(Entity):
     source_event_id: Identifier
     agent: AgentName
     engine: Engine
+    execution: Execution = Execution.SHARED
     input: NonEmptyText
     status: TaskStatus
     attempt: Annotated[int, Field(ge=0)]
@@ -120,6 +122,7 @@ class Task(Entity):
         text: str,
         max_attempts: int,
         now: datetime,
+        execution: Execution = Execution.SHARED,
     ) -> Self:
         return cls(
             id=task_id,
@@ -127,6 +130,7 @@ class Task(Entity):
             source_event_id=source_event_id,
             agent=session.agent,
             engine=session.engine,
+            execution=execution,
             input=text,
             status=TaskStatus.QUEUED,
             attempt=0,
@@ -198,6 +202,11 @@ class Task(Entity):
             updated_at=now,
         )
 
+    def abandon(self, *, reason: str, now: datetime) -> Self:
+        """Fail a queued task that no worker could be started for."""
+        self._require(TaskStatus.QUEUED, "abandon")
+        return self._evolve(status=TaskStatus.FAILED, failure=reason, updated_at=now)
+
     def cancel(self, now: datetime) -> Self:
         if self.terminal:
             raise InvalidTransitionError(f"task {self.id}: cannot cancel a {self.status} task")
@@ -213,6 +222,45 @@ class Task(Entity):
         if self.lease.expired(now):
             raise LeaseLostError(f"task {self.id}: lease {lease_id} has expired")
         return self.lease
+
+
+class WorkerScope(FrozenModel):
+    """Which tasks a worker may lease and report on.
+
+    Shared runtimes see the tasks of their engine; isolated Jobs see isolated tasks
+    of any engine. Neither ever sees the other's tasks (ADR-0021).
+    """
+
+    execution: Execution
+    engine: Engine | None = None
+
+    @model_validator(mode="after")
+    def _shared_needs_engine(self) -> Self:
+        if (self.execution is Execution.SHARED) != (self.engine is not None):
+            raise ValueError("a shared worker serves exactly one engine")
+        return self
+
+    @classmethod
+    def shared(cls, engine: Engine) -> Self:
+        return cls(execution=Execution.SHARED, engine=engine)
+
+    @classmethod
+    def isolated(cls) -> Self:
+        return cls(execution=Execution.ISOLATED)
+
+    def admits(self, task: Task) -> bool:
+        if task.execution is not self.execution:
+            return False
+        return self.engine is None or task.engine is self.engine
+
+
+class Dispatch(FrozenModel):
+    """One Job started for an isolated task (ADR-0021). Counts toward the daily limit."""
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    job_name: Annotated[str, Field(min_length=1, max_length=63)]
+    created_at: AwareDatetime
 
 
 class OutboxStatus(StrEnum):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Self
 
 from pydantic import Field, StringConstraints, model_validator
@@ -49,10 +50,20 @@ class Limits(Contract):
     timeout_seconds: Annotated[int, Field(ge=10, le=3600)] = 600
 
 
+class Execution(StrEnum):
+    """Where an agent's tasks run (ADR-0021)."""
+
+    SHARED = "shared"
+    """The engine's long-running runtime Deployment."""
+    ISOLATED = "isolated"
+    """A fresh Job per task in the ``enikk-dev`` namespace. Never the shared runtime."""
+
+
 class AgentDefinition(Contract):
     name: AgentName
     description: Annotated[str, StringConstraints(min_length=1, max_length=500)]
     engine: Engine
+    execution: Execution = Execution.SHARED
     prompt: PromptRef
     tools: ToolPolicy = ToolPolicy()
     delegates: tuple[AgentName, ...] = ()

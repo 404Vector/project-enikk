@@ -116,7 +116,7 @@ async def test_task_of_a_removed_agent_fails_instead_of_leasing(
     assert (await claude.lease_task(NOW)).assignment is None
     batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
     assert [m.kind for m in batch.messages] == [OutboundKind.FAILURE]
-    assert "no longer defined" in batch.messages[0].text
+    assert "no longer runs" in batch.messages[0].text
 
 
 async def test_long_poll_waits_then_returns_empty(harness: Harness, claude: CoreClient) -> None:

@@ -10,13 +10,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Self
 
-from enikk_contracts.agents import AgentDefinition, PromptRef
+from enikk_contracts.agents import AgentDefinition, Execution, PromptRef
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
-from enikk_core_domain.model import OutboxMessage, OutboxStatus, Session, Task
+from enikk_core_domain.model import Dispatch, OutboxMessage, OutboxStatus, Session, Task
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 
 if TYPE_CHECKING:
@@ -35,11 +35,16 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 # ---------------------------------------------------------------- builders
 
 
-def agent(name: str = "assistant", engine: Engine = Engine.CLAUDE) -> AgentDefinition:
+def agent(
+    name: str = "assistant",
+    engine: Engine = Engine.CLAUDE,
+    execution: Execution = Execution.SHARED,
+) -> AgentDefinition:
     return AgentDefinition(
         name=name,
         description=f"{name} for tests",
         engine=engine,
+        execution=execution,
         prompt=PromptRef(name=name, label="production"),
     )
 
@@ -57,7 +62,13 @@ def session(*, thread: str = "1.0", engine: Engine = Engine.CLAUDE, now: datetim
     )
 
 
-def task(owner: Session, *, event: str | None = None, now: datetime = T0) -> Task:
+def task(
+    owner: Session,
+    *,
+    event: str | None = None,
+    now: datetime = T0,
+    execution: Execution = Execution.SHARED,
+) -> Task:
     return Task.enqueue(
         task_id=uuid.uuid4(),
         session=owner,
@@ -65,6 +76,7 @@ def task(owner: Session, *, event: str | None = None, now: datetime = T0) -> Tas
         text="hello",
         max_attempts=3,
         now=now,
+        execution=execution,
     )
 
 
@@ -91,6 +103,7 @@ class InMemoryDatabase:
         self.tasks: dict[uuid.UUID, Task] = {}
         self.outbox: dict[uuid.UUID, OutboxMessage] = {}
         self.transcripts: dict[_Slot, tuple[TranscriptEntry, ...]] = {}
+        self.dispatches: dict[uuid.UUID, Dispatch] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -103,6 +116,21 @@ class _Staged:
         self.tasks = dict(db.tasks)
         self.outbox = dict(db.outbox)
         self.transcripts = dict(db.transcripts)
+        self.dispatches = dict(db.dispatches)
+
+
+class _Dispatches:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def add(self, dispatch: Dispatch) -> None:
+        self._s.dispatches[dispatch.id] = dispatch
+
+    async def count_since(self, since: datetime) -> int:
+        return sum(1 for d in self._s.dispatches.values() if d.created_at >= since)
+
+    async def count_for(self, task_id: uuid.UUID) -> int:
+        return sum(1 for d in self._s.dispatches.values() if d.task_id == task_id)
 
 
 class _Sessions:
@@ -213,25 +241,49 @@ class _Queue:
         for key in keys:
             self._db.locks[key] = self._owner
 
+    def _eligible(self, candidate: Task, tasks: list[Task]) -> bool:
+        if candidate.status is not TaskStatus.QUEUED:
+            return False
+        if self._locked_by_other(candidate.id) or self._locked_by_other(candidate.session_id):
+            return False
+        siblings = [t for t in tasks if t.session_id == candidate.session_id]
+        if any(t.status is TaskStatus.LEASED for t in siblings):
+            return False
+        return not any(
+            t.status is TaskStatus.QUEUED
+            and (t.created_at, t.id) < (candidate.created_at, candidate.id)
+            for t in siblings
+        )
+
+    def _ordered(self) -> list[Task]:
+        return sorted(self._s.tasks.values(), key=lambda t: (t.created_at, t.id))
+
     async def claim_next(self, engine: Engine) -> Task | None:
-        tasks = sorted(self._s.tasks.values(), key=lambda t: (t.created_at, t.id))
+        tasks = self._ordered()
         for candidate in tasks:
-            if candidate.status is not TaskStatus.QUEUED or candidate.engine is not engine:
+            if candidate.engine is not engine or candidate.execution is not Execution.SHARED:
                 continue
-            if self._locked_by_other(candidate.id) or self._locked_by_other(candidate.session_id):
-                continue
-            siblings = [t for t in tasks if t.session_id == candidate.session_id]
-            if any(t.status is TaskStatus.LEASED for t in siblings):
-                continue
-            if any(
-                t.status is TaskStatus.QUEUED
-                and (t.created_at, t.id) < (candidate.created_at, candidate.id)
-                for t in siblings
-            ):
-                continue
-            self._lock(candidate.id, candidate.session_id)
-            return candidate
+            if self._eligible(candidate, tasks):
+                self._lock(candidate.id, candidate.session_id)
+                return candidate
         return None
+
+    async def next_isolated(self) -> Task | None:
+        tasks = self._ordered()
+        return next(
+            (t for t in tasks if t.execution is Execution.ISOLATED and self._eligible(t, tasks)),
+            None,
+        )
+
+    async def claim_isolated(self, task_id: uuid.UUID) -> Task | None:
+        tasks = self._ordered()
+        candidate = self._s.tasks.get(task_id)
+        if candidate is None or candidate.execution is not Execution.ISOLATED:
+            return None
+        if not self._eligible(candidate, tasks):
+            return None
+        self._lock(candidate.id, candidate.session_id)
+        return candidate
 
     async def claim_expired(self, now: datetime, limit: int) -> Sequence[Task]:
         found = [
@@ -257,6 +309,7 @@ class InMemoryUnitOfWork:
         self.tasks = _Tasks(self._staged)
         self.outbox = _Outbox(self._staged)
         self.transcripts = _Transcripts(self._staged)
+        self.dispatches = _Dispatches(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -278,6 +331,7 @@ class InMemoryUnitOfWork:
         self._db.tasks = dict(self._staged.tasks)
         self._db.outbox = dict(self._staged.outbox)
         self._db.transcripts = dict(self._staged.transcripts)
+        self._db.dispatches = dict(self._staged.dispatches)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -528,6 +582,51 @@ async def check_transcripts(new_uow: UnitOfWorkFactory) -> None:
         _expect(not await uow.transcripts.load(owner.id, missing), "unknown transcript is empty")
 
 
+async def check_isolated_tasks_stay_out_of_shared_queue(new_uow: UnitOfWorkFactory) -> None:
+    shared_owner, isolated_owner = session(thread="1"), session(thread="2")
+    isolated = task(isolated_owner, now=T0 - timedelta(seconds=5), execution=Execution.ISOLATED)
+    shared = task(shared_owner, now=T0)
+    async with new_uow() as uow:
+        await uow.sessions.add(shared_owner)
+        await uow.sessions.add(isolated_owner)
+        await uow.tasks.add(isolated)
+        await uow.tasks.add(shared)
+        await uow.commit()
+    async with new_uow() as uow:
+        claimed = await uow.queue.claim_next(Engine.CLAUDE)
+        _expect(claimed is not None and claimed.id == shared.id, "shared queue skips isolated")
+    async with new_uow() as uow:
+        _expect(await uow.queue.claim_next(Engine.CLAUDE) is not None, "shared task again")
+        found = await uow.queue.next_isolated()
+        _expect(found is not None and found.id == isolated.id, "oldest isolated task")
+        _expect(await uow.queue.claim_isolated(shared.id) is None, "shared task not claimable")
+    async with new_uow() as uow:
+        claimed = await uow.queue.claim_isolated(isolated.id)
+        _expect(claimed is not None and claimed.id == isolated.id, "isolated task claimed")
+
+
+async def check_dispatches(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner, execution=Execution.ISOLATED)
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        for offset in (0, 2, 30):
+            await uow.dispatches.add(
+                Dispatch(
+                    id=uuid.uuid4(),
+                    task_id=work.id,
+                    job_name=f"enikk-dev-{offset}",
+                    created_at=T0 - timedelta(hours=offset),
+                )
+            )
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.dispatches.count_since(T0 - timedelta(hours=24)) == 2, "last 24h")
+        _expect(await uow.dispatches.count_for(work.id) == 3, "per task")
+        _expect(await uow.dispatches.count_for(uuid.uuid4()) == 0, "other task")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -539,4 +638,6 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_claim_skips_locked_session,
     check_claim_expired,
     check_transcripts,
+    check_isolated_tasks_stay_out_of_shared_queue,
+    check_dispatches,
 )

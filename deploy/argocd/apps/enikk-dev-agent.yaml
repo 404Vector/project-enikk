@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enikk-dev-agent
+  namespace: argocd
+  annotations:
+    # Before enikk-core (wave 10): the namespace, its only ServiceAccount and core's
+    # Role exist before core starts dispatching (ADR-0021).
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/404Vector/project-enikk.git
+    targetRevision: main
+    path: deploy/helm/dev-agent
+    # image.tag is set by Argo CD Image Updater as a helm parameter (ADR-0008).
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enikk-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

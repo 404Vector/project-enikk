@@ -7,6 +7,7 @@ from typing import Final
 HEALTH: Final = "/healthz"
 EVENTS: Final = "/v1/events"
 TASK_LEASE: Final = "/v1/tasks/lease"
+TASK_CLAIM: Final = "/v1/tasks/{task_id}/claim"
 TASK_HEARTBEAT: Final = "/v1/tasks/{task_id}/heartbeat"
 TASK_RESULT: Final = "/v1/tasks/{task_id}/result"
 TRANSCRIPT_APPEND: Final = "/v1/tasks/{task_id}/transcript/append"

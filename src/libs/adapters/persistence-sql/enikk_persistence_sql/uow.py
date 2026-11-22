@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from enikk_core_domain.errors import ConcurrentUpdateError, DependencyUnavailableError
 from enikk_persistence_sql.repositories import (
+    SqlDispatchRepository,
     SqlJobQueue,
     SqlOutboxRepository,
     SqlSessionRepository,
@@ -28,6 +29,7 @@ class SqlUnitOfWork:
         self.tasks = SqlTaskRepository(self._db)
         self.outbox = SqlOutboxRepository(self._db)
         self.transcripts = SqlTranscriptRepository(self._db)
+        self.dispatches = SqlDispatchRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

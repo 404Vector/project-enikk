@@ -113,6 +113,18 @@ class GitHubSettings(SettingsModel):
         )
 
 
+class DevAgentSettings(SettingsModel):
+    """Isolated dev agent Jobs (ADR-0021). Off unless the cluster grants core the Role."""
+
+    enabled: bool = False
+    namespace: str = "enikk-dev"
+    template_configmap: str = "enikk-dev-agent-job"
+    api_url: str = "https://kubernetes.default.svc"
+    max_concurrent: int = Field(default=1, ge=1, le=3)
+    daily_limit: int = Field(default=10, ge=1, le=100)
+    interval_seconds: float = Field(default=10.0, gt=0, le=300)
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -124,5 +136,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     tasks: TaskSettings = TaskSettings()
     token_review: TokenReviewSettings = TokenReviewSettings()
     github: GitHubSettings = GitHubSettings()
+    dev_agent: DevAgentSettings = DevAgentSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

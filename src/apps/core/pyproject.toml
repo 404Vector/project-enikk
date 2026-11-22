@@ -10,6 +10,7 @@ dependencies = [
     "enikk-persistence-sql",
     "enikk-k8s-auth",
     "enikk-github",
+    "enikk-k8s-jobs",
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "typer>=0.15",
@@ -26,6 +27,7 @@ enikk-core-domain = { workspace = true }
 enikk-persistence-sql = { workspace = true }
 enikk-k8s-auth = { workspace = true }
 enikk-github = { workspace = true }
+enikk-k8s-jobs = { workspace = true }
 
 [build-system]
 requires = ["hatchling>=1.25"]

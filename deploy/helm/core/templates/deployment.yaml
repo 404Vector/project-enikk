@@ -16,7 +16,7 @@ spec:
         {{- include "enikk-core.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: enikk-core
-      # core needs its Kubernetes API token for TokenReview only (I-28).
+      # core's Kubernetes API token: TokenReview, and dev agent Jobs in enikk-dev (I-28).
       automountServiceAccountToken: true
       # Service links inject ENIKK_CORE_PORT=tcp://... and collide with settings.
       enableServiceLinks: false
@@ -48,6 +48,14 @@ spec:
               value: {{ .Values.github.selfRepository | quote }}
             - name: ENIKK_CORE_GITHUB__REPOSITORIES_FILE
               value: /app/config/github.yaml
+            - name: ENIKK_CORE_DEV_AGENT__ENABLED
+              value: {{ .Values.devAgent.enabled | quote }}
+            - name: ENIKK_CORE_DEV_AGENT__NAMESPACE
+              value: {{ .Values.devAgent.namespace | quote }}
+            - name: ENIKK_CORE_DEV_AGENT__MAX_CONCURRENT
+              value: {{ .Values.devAgent.maxConcurrent | quote }}
+            - name: ENIKK_CORE_DEV_AGENT__DAILY_LIMIT
+              value: {{ .Values.devAgent.dailyLimit | quote }}
             {{- include "enikk-core.databaseEnv" . | nindent 12 }}
           volumeMounts:
             - name: credentials

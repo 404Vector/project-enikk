@@ -14,7 +14,7 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
-from enikk_contracts.tasks import LeaseExtended, LeaseResponse, ResultAccepted
+from enikk_contracts.tasks import ClaimRequest, LeaseExtended, LeaseResponse, ResultAccepted
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
 from enikk_core_client.tokens import BearerAuth
@@ -81,6 +81,11 @@ class CoreClient:
     async def lease_task(self, request: LeaseRequest) -> LeaseResponse:
         timeout = request.wait_seconds + LONG_POLL_MARGIN
         return _parse(LeaseResponse, await self._post(routes.TASK_LEASE, request, timeout))
+
+    async def claim_task(self, task_id: uuid.UUID) -> LeaseResponse:
+        """Isolated workers only: lease the task this Job was started for (ADR-0021)."""
+        path = routes.TASK_CLAIM.format(task_id=task_id)
+        return _parse(LeaseResponse, await self._post(path, ClaimRequest()))
 
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended:
         path = routes.TASK_HEARTBEAT.format(task_id=task_id)
