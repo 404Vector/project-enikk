@@ -22,6 +22,11 @@ class ReviewThreadOpened(Contract):
     number: Annotated[int, Field(ge=1)]
     branch: Annotated[str, StringConstraints(min_length=1, max_length=255)]
     review_link: Link | None = None
+    channel: Annotated[str, StringConstraints(min_length=1, max_length=255)] | None = None
+    ts: Annotated[str, StringConstraints(min_length=1, max_length=255)] | None = None
+    """The DM message, so the next commit of this PR updates it instead of a new one."""
+    updated: bool = False
+    """An existing message was updated for a new commit; the asking thread is not told again."""
 
 
 class ReviewThreadLinked(Contract):

@@ -14,6 +14,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Final, Protocol
 
 from enikk_contracts.approvals import (
+    ApprovalOutdated,
     ApprovalRequested,
     ApprovalResolved,
     ChangedFile,
@@ -26,6 +27,7 @@ from enikk_contracts.approvals import (
     OwnerNotice,
     PullRequestCard,
     ResolutionOutcome,
+    ReviewMessage,
 )
 from enikk_core_domain.errors import DependencyUnavailableError, NotFoundError
 from enikk_core_domain.model import Approval, ApprovalState, Notice
@@ -141,6 +143,7 @@ class ApprovalService:
                     continue
             runs = await self._pulls.check_runs(token, pull.head_sha)
             if not runs or not all(r.completed for r in runs):
+                await self._outdate(full_name, pull)
                 continue
             if await self._brought_up_to_date(token, pull):
                 continue
@@ -172,6 +175,44 @@ class ApprovalService:
         )
         return updated
 
+    async def _outdate(self, full_name: str, pull: PullInfo) -> None:
+        """A new commit is being checked: retire the request for the older one in place.
+
+        The owner's message loses its buttons and says the new commit is being checked,
+        instead of a separate "superseded" message; it is updated again with the new
+        request when the checks finish (ADR-0020 §4).
+        """
+        async with self._uow() as uow:
+            ref = await uow.review_messages.get(full_name, pull.number)
+            older = [
+                a
+                for a in await uow.approvals.in_state(ApprovalState.REQUESTED)
+                if a.repository == full_name
+                and a.number == pull.number
+                and a.head_sha != pull.head_sha
+            ]
+            if not older or ref is None:
+                return
+            for approval in older:
+                await self._resolve(uow, approval, ApprovalState.SUPERSEDED, "", notify=False)
+            now = self._clock.now()
+            await uow.notices.add(
+                Notice(
+                    id=self._ids.new(),
+                    body=ApprovalOutdated(
+                        repository=full_name,
+                        number=pull.number,
+                        url=pull.url,
+                        title=pull.title[:300],
+                        head_sha=pull.head_sha,
+                        replaces=ReviewMessage(channel=ref.channel, ts=ref.ts),
+                    ),
+                    created_at=now,
+                )
+            )
+            await uow.commit()
+        _log.info("%s#%d %s: older request retired", full_name, pull.number, pull.head_sha[:7])
+
     async def _close_vanished(self, full_name: str, open_numbers: set[int]) -> None:
         async with self._uow() as uow:
             for approval in await uow.approvals.in_state(ApprovalState.REQUESTED):
@@ -186,9 +227,13 @@ class ApprovalService:
         async with self._uow() as uow:
             if await uow.approvals.find(full_name, pull.number, pull.head_sha):
                 return
+            ref = await uow.review_messages.get(full_name, pull.number)
+            replaces = None if ref is None else ReviewMessage(channel=ref.channel, ts=ref.ts)
             for older in await uow.approvals.in_state(ApprovalState.REQUESTED):
                 if older.repository == full_name and older.number == pull.number:
-                    await self._resolve(uow, older, ApprovalState.SUPERSEDED, "new commits")
+                    await self._resolve(
+                        uow, older, ApprovalState.SUPERSEDED, "new commits", notify=ref is None
+                    )
             approval = Approval(
                 id=self._ids.new(),
                 repository=full_name,
@@ -202,9 +247,9 @@ class ApprovalService:
             )
             await uow.approvals.add(approval)
             body: OwnerNoticeBody = (
-                ChecksFailed(pull=card)
+                ChecksFailed(pull=card, replaces=replaces)
                 if failed
-                else ApprovalRequested(approval_id=approval.id, pull=card)
+                else ApprovalRequested(approval_id=approval.id, pull=card, replaces=replaces)
             )
             await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=now))
             if failed:
@@ -326,12 +371,20 @@ class ApprovalService:
             await self._threads.post(uow, branch, text)
 
     async def _resolve(
-        self, uow: UnitOfWork, approval: Approval, state: ApprovalState, detail: str
+        self,
+        uow: UnitOfWork,
+        approval: Approval,
+        state: ApprovalState,
+        detail: str,
+        *,
+        notify: bool = True,
     ) -> None:
         now = self._clock.now()
         if state is ApprovalState.CLOSED:
             await self._note(uow, approval.branch, f"PR #{approval.number} 이 닫혔습니다.")
         await uow.approvals.update(approval.resolve(state, now))
+        if not notify:
+            return
         await uow.notices.add(
             Notice(
                 id=self._ids.new(),

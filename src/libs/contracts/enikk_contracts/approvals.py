@@ -55,15 +55,41 @@ class PullRequestCard(Contract):
     """The diff of just those files, shown before everything else."""
 
 
+class ReviewMessage(Contract):
+    """The owner's DM message that shows a pull request; updated in place (ADR-0020 §4)."""
+
+    channel: Identifier
+    ts: Identifier
+
+
 class ApprovalRequested(Contract):
     kind: Literal["approval-requested"] = "approval-requested"
     approval_id: uuid.UUID
     pull: PullRequestCard
+    replaces: ReviewMessage | None = None
+    """The PR's earlier message: update it instead of posting a new one."""
 
 
 class ChecksFailed(Contract):
     kind: Literal["checks-failed"] = "checks-failed"
     pull: PullRequestCard
+    replaces: ReviewMessage | None = None
+
+
+class ApprovalOutdated(Contract):
+    """New commits arrived while the owner's message still asks about an older one.
+
+    The message drops its buttons and says the new commit is being checked; it is
+    updated again with the new request when the checks finish.
+    """
+
+    kind: Literal["approval-outdated"] = "approval-outdated"
+    repository: str
+    number: Annotated[int, Field(ge=1)]
+    url: str
+    title: str
+    head_sha: Sha
+    replaces: ReviewMessage
 
 
 class ResolutionOutcome(StrEnum):
@@ -89,7 +115,12 @@ class ApprovalResolved(Contract):
 
 
 OwnerNoticeBody = Annotated[
-    ApprovalRequested | ChecksFailed | ApprovalResolved | DeploymentFinished | BuildFailed,
+    ApprovalRequested
+    | ChecksFailed
+    | ApprovalOutdated
+    | ApprovalResolved
+    | DeploymentFinished
+    | BuildFailed,
     Field(discriminator="kind"),
 ]
 

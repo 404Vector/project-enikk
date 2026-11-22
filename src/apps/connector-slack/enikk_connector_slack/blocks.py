@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from enikk_contracts.approvals import (
+    ApprovalOutdated,
     ApprovalRequested,
     ApprovalResolved,
     ChecksFailed,
@@ -104,6 +105,10 @@ class Message(_Block):
 
     def payload(self) -> list[dict[str, object]]:
         return [b.model_dump(exclude_none=True) for b in self.blocks]
+
+    def json_blocks(self) -> list[dict[str, Any]]:
+        """The blocks as JSON values, for updating a message in place."""
+        return [b.model_dump(mode="json", exclude_none=True) for b in self.blocks]
 
 
 _HEADING: Final = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
@@ -245,6 +250,21 @@ def sent_to_dm_instead(message: Message, channel: str) -> Message:
 
 
 NOT_OWNER_TEXT: Final = "이 버튼은 소유자만 누를 수 있습니다. 아무것도 바뀌지 않았습니다."
+
+
+def outdated(notice: ApprovalOutdated) -> Message:
+    """The PR's message while a newer commit is being checked: no buttons."""
+    return Message(
+        text=f"PR #{notice.number}: 새 커밋 검사 중",
+        blocks=(
+            _section(
+                f":hourglass_flowing_sand: *새 커밋 검사 중* "
+                f"<{notice.url}|#{notice.number} {_escape(notice.title)}>\n"
+                f"커밋 `{notice.head_sha[:7]}` 의 검사가 끝나면 "
+                "이 메시지가 새 승인 요청으로 바뀝니다."
+            ),
+        ),
+    )
 
 
 def resolved(notice: ApprovalResolved) -> Message:

@@ -333,6 +333,15 @@ class Notice(Entity):
         return self._evolve(status=NoticeStatus.DELIVERED)
 
 
+class ReviewMessageRef(FrozenModel):
+    """Where the owner's DM shows a pull request (ADR-0020 §4)."""
+
+    repository: str
+    number: int
+    channel: str
+    ts: str
+
+
 class OutboxStatus(StrEnum):
     PENDING = "pending"
     DELIVERED = "delivered"

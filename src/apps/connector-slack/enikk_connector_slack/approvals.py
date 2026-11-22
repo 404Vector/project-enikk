@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Final
 from pydantic import ValidationError
 
 from enikk_connector_slack import blocks
-from enikk_connector_slack.events import BlockActions
+from enikk_connector_slack.events import BlockActions, PostedMessage
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_contracts.approvals import (
+    ApprovalOutdated,
     ApprovalRequested,
     ApprovalResolved,
     ChecksFailed,
@@ -29,7 +30,6 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from enikk_connector_slack.config import SlackConfig
-    from enikk_connector_slack.events import PostedMessage
     from enikk_connector_slack.outbound import RelayPolicy
     from enikk_connector_slack.ports import CoreApi, SlackApi
     from enikk_contracts.approvals import OwnerNotice, PullRequestCard
@@ -86,7 +86,14 @@ class NoticeRelay:
 
     async def _deliver(self, notice: OwnerNotice) -> None:
         body = notice.body
+        if isinstance(body, ApprovalOutdated):
+            message = blocks.outdated(body)
+            await self._slack.update_message(
+                body.replaces.channel, body.replaces.ts, message.text, message.json_blocks()
+            )
+            return
         card = body.pull if isinstance(body, ApprovalRequested | ChecksFailed) else None
+        replaces = body.replaces if isinstance(body, ApprovalRequested | ChecksFailed) else None
         if isinstance(body, ApprovalRequested):
             message = blocks.approval_request(body)
         elif isinstance(body, ChecksFailed):
@@ -100,18 +107,32 @@ class NoticeRelay:
         if isinstance(body, DeploymentFinished | BuildFailed):
             await self._deliver_deployment(notice, message)
             return
-        try:
-            posted = await self._slack.post_message(self._owner, message)
-        except SlackDeliveryError as exc:
-            if exc.transient:
-                raise
-            _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
-            return
+        if replaces is not None and card is not None:
+            # One message per pull request: a new commit updates it in place.
+            await self._slack.update_message(
+                replaces.channel, replaces.ts, message.text, message.json_blocks()
+            )
+            posted = PostedMessage(channel=replaces.channel, ts=replaces.ts)
+            await self._post_text(
+                posted,
+                card,
+                f":arrows_counterclockwise: 새 커밋 `{card.head_sha[:7]}` 로 갱신했습니다. "
+                "아래는 새 커밋의 상세입니다.",
+            )
+        else:
+            try:
+                posted = await self._slack.post_message(self._owner, message)
+            except SlackDeliveryError as exc:
+                if exc.transient:
+                    raise
+                _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
+                return
         if card is None:
             return
-        linked = await self._link_threads(posted, card)
+        updated = replaces is not None
+        linked = await self._link_threads(posted, card, updated=updated)
         await self._post_details(posted.channel, posted.ts, card)
-        if linked.report is not None:
+        if linked.report is not None and not updated:
             await self._post_text(posted, card, f"*개발 에이전트 보고*\n{linked.report}")
         if card.diff:
             name = f"pr-{card.number}-{card.head_sha[:7]}.diff"
@@ -143,21 +164,25 @@ class NoticeRelay:
             _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
 
     async def _link_threads(
-        self, posted: PostedMessage, pull: PullRequestCard
+        self, posted: PostedMessage, pull: PullRequestCard, *, updated: bool = False
     ) -> ReviewThreadLinked:
-        """Exchange links between this review thread and the thread that asked for the PR."""
+        """Exchange links between this review thread and the thread that asked for the PR,
+        and tell core which message shows the PR so the next commit updates it."""
         review = ReviewThreadOpened(
             repository=pull.repository,
             number=pull.number,
             branch=pull.branch,
             review_link=await self._slack.permalink(posted.channel, posted.ts),
+            channel=posted.channel,
+            ts=posted.ts,
+            updated=updated,
         )
         try:
             linked = await self._core.review_thread_opened(review)
         except (CoreApiError, CoreUnavailableError) as exc:
             _log.warning("could not link the review thread of PR #%d: %s", pull.number, exc)
             return ReviewThreadLinked()
-        if linked.origin is not None:
+        if linked.origin is not None and not updated:
             origin = await self._slack.permalink(linked.origin.channel, linked.origin.thread)
             if origin is not None:
                 await self._post_text(posted, pull, f"원래 요청 스레드: {origin}")
