@@ -14,6 +14,7 @@ from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
+from enikk_core_domain.deployments import DeploymentWatch
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
@@ -28,12 +29,16 @@ from enikk_core_domain.model import (
 )
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
     OutboxRow,
     SessionRow,
     TaskRow,
 )
+
+WATCH_ROW_ID = 1
+"""The deployment watch is a single row."""
 
 
 def session_to_row(session: Session, row: SessionRow | None = None) -> SessionRow:
@@ -149,6 +154,18 @@ def approval_from_row(row: ApprovalRow) -> Approval:
         decided_at=row.decided_at,
         decided_by=row.decided_by,
     )
+
+
+def deployment_watch_to_row(
+    watch: DeploymentWatch, row: DeploymentWatchRow | None = None
+) -> DeploymentWatchRow:
+    row = row or DeploymentWatchRow(id=WATCH_ROW_ID)
+    row.body = watch.model_dump(mode="json")
+    return row
+
+
+def deployment_watch_from_row(row: DeploymentWatchRow) -> DeploymentWatch:
+    return DeploymentWatch.model_validate_json(pydantic_core.to_json(row.body))
 
 
 def notice_to_row(notice: Notice, row: NoticeRow | None = None) -> NoticeRow:

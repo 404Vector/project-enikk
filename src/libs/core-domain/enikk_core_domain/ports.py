@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from enikk_contracts.credentials import CredentialName
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
+    from enikk_core_domain.deployments import AppObservation, DeploymentWatch
     from enikk_core_domain.model import (
         Approval,
         ApprovalState,
@@ -146,6 +147,16 @@ class NoticeRepository(Protocol):
     async def update(self, notice: Notice) -> None: ...
 
 
+class DeploymentWatchRepository(Protocol):
+    """The deployment watcher's memory: a single document (ADR-0023 §1)."""
+
+    async def load_for_update(self) -> DeploymentWatch | None:
+        """Load it and lock it until the unit of work ends; ``None`` before the first save."""
+        ...
+
+    async def save(self, watch: DeploymentWatch) -> None: ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -153,6 +164,8 @@ class UnitOfWork(Protocol):
     def approvals(self) -> ApprovalRepository: ...
     @property
     def notices(self) -> NoticeRepository: ...
+    @property
+    def deployment_watch(self) -> DeploymentWatchRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...
@@ -213,4 +226,12 @@ class JobLauncher(Protocol):
 class Authenticator(Protocol):
     async def authenticate(self, token: str) -> ServiceIdentity:
         """Verify a bearer token. Raises ``AuthenticationError`` when it is not valid."""
+        ...
+
+
+class ApplicationReader(Protocol):
+    """Reads Argo CD Applications (ADR-0023 §1). Read-only."""
+
+    async def observe(self, apps: Sequence[str]) -> list[AppObservation]:
+        """Current state of each named app that exists."""
         ...

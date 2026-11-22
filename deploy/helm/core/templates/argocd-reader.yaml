@@ -1,0 +1,32 @@
+{{- if .Values.deployments.enabled }}
+# core reads, never changes, the Argo CD Applications it reports on (ADR-0023, I-28).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: enikk-core-application-reader
+  namespace: {{ .Values.deployments.argocdNamespace }}
+  labels:
+    {{- include "enikk-core.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    resourceNames:
+      {{- toYaml .Values.deployments.apps | nindent 6 }}
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: enikk-core-application-reader
+  namespace: {{ .Values.deployments.argocdNamespace }}
+  labels:
+    {{- include "enikk-core.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: enikk-core-application-reader
+subjects:
+  - kind: ServiceAccount
+    name: enikk-core
+    namespace: {{ .Release.Namespace }}
+{{- end }}

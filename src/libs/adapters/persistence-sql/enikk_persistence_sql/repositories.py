@@ -16,6 +16,7 @@ from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
     OutboxRow,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
+    from enikk_core_domain.deployments import DeploymentWatch
     from enikk_core_domain.model import (
         Approval,
         Dispatch,
@@ -288,6 +290,28 @@ class SqlNoticeRepository:
             raise NotFoundError(f"notice {notice.id} does not exist")
         mappers.notice_to_row(notice, row)
         await _flush(self._db, f"notice {notice.id}")
+
+
+class SqlDeploymentWatchRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def load_for_update(self) -> DeploymentWatch | None:
+        row = await self._db.scalar(
+            select(DeploymentWatchRow)
+            .where(DeploymentWatchRow.id == mappers.WATCH_ROW_ID)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.deployment_watch_from_row(row) if row else None
+
+    async def save(self, watch: DeploymentWatch) -> None:
+        row = await self._db.get(DeploymentWatchRow, mappers.WATCH_ROW_ID)
+        if row is None:
+            self._db.add(mappers.deployment_watch_to_row(watch))
+        else:
+            mappers.deployment_watch_to_row(watch, row)
+        await _flush(self._db, "deployment watch")
 
 
 class SqlDispatchRepository:

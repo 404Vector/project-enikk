@@ -14,12 +14,14 @@ from enikk_connector_slack.events import BlockActions
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_contracts.approvals import (
     ApprovalRequested,
+    ApprovalResolved,
     ChecksFailed,
     Decision,
     DecisionRequest,
     NoticeAck,
     NoticePoll,
 )
+from enikk_contracts.deployments import BuildFailed, DeploymentFinished
 from enikk_core_client import CoreApiError, CoreUnavailableError
 
 if TYPE_CHECKING:
@@ -81,12 +83,17 @@ class NoticeRelay:
 
     async def _deliver(self, notice: OwnerNotice) -> None:
         body = notice.body
+        card = body.pull if isinstance(body, ApprovalRequested | ChecksFailed) else None
         if isinstance(body, ApprovalRequested):
             message = blocks.approval_request(body)
         elif isinstance(body, ChecksFailed):
             message = blocks.checks_failed(body)
-        else:
+        elif isinstance(body, ApprovalResolved):
             message = blocks.resolved(body)
+        elif isinstance(body, DeploymentFinished):
+            message = blocks.deployment_finished(body)
+        elif isinstance(body, BuildFailed):
+            message = blocks.build_failed(body)
         try:
             posted = await self._slack.post_message(self._owner, message)
         except SlackDeliveryError as exc:
@@ -94,12 +101,11 @@ class NoticeRelay:
                 raise
             _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
             return
-        pull = getattr(body, "pull", None)
-        if pull is not None and pull.diff:
-            name = f"pr-{pull.number}-{pull.head_sha[:7]}.diff"
-            note = " (잘림)" if pull.diff_truncated else ""
+        if card is not None and card.diff:
+            name = f"pr-{card.number}-{card.head_sha[:7]}.diff"
+            note = " (잘림)" if card.diff_truncated else ""
             await self._slack.upload_text(
-                posted.channel, posted.ts, name, pull.diff, f"#{pull.number} diff{note}"
+                posted.channel, posted.ts, name, card.diff, f"#{card.number} diff{note}"
             )
 
 

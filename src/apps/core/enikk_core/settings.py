@@ -132,6 +132,20 @@ class ApprovalSettings(SettingsModel):
     interval_seconds: float = Field(default=30.0, ge=5, le=600)
 
 
+class DeploymentSettings(SettingsModel):
+    """Deployment and build notices (ADR-0023). Needs the GitHub App for PR links."""
+
+    enabled: bool = False
+    interval_seconds: float = Field(default=30.0, ge=5, le=600)
+    argocd_namespace: str = "argocd"
+    apps: tuple[str, ...] = ()
+    """Argo CD Applications that deploy the platform's own repository."""
+    images_workflow: str = "images.yml"
+    timeout_seconds: float = Field(default=600.0, ge=60, le=7200)
+    settle_seconds: float = Field(default=60.0, ge=0, le=600)
+    api_url: str = "https://kubernetes.default.svc"
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -145,5 +159,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     github: GitHubSettings = GitHubSettings()
     dev_agent: DevAgentSettings = DevAgentSettings()
     approval: ApprovalSettings = ApprovalSettings()
+    deployments: DeploymentSettings = DeploymentSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

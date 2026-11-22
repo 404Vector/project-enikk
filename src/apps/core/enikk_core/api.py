@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from enikk_contracts.base import Contract
     from enikk_core.approval.service import ApprovalService
     from enikk_core.credentials import CredentialIssuer
+    from enikk_core.deployments import DeploymentService
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.security import Gatekeeper
@@ -106,6 +107,8 @@ class CoreServices:
         dispatch_interval_seconds: float = 10.0,
         approvals: ApprovalService | None = None,
         watch_interval_seconds: float = 30.0,
+        deployments: DeploymentService | None = None,
+        deployment_interval_seconds: float = 30.0,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -118,6 +121,8 @@ class CoreServices:
         self.dispatch_interval_seconds = dispatch_interval_seconds
         self.approvals = approvals
         self.watch_interval_seconds = watch_interval_seconds
+        self.deployments = deployments
+        self.deployment_interval_seconds = deployment_interval_seconds
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -130,6 +135,8 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
                 loops.append(asyncio.create_task(_dispatch_forever(services)))
             if services.approvals is not None:
                 loops.append(asyncio.create_task(_watch_forever(services)))
+            if services.deployments is not None:
+                loops.append(asyncio.create_task(_watch_deployments_forever(services)))
         try:
             yield
         finally:
@@ -353,6 +360,18 @@ async def _watch_forever(services: CoreServices) -> None:
         except Exception:
             _log.exception("pull request watch iteration failed")
         await asyncio.sleep(services.watch_interval_seconds)
+
+
+async def _watch_deployments_forever(services: CoreServices) -> None:
+    deployments = services.deployments
+    if deployments is None:
+        return
+    while True:
+        try:
+            await deployments.watch_once()
+        except Exception:
+            _log.exception("deployment watch iteration failed")
+        await asyncio.sleep(services.deployment_interval_seconds)
 
 
 async def _dispatch_forever(services: CoreServices) -> None:
