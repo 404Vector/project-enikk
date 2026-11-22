@@ -33,6 +33,7 @@ from enikk_core_domain.errors import (
 )
 from enikk_core_domain.memory import MAX_BODY, MemoryLayout, VaultNote, context_notes
 from enikk_core_domain.model import OutboxMessage
+from enikk_core_domain.redaction import looks_secret
 from enikk_github.permissions import TokenPurpose
 from enikk_kernel.models import FrozenModel
 
@@ -56,10 +57,6 @@ _log = logging.getLogger(__name__)
 
 _FRONTMATTER: Final = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 _HEADING: Final = re.compile(r"^#\s+(.+?)\s*$", re.M)
-SECRET: Final = re.compile(
-    r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|xox[abprs]-|xapp-|sk-ant-|sk-[A-Za-z0-9]{20,}"
-    r"|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY)"
-)
 _UNSAFE_NAME: Final = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]+')
 FOLDER_OF: Final = {NoteKind.PREFERENCE: "선호", NoteKind.FACT: "사실", NoteKind.WORK: "진행 중"}
 WORK_DAYS: Final = 14
@@ -375,7 +372,7 @@ def note_text(
 
 
 def _refuse_secrets(*texts: str) -> None:
-    if any(SECRET.search(t) for t in texts):
+    if any(looks_secret(t) for t in texts):
         raise InvalidRequestError("this looks like a secret; secrets are never kept in memory")
 
 

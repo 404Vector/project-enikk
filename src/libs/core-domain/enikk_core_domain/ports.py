@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.credentials import CredentialName
+    from enikk_contracts.tasks import TaskStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.deployments import AppObservation, DeploymentWatch
@@ -44,6 +45,16 @@ class TaskRepository(Protocol):
         ...
 
     async def find_by_source_event(self, event_id: str) -> Task | None: ...
+    async def recent(
+        self,
+        since: datetime,
+        limit: int,
+        status: TaskStatus | None = None,
+        agent: str | None = None,
+    ) -> Sequence[Task]:
+        """Tasks created since ``since``, newest first (read-only, ADR-0029)."""
+        ...
+
     async def latest_in_session(self, session_id: uuid.UUID) -> Task | None:
         """The most recently created task of the session, without locking it."""
         ...
@@ -158,6 +169,10 @@ class NoticeRepository(Protocol):
         ...
 
     async def get_many(self, notice_ids: Sequence[uuid.UUID]) -> Sequence[Notice]: ...
+    async def recent_of_kinds(self, kinds: Sequence[str], limit: int) -> Sequence[Notice]:
+        """The newest notices whose body has one of ``kinds``."""
+        ...
+
     async def update(self, notice: Notice) -> None: ...
 
 

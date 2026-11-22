@@ -59,6 +59,7 @@ class RuntimeClaudeApp:
                 transcripts=core,
                 delegator=core,
                 memory=core,
+                diagnostics=core,
             )
             worker = TaskWorker(
                 core=core,

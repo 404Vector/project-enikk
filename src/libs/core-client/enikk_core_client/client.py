@@ -11,6 +11,7 @@ from enikk_contracts import routes
 from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.deployments import RevertResult
+from enikk_contracts.diagnostics import Deployments, LogLines, Pulls, RecentTasks, TaskDetail
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth, GitHubToken
@@ -37,6 +38,13 @@ if TYPE_CHECKING:
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
     from enikk_contracts.deployments import RevertRequest
+    from enikk_contracts.diagnostics import (
+        DeploymentsQuery,
+        LogsQuery,
+        PullsQuery,
+        RecentTasksQuery,
+        TaskDetailQuery,
+    )
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.memory import (
@@ -192,6 +200,35 @@ class CoreClient:
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches:
         path = routes.MEMORY_SEARCH.format(task_id=task_id)
         return _parse(MemoryMatches, await self._post(path, request))
+
+    async def diagnose_recent_tasks(
+        self, task_id: uuid.UUID, query: RecentTasksQuery
+    ) -> RecentTasks:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_TASKS.format(task_id=task_id)
+        return _parse(RecentTasks, await self._post(path, query, 30))
+
+    async def diagnose_task_detail(self, task_id: uuid.UUID, query: TaskDetailQuery) -> TaskDetail:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_TASK.format(task_id=task_id)
+        return _parse(TaskDetail, await self._post(path, query, 30))
+
+    async def diagnose_deployments(
+        self, task_id: uuid.UUID, query: DeploymentsQuery
+    ) -> Deployments:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_DEPLOYMENTS.format(task_id=task_id)
+        return _parse(Deployments, await self._post(path, query, 30))
+
+    async def diagnose_logs(self, task_id: uuid.UUID, query: LogsQuery) -> LogLines:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_LOGS.format(task_id=task_id)
+        return _parse(LogLines, await self._post(path, query, 30))
+
+    async def diagnose_pulls(self, task_id: uuid.UUID, query: PullsQuery) -> Pulls:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_PULLS.format(task_id=task_id)
+        return _parse(Pulls, await self._post(path, query, 30))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""

@@ -159,6 +159,15 @@ class MemorySettings(SettingsModel):
     context_chars: int = Field(default=4_000, ge=0, le=20_000)
 
 
+class DiagnosticsSettings(SettingsModel):
+    """Read-only diagnostics for enikk (ADR-0029)."""
+
+    enabled: bool = False
+    namespace: str = "enikk"
+    dev_namespace: str = "enikk-dev"
+    api_url: str = "https://kubernetes.default.svc"
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -174,5 +183,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     approval: ApprovalSettings = ApprovalSettings()
     deployments: DeploymentSettings = DeploymentSettings()
     memory: MemorySettings = MemorySettings()
+    diagnostics: DiagnosticsSettings = DiagnosticsSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()
