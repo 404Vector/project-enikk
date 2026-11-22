@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import JsonValue
 from sqlalchemy import (
     BigInteger,
+    Date,
     DateTime,
     ForeignKey,
     Identity,
@@ -130,6 +131,21 @@ class DeploymentWatchRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     body: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class VaultNoteRow(Base):
+    """Index of the owner's vault notes (ADR-0028). The vault repository is the source."""
+
+    __tablename__ = "vault_notes"
+
+    path: Mapped[str] = mapped_column(String(500), primary_key=True)
+    blob_sha: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(300))
+    kind: Mapped[str] = mapped_column(String(16))
+    body: Mapped[str] = mapped_column(Text)
+    updated: Mapped[date | None] = mapped_column(Date)
+    expires: Mapped[date | None] = mapped_column(Date)
+    synced_at: Mapped[datetime]
 
 
 class OutboxRow(Base):

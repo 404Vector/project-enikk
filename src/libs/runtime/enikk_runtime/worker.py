@@ -13,6 +13,7 @@ from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport,
 from enikk_core_client.errors import CoreConflictError, CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.errors import IncompatibleModelError, TaskFailedError
+from enikk_runtime.memory import with_memories
 from enikk_runtime.model import EngineJob
 from enikk_runtime.observing import NullObserver
 
@@ -192,7 +193,7 @@ class TaskWorker:
             engine_session_id=assignment.engine_session_id,
             definition=definition,
             prompt=prompt,
-            input=assignment.input,
+            input=with_memories(assignment.input, assignment.memories),
         )
         async with self._observer.observe(job) as observation:
             try:

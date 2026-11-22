@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from enikk_core.deployments import DeploymentService
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
+    from enikk_core.memory import MemoryService
     from enikk_core.security import Gatekeeper
     from enikk_core.threads import ReviewLinks
     from enikk_core.usecases import CoreUseCases
@@ -113,6 +114,8 @@ class CoreServices:
         deployments: DeploymentService | None = None,
         deployment_interval_seconds: float = 30.0,
         review_links: ReviewLinks | None = None,
+        memory: MemoryService | None = None,
+        memory_interval_seconds: float = 60.0,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -128,6 +131,8 @@ class CoreServices:
         self.deployments = deployments
         self.deployment_interval_seconds = deployment_interval_seconds
         self.review_links = review_links
+        self.memory = memory
+        self.memory_interval_seconds = memory_interval_seconds
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -142,6 +147,8 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
                 loops.append(asyncio.create_task(_watch_forever(services)))
             if services.deployments is not None:
                 loops.append(asyncio.create_task(_watch_deployments_forever(services)))
+            if services.memory is not None:
+                loops.append(asyncio.create_task(_sync_memory_forever(services)))
         try:
             yield
         finally:
@@ -403,6 +410,18 @@ async def _watch_deployments_forever(services: CoreServices) -> None:
         except Exception:
             _log.exception("deployment watch iteration failed")
         await asyncio.sleep(services.deployment_interval_seconds)
+
+
+async def _sync_memory_forever(services: CoreServices) -> None:
+    memory = services.memory
+    if memory is None:
+        return
+    while True:
+        try:
+            await memory.sync_once()
+        except Exception:
+            _log.exception("vault sync iteration failed")
+        await asyncio.sleep(services.memory_interval_seconds)
 
 
 async def _dispatch_forever(services: CoreServices) -> None:

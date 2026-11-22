@@ -19,15 +19,18 @@ from enikk_core.github import (
     load_repository_policy,
     load_sensitive_paths,
 )
+from enikk_core.memory import MemoryPolicy, MemoryService
 from enikk_core.security import Gatekeeper
 from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core_domain.auth import RoleDirectory
 from enikk_core_domain.deployments import WatchTiming
+from enikk_core_domain.memory import MemoryLayout
 from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
 from enikk_github.pulls import PullRequests
 from enikk_github.reverts import Reverter
+from enikk_github.vault import VaultReader
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
@@ -47,6 +50,8 @@ def build_services(settings: CoreSettings) -> CoreServices:
     ids = RandomIdGenerator()
     engine = create_engine(settings.database.to_config())
     uow = SqlUnitOfWorkFactory(create_session_factory(engine))
+    store = DirectoryCredentialStore(settings.credentials_dir)
+    memory = _memory(settings, store, clock, uow)
     usecases = CoreUseCases(
         uow=uow,
         catalog=YamlAgentCatalog.load(settings.agents_dir),
@@ -55,6 +60,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         policy=settings.tasks,
         sleep=asyncio.sleep,
         isolated_daily_limit=settings.dev_agent.daily_limit,
+        memory=memory,
     )
     dispatcher = None
     dev = settings.dev_agent
@@ -75,7 +81,6 @@ def build_services(settings: CoreSettings) -> CoreServices:
         clock,
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
-    store = DirectoryCredentialStore(settings.credentials_dir)
     github, dev_tokens, approvals, deployments = _github(settings, store, clock, uow, ids)
     return CoreServices(
         version=settings.version,
@@ -92,6 +97,37 @@ def build_services(settings: CoreSettings) -> CoreServices:
         deployments=deployments,
         deployment_interval_seconds=settings.deployments.interval_seconds,
         review_links=ReviewLinks(uow, ThreadNotes(clock, ids)),
+        memory=memory,
+        memory_interval_seconds=settings.memory.interval_seconds,
+    )
+
+
+def _memory(
+    settings: CoreSettings,
+    store: DirectoryCredentialStore,
+    clock: SystemClock,
+    uow: SqlUnitOfWorkFactory,
+) -> MemoryService | None:
+    config = settings.github.to_config()
+    if config is None or not settings.memory.enabled:
+        return None
+
+    def private_key() -> SecretStr | None:
+        return store.get(CredentialName.GITHUB_APP_PRIVATE_KEY)
+
+    app = GitHubApp.create(config, private_key, clock)
+    m = settings.memory
+    return MemoryService(
+        uow=uow,
+        app=app,
+        vault=VaultReader(app),
+        policy=MemoryPolicy(
+            repository=m.repository,
+            branch=m.branch,
+            layout=MemoryLayout(notes_root=m.notes_root, enikk_dir=m.enikk_dir),
+            context_chars=m.context_chars,
+        ),
+        clock=clock,
     )
 
 

@@ -44,6 +44,13 @@ deployments:
   timeoutSeconds: 600
   settleSeconds: 60
 
+# Enikk's memory: the owner's Obsidian vault repository (ADR-0028). core indexes
+# its notes and hands enikk's own (vault/Private/enikk/) to every task.
+memory:
+  enabled: true
+  repository: vault.hyeongseok-kim
+  intervalSeconds: 60
+
 devAgent:
   enabled: true
   namespace: enikk-dev

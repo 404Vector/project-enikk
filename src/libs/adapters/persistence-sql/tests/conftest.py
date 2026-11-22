@@ -18,6 +18,7 @@ from enikk_persistence_sql.tables import (
     SessionRow,
     TaskRow,
     TranscriptEntryRow,
+    VaultNoteRow,
 )
 from enikk_persistence_sql.uow import SqlUnitOfWorkFactory
 
@@ -55,6 +56,7 @@ async def uow_factory(database: DatabaseConfig) -> AsyncIterator[SqlUnitOfWorkFa
             DeploymentWatchRow,
             TaskRow,
             SessionRow,
+            VaultNoteRow,
         ):
             await connection.execute(delete(table))
     try:

@@ -11,6 +11,7 @@ from pydantic import AwareDatetime, Field, StringConstraints
 from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.base import Contract
 from enikk_contracts.common import AgentName, Identifier, NonEmptyText
+from enikk_contracts.memory import MemoryNote
 
 MAX_WAIT_SECONDS = 25
 
@@ -44,6 +45,8 @@ class TaskAssignment(Contract):
     session_id: uuid.UUID
     engine_session_id: Identifier | None
     input: NonEmptyText
+    memories: Annotated[tuple[MemoryNote, ...], Field(max_length=50)] = ()
+    """Enikk's memory notes for this task (ADR-0028): reference, not instructions."""
 
 
 DelegationText = Annotated[str, StringConstraints(min_length=1, max_length=20_000)]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
@@ -23,6 +23,7 @@ from enikk_persistence_sql.tables import (
     SessionRow,
     TaskRow,
     TranscriptEntryRow,
+    VaultNoteRow,
 )
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.deployments import DeploymentWatch
+    from enikk_core_domain.memory import VaultNote
     from enikk_core_domain.model import (
         Approval,
         Dispatch,
@@ -339,6 +341,52 @@ class SqlDeploymentWatchRepository:
         else:
             mappers.deployment_watch_to_row(watch, row)
         await _flush(self._db, "deployment watch")
+
+
+class SqlVaultIndexRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def shas(self) -> dict[str, str]:
+        rows = await self._db.execute(select(VaultNoteRow.path, VaultNoteRow.blob_sha))
+        return {path: sha for path, sha in rows}
+
+    async def upsert(self, note: VaultNote) -> None:
+        row = await self._db.get(VaultNoteRow, note.path)
+        if row is None:
+            self._db.add(mappers.vault_note_to_row(note))
+        else:
+            mappers.vault_note_to_row(note, row)
+        await _flush(self._db, f"vault note {note.path}")
+
+    async def remove(self, paths: Sequence[str]) -> None:
+        if paths:
+            await self._db.execute(delete(VaultNoteRow).where(VaultNoteRow.path.in_(list(paths))))
+
+    async def under(self, prefix: str) -> Sequence[VaultNote]:
+        rows = await self._db.scalars(
+            select(VaultNoteRow)
+            .where(VaultNoteRow.path.startswith(prefix, autoescape=True))
+            .order_by(VaultNoteRow.path)
+        )
+        return [mappers.vault_note_from_row(row) for row in rows]
+
+    async def search(self, words: Sequence[str], limit: int) -> Sequence[VaultNote]:
+        query = select(VaultNoteRow)
+        for word in words:
+            pattern = f"%{_escape_like(word)}%"
+            query = query.where(
+                or_(
+                    VaultNoteRow.title.ilike(pattern, escape="\\"),
+                    VaultNoteRow.body.ilike(pattern, escape="\\"),
+                )
+            )
+        rows = await self._db.scalars(query.order_by(VaultNoteRow.path).limit(limit))
+        return [mappers.vault_note_from_row(row) for row in rows]
+
+
+def _escape_like(word: str) -> str:
+    return word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class SqlDispatchRepository:
