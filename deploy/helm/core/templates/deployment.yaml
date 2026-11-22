@@ -73,6 +73,12 @@ spec:
               value: {{ .Values.deployments.timeoutSeconds | quote }}
             - name: ENIKK_CORE_DEPLOYMENTS__SETTLE_SECONDS
               value: {{ .Values.deployments.settleSeconds | quote }}
+            - name: ENIKK_CORE_MEMORY__ENABLED
+              value: {{ .Values.memory.enabled | quote }}
+            - name: ENIKK_CORE_MEMORY__REPOSITORY
+              value: {{ .Values.memory.repository | quote }}
+            - name: ENIKK_CORE_MEMORY__INTERVAL_SECONDS
+              value: {{ .Values.memory.intervalSeconds | quote }}
             - name: ENIKK_CORE_DEV_AGENT__ENABLED
               value: {{ .Values.devAgent.enabled | quote }}
             - name: ENIKK_CORE_DEV_AGENT__NAMESPACE

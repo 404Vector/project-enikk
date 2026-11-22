@@ -17,6 +17,7 @@ from enikk_persistence_sql.repositories import (
     SqlSessionRepository,
     SqlTaskRepository,
     SqlTranscriptRepository,
+    SqlVaultIndexRepository,
 )
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ class SqlUnitOfWork:
         self.approvals = SqlApprovalRepository(self._db)
         self.notices = SqlNoticeRepository(self._db)
         self.deployment_watch = SqlDeploymentWatchRepository(self._db)
+        self.vault = SqlVaultIndexRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

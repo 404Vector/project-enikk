@@ -35,9 +35,11 @@ if TYPE_CHECKING:
 
     from enikk_contracts.common import ConnectorKind, Engine
     from enikk_contracts.events import InboundEvent
+    from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
+    from enikk_core.memory import MemoryService
     from enikk_core.settings import TaskSettings
     from enikk_core_domain.model import WorkerScope
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
@@ -60,6 +62,7 @@ class CoreUseCases:
         policy: TaskSettings,
         sleep: Sleep,
         isolated_daily_limit: int | None = None,
+        memory: MemoryService | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -68,6 +71,7 @@ class CoreUseCases:
         self._policy = policy
         self._sleep = sleep
         self._isolated_daily_limit = isolated_daily_limit
+        self._memory = memory
 
     # ------------------------------------------------------------ connector
 
@@ -188,6 +192,7 @@ class CoreUseCases:
             await uow.tasks.update(leased)
             await uow.commit()
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
+        memories = await self._memories()
         return TaskAssignment(
             task_id=leased.id,
             lease_id=leased.last_lease_id,
@@ -197,6 +202,7 @@ class CoreUseCases:
             session_id=session.id,
             engine_session_id=session.engine_session_id,
             input=leased.input,
+            memories=memories,
         )
 
     async def claim_task(self, task_id: uuid.UUID) -> LeaseResponse:
@@ -227,6 +233,7 @@ class CoreUseCases:
             await uow.tasks.update(leased)
             await uow.commit()
         _log.info("isolated task %s claimed (attempt %d)", leased.id, leased.attempt)
+        memories = await self._memories()
         return LeaseResponse(
             assignment=TaskAssignment(
                 task_id=leased.id,
@@ -237,8 +244,19 @@ class CoreUseCases:
                 session_id=session.id,
                 engine_session_id=session.engine_session_id,
                 input=leased.input,
+                memories=memories,
             )
         )
+
+    async def _memories(self) -> tuple[MemoryNote, ...]:
+        """Enikk's memory for a task (ADR-0028). A broken index never blocks work."""
+        if self._memory is None:
+            return ()
+        try:
+            return await self._memory.for_task()
+        except Exception:
+            _log.exception("memory notes unavailable; the task runs without them")
+            return ()
 
     async def heartbeat(
         self, scope: WorkerScope, task_id: uuid.UUID, beat: Heartbeat

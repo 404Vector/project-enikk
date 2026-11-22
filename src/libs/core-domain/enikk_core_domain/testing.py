@@ -18,6 +18,7 @@ from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
+from enikk_core_domain.memory import VaultNote
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
@@ -119,6 +120,7 @@ class InMemoryDatabase:
         self.approvals: dict[uuid.UUID, Approval] = {}
         self.notices: dict[uuid.UUID, Notice] = {}
         self.deployment_watch: DeploymentWatch | None = None
+        self.vault: dict[str, VaultNote] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -135,6 +137,36 @@ class _Staged:
         self.approvals = dict(db.approvals)
         self.notices = dict(db.notices)
         self.deployment_watch = db.deployment_watch
+        self.vault = dict(db.vault)
+
+
+class _Vault:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def shas(self) -> dict[str, str]:
+        return {path: note.blob_sha for path, note in self._s.vault.items()}
+
+    async def upsert(self, note: VaultNote) -> None:
+        self._s.vault[note.path] = note
+
+    async def remove(self, paths: Sequence[str]) -> None:
+        for path in paths:
+            self._s.vault.pop(path, None)
+
+    async def under(self, prefix: str) -> Sequence[VaultNote]:
+        return sorted(
+            (n for n in self._s.vault.values() if n.path.startswith(prefix)), key=lambda n: n.path
+        )
+
+    async def search(self, words: Sequence[str], limit: int) -> Sequence[VaultNote]:
+        lowered = [w.lower() for w in words]
+        found = [
+            n
+            for n in self._s.vault.values()
+            if all(w in n.title.lower() or w in n.body.lower() for w in lowered)
+        ]
+        return sorted(found, key=lambda n: n.path)[:limit]
 
 
 class _DeploymentWatch:
@@ -406,6 +438,7 @@ class InMemoryUnitOfWork:
         self.approvals = _Approvals(self._staged)
         self.notices = _Notices(self._staged)
         self.deployment_watch = _DeploymentWatch(self._staged)
+        self.vault = _Vault(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -431,6 +464,7 @@ class InMemoryUnitOfWork:
         self._db.approvals = dict(self._staged.approvals)
         self._db.notices = dict(self._staged.notices)
         self._db.deployment_watch = self._staged.deployment_watch
+        self._db.vault = dict(self._staged.vault)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -869,6 +903,43 @@ async def check_deployment_watch(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.deployment_watch.load_for_update() == second, "watch update")
 
 
+def vault_note(path: str, body: str = "body", sha: str = "s1") -> VaultNote:
+    from enikk_contracts.memory import NoteKind
+
+    return VaultNote(
+        path=path,
+        blob_sha=sha,
+        title=path.rsplit("/", 1)[-1],
+        kind=NoteKind.NOTE,
+        body=body,
+        synced_at=T0,
+    )
+
+
+async def check_vault_index(new_uow: UnitOfWorkFactory) -> None:
+    first = vault_note("vault/Private/enikk/선호/알림.md", "배포 알림은 #release 로")
+    second = vault_note("vault/Garden/Kubernetes.md", "Argo CD 와 Release 흐름")
+    async with new_uow() as uow:
+        await uow.vault.upsert(first)
+        await uow.vault.upsert(second)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.vault.shas() == {first.path: "s1", second.path: "s1"}, "shas")
+        await uow.vault.upsert(first.model_copy(update={"blob_sha": "s2"}))
+        under = await uow.vault.under("vault/Private/enikk/")
+        _expect([n.path for n in under] == [first.path], "under a prefix")
+        found = await uow.vault.search(["RELEASE"], 10)
+        _expect({n.path for n in found} == {first.path, second.path}, "search ignores case")
+        _expect(
+            [n.path for n in await uow.vault.search(["argo", "release"], 10)] == [second.path],
+            "every word must match",
+        )
+        await uow.vault.remove([second.path])
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.vault.shas() == {first.path: "s2"}, "update and remove")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -885,4 +956,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_delegated_session_round_trip,
     check_approvals_and_notices,
     check_deployment_watch,
+    check_vault_index,
 )

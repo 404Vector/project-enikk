@@ -147,6 +147,18 @@ class DeploymentSettings(SettingsModel):
     api_url: str = "https://kubernetes.default.svc"
 
 
+class MemorySettings(SettingsModel):
+    """Enikk's memory in the owner's vault (ADR-0028). Needs the GitHub App."""
+
+    enabled: bool = False
+    repository: str = "vault.hyeongseok-kim"
+    branch: str = "main"
+    notes_root: str = "vault/"
+    enikk_dir: str = "vault/Private/enikk/"
+    interval_seconds: float = Field(default=60.0, ge=15, le=3600)
+    context_chars: int = Field(default=4_000, ge=0, le=20_000)
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -161,5 +173,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     dev_agent: DevAgentSettings = DevAgentSettings()
     approval: ApprovalSettings = ApprovalSettings()
     deployments: DeploymentSettings = DeploymentSettings()
+    memory: MemorySettings = MemorySettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

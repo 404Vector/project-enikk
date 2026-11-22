@@ -12,9 +12,11 @@ from pydantic import TypeAdapter
 from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+from enikk_contracts.memory import NoteKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.deployments import DeploymentWatch
+from enikk_core_domain.memory import VaultNote
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
@@ -35,6 +37,7 @@ from enikk_persistence_sql.tables import (
     OutboxRow,
     SessionRow,
     TaskRow,
+    VaultNoteRow,
 )
 
 WATCH_ROW_ID = 1
@@ -166,6 +169,31 @@ def deployment_watch_to_row(
 
 def deployment_watch_from_row(row: DeploymentWatchRow) -> DeploymentWatch:
     return DeploymentWatch.model_validate_json(pydantic_core.to_json(row.body))
+
+
+def vault_note_to_row(note: VaultNote, row: VaultNoteRow | None = None) -> VaultNoteRow:
+    row = row or VaultNoteRow(path=note.path)
+    row.blob_sha = note.blob_sha
+    row.title = note.title
+    row.kind = note.kind.value
+    row.body = note.body
+    row.updated = note.updated
+    row.expires = note.expires
+    row.synced_at = note.synced_at
+    return row
+
+
+def vault_note_from_row(row: VaultNoteRow) -> VaultNote:
+    return VaultNote(
+        path=row.path,
+        blob_sha=row.blob_sha,
+        title=row.title,
+        kind=NoteKind(row.kind),
+        body=row.body,
+        updated=row.updated,
+        expires=row.expires,
+        synced_at=row.synced_at,
+    )
 
 
 def notice_to_row(notice: Notice, row: NoticeRow | None = None) -> NoticeRow:

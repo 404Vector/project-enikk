@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.deployments import AppObservation, DeploymentWatch
+    from enikk_core_domain.memory import VaultNote
     from enikk_core_domain.model import (
         Approval,
         ApprovalState,
@@ -169,6 +170,25 @@ class DeploymentWatchRepository(Protocol):
     async def save(self, watch: DeploymentWatch) -> None: ...
 
 
+class VaultIndexRepository(Protocol):
+    """Core's index of the owner's vault notes (ADR-0028). The vault is the source."""
+
+    async def shas(self) -> dict[str, str]:
+        """Path to blob SHA of every indexed note."""
+        ...
+
+    async def upsert(self, note: VaultNote) -> None: ...
+    async def remove(self, paths: Sequence[str]) -> None: ...
+
+    async def under(self, prefix: str) -> Sequence[VaultNote]:
+        """Notes whose path starts with ``prefix``."""
+        ...
+
+    async def search(self, words: Sequence[str], limit: int) -> Sequence[VaultNote]:
+        """Notes whose title or body contains every word (case-insensitive)."""
+        ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -178,6 +198,8 @@ class UnitOfWork(Protocol):
     def notices(self) -> NoticeRepository: ...
     @property
     def deployment_watch(self) -> DeploymentWatchRepository: ...
+    @property
+    def vault(self) -> VaultIndexRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...
