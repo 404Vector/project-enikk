@@ -27,6 +27,7 @@ from enikk_core_domain.errors import (
     UnknownAgentError,
 )
 from enikk_core_domain.model import OutboxMessage, Session, Task
+from enikk_core_domain.thread_context import MAX_MESSAGES, with_thread_context
 
 if TYPE_CHECKING:
     import uuid
@@ -95,11 +96,12 @@ class CoreUseCases:
                     now=now,
                 )
                 await uow.sessions.add(session)
+            text = await self._with_thread_context(uow, session, event.text)
             task = Task.enqueue(
                 task_id=self._ids.new(),
                 session=session,
                 source_event_id=event.event_id,
-                text=event.text,
+                text=text,
                 max_attempts=self._policy.max_attempts,
                 now=now,
                 execution=definition.execution if definition else Execution.SHARED,
@@ -110,6 +112,16 @@ class CoreUseCases:
         return EventAccepted(
             task_id=task.id, session_id=session.id, agent=session.agent, duplicate=False
         )
+
+    async def _with_thread_context(self, uow: UnitOfWork, session: Session, text: str) -> str:
+        """Prefix what delegates and core posted in the thread since its last task (ADR-0027)."""
+        previous = await uow.tasks.latest_in_session(session.id)
+        if previous is None:
+            return text
+        posted = await uow.outbox.posted_by_others(
+            session.conversation, session.id, previous.created_at, MAX_MESSAGES
+        )
+        return with_thread_context(text, posted)
 
     async def poll_outbox(self, connector: ConnectorKind, poll: OutboxPoll) -> OutboxBatch:
         deadline = self._clock.now() + timedelta(seconds=poll.wait_seconds)

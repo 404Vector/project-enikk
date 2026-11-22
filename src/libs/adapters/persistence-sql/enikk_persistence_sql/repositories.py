@@ -129,6 +129,24 @@ class SqlOutboxRepository:
         self._db.add(mappers.outbox_to_row(message))
         await _flush(self._db, f"outbox message {message.id}")
 
+    async def posted_by_others(
+        self, conversation: ConversationRef, session_id: uuid.UUID, since: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        rows = await self._db.scalars(
+            select(OutboxRow)
+            .join(TaskRow, TaskRow.id == OutboxRow.task_id)
+            .where(
+                OutboxRow.connector == conversation.connector.value,
+                OutboxRow.channel == conversation.channel,
+                OutboxRow.thread == conversation.thread,
+                OutboxRow.created_at > since,
+                TaskRow.session_id != session_id,
+            )
+            .order_by(OutboxRow.created_at.desc(), OutboxRow.id.desc())
+            .limit(limit)
+        )
+        return [mappers.outbox_from_row(row) for row in reversed(list(rows))]
+
     async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
         rows = await self._db.scalars(
             select(OutboxRow)

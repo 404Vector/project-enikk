@@ -53,6 +53,14 @@ class TaskRepository(Protocol):
 class OutboxRepository(Protocol):
     async def add(self, message: OutboxMessage) -> None: ...
 
+    async def posted_by_others(
+        self, conversation: ConversationRef, session_id: uuid.UUID, since: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        """Messages for ``conversation`` created after ``since`` by tasks of other
+        sessions (delegates, core's notes), oldest first, at most the newest ``limit``.
+        """
+        ...
+
     async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
         """Oldest undelivered messages for ``connector``."""
         ...
