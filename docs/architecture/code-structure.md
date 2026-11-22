@@ -89,7 +89,7 @@ src/
 | apps/* | 위 전부 (조립 목적) | 다른 apps |
 
 - 이 규칙은 import-linter 계약으로 기계적으로 강제한다 (P-01).
-- 외부 SDK 의 import 위치도 제한한다: SQLAlchemy 는 `persistence-sql`, Anthropic·Claude SDK 는 `engine-claude`, Google ADK 는 `engine-gemini`, Langfuse 는 `langfuse` 에서만 (I-06, I-08, I-26).
+- 외부 SDK 의 import 위치도 제한한다: SQLAlchemy 는 `persistence-sql`, Anthropic·Claude SDK 는 `engine-claude`, Google ADK 는 `engine-gemini`, Langfuse 는 `langfuse`, Slack SDK 는 `connector-slack` 에서만 (I-06, I-08, I-26).
 
 ## 5. 설계 판단 메모
 

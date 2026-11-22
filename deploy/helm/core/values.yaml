@@ -37,6 +37,10 @@ roleBindings:
   - namespace: enikk
     service_account: enikk-dev-agent
     role: dev-agent
+  - namespace: enikk
+    service_account: enikk-smoke
+    role: connector
+    connector: smoke
 
 resources:
   requests: { cpu: 50m, memory: 128Mi }

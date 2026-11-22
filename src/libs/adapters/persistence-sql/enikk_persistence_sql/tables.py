@@ -75,6 +75,7 @@ class OutboxRow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))
+    source_event_id: Mapped[str] = mapped_column(String(255))
     connector: Mapped[str] = mapped_column(String(32))
     channel: Mapped[str] = mapped_column(String(255))
     thread: Mapped[str] = mapped_column(String(255))

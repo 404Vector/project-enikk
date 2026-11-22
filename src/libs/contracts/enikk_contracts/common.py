@@ -26,6 +26,8 @@ class Engine(StrEnum):
 
 class ConnectorKind(StrEnum):
     SLACK = "slack"
+    SMOKE = "smoke"
+    """Deployment checks by ``enikk-ops smoke``; nothing publishes its messages."""
 
 
 class ConversationRef(Contract):

@@ -35,7 +35,7 @@ def test_smoke_issues_tokens_and_forwards_without_creating_resources() -> None:
 
     created = [argv for argv in runner.argvs if "create" in argv]
     assert [argv[argv.index("token") + 1] for argv in created] == [
-        "enikk-connector-slack",
+        "enikk-smoke",
         "enikk-runtime-claude",
         "default",
     ]
@@ -79,5 +79,5 @@ def test_claude_smoke_uses_only_the_connector_token() -> None:
     with pytest.raises(_UnreachableError):
         smoke.run()
     created = [argv for argv in runner.argvs if "create" in argv]
-    assert [argv[argv.index("token") + 1] for argv in created] == ["enikk-connector-slack"]
+    assert [argv[argv.index("token") + 1] for argv in created] == ["enikk-smoke"]
     assert all(not call.mutating for call in runner.calls)

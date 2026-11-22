@@ -72,6 +72,7 @@ def outbox_message(owner: Session, related: Task, *, now: datetime = T0) -> Outb
     return OutboxMessage(
         id=uuid.uuid4(),
         task_id=related.id,
+        source_event_id=related.source_event_id,
         conversation=owner.conversation,
         kind=OutboundKind.REPLY,
         text="hi there",

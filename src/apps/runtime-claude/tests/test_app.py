@@ -9,7 +9,8 @@ from pydantic import SecretStr
 from enikk_contracts.credentials import CredentialName, CredentialRequest, Credentials
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_core_client import CoreClient, StaticTokenSource
-from enikk_runtime_claude.app import CREDENTIALS, fetch_credentials
+from enikk_core_client.credentials import wait_for_credentials
+from enikk_runtime_claude.app import CREDENTIALS
 from enikk_runtime_claude.settings import RuntimeClaudeSettings
 
 if TYPE_CHECKING:
@@ -49,7 +50,7 @@ async def test_credentials_are_fetched_once_core_has_them() -> None:
         transport=httpx.MockTransport(handler),
     )
     async with client:
-        credentials = await fetch_credentials(client, sleep=pause)
+        credentials = await wait_for_credentials(client, CREDENTIALS, sleep=pause)
 
     assert pauses == [1.0, 2.0]
     token = credentials.values[CredentialName.CLAUDE_OAUTH_TOKEN]

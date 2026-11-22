@@ -9,7 +9,7 @@ from typing import Annotated
 from pydantic import Field
 
 from enikk_contracts.base import Contract
-from enikk_contracts.common import ConversationRef, NonEmptyText
+from enikk_contracts.common import ConversationRef, Identifier, NonEmptyText
 from enikk_contracts.tasks import WaitSeconds
 
 MAX_ACK_BATCH = 100
@@ -21,8 +21,11 @@ class OutboundKind(StrEnum):
 
 
 class OutboundMessage(Contract):
+    """``source_event_id`` is the ``event_id`` of the inbound event the task answers."""
+
     message_id: uuid.UUID
     task_id: uuid.UUID
+    source_event_id: Identifier
     conversation: ConversationRef
     kind: OutboundKind
     text: NonEmptyText

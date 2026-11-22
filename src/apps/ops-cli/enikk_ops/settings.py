@@ -26,7 +26,7 @@ class SmokeSettings(SettingsModel):
     service: str = "svc/enikk-core"
     service_port: int = Field(default=80, ge=1, le=65535)
     local_port: int = Field(default=18000, ge=1024, le=65535)
-    connector_account: str = "enikk-connector-slack"
+    connector_account: str = "enikk-smoke"
     runtime_account: str = "enikk-runtime-claude"
     unbound_account: str = "default"
     max_foreign_tasks: int = Field(default=5, ge=0, le=50)

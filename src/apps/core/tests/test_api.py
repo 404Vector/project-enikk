@@ -188,6 +188,41 @@ async def test_expired_leases_are_reassigned(
     assert [m.kind for m in batch.messages] == [OutboundKind.FAILURE]
 
 
+async def test_outbox_names_the_answered_event(slack: CoreClient, claude: CoreClient) -> None:
+    await slack.submit_event(_event("C1:1.5", thread="1.0"))
+    assignment = await _lease(claude)
+    report = ResultReport(lease_id=assignment.lease_id, outcome=Succeeded(text="hi"))
+    await claude.report_result(assignment.task_id, report)
+    batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
+    assert [m.source_event_id for m in batch.messages] == ["C1:1.5"]
+
+
+async def test_continue_only_needs_an_existing_conversation(slack: CoreClient) -> None:
+    follow_up = _event("Ev2").model_copy(update={"continue_only": True})
+    with pytest.raises(CoreNotFoundError):
+        await slack.submit_event(follow_up)
+    started = await slack.submit_event(_event("Ev1"))
+    continued = await slack.submit_event(follow_up)
+    assert continued.session_id == started.session_id
+    assert not continued.duplicate
+
+
+async def test_connectors_are_isolated(harness: Harness, slack: CoreClient) -> None:
+    smoke_event = _event("Ev9").model_copy(
+        update={
+            "conversation": ConversationRef(
+                connector=ConnectorKind.SMOKE, channel="enikk-smoke", thread="t"
+            )
+        }
+    )
+    with pytest.raises(CoreForbiddenError):
+        await slack.submit_event(smoke_event)
+    async with harness.client("smoke") as smoke:
+        with pytest.raises(CoreForbiddenError):
+            await smoke.submit_event(_event())
+        await smoke.submit_event(smoke_event)
+
+
 async def test_unknown_agent_is_rejected(slack: CoreClient) -> None:
     with pytest.raises(CoreInvalidRequestError, match="nobody"):
         await slack.submit_event(_event(agent="nobody"))

@@ -4,7 +4,7 @@ Slack 으로 사용하는 개인용 AI 에이전트 플랫폼.
 작업에 따라 Claude 또는 Gemini 가 일을 맡고, 여러 MCP 서버로 기능을 확장하며, 모든 실행을 Langfuse 로 추적합니다.
 로컬 Kubernetes(Docker Desktop)에 Helm 으로 배포합니다.
 
-> **상태: 설계 단계.** 아키텍처를 문서로 확정하는 중이며, 실행 가능한 기능은 아직 없습니다.
+> **상태: 개발 중.** Slack 에서 Claude 에이전트와 대화하는 기본 경로가 동작합니다. MCP 도구, Gemini, 평가·자기 개선은 계획 단계입니다.
 
 ## 주요 기능 (계획)
 
@@ -32,7 +32,7 @@ Slack ─► Slack 커넥터 ─► enikk-core (제어) ─┬─► Claude 런�
 |---|---|
 | 언어 / 패키지 관리 | Python, uv (workspace 모노레포) |
 | 에이전트 | Claude Agent SDK, Google ADK |
-| 인터페이스 | Slack Bolt (Socket Mode) |
+| 인터페이스 | Slack (slack-sdk, Socket Mode) |
 | 도구 연동 | MCP, agentgateway |
 | 관측 | OpenTelemetry, Langfuse Cloud |
 | 배포 | Docker, Kubernetes (Docker Desktop), Helm, GitHub Actions, GHCR, Argo CD |
@@ -42,6 +42,7 @@ Slack ─► Slack 커넥터 ─► enikk-core (제어) ─┬─► Claude 런�
 ```
 project-enikk/
 ├─ agents/      에이전트 정의 (YAML, 프롬프트 본문 없음)
+├─ config/      인터페이스 연결 규칙 (Slack 소유자, 에이전트 매핑)
 ├─ docs/        설계 문서 — 아키텍처, 원칙, 불변식, ADR
 ├─ deploy/      배포 자산 — Dockerfile, Helm 차트, 매니페스트, Argo CD Application
 ├─ src/         Python 소스 (uv workspace 멤버들)
@@ -90,6 +91,17 @@ uv run enikk-ops secret sync                  # 파일 내용을 클러스터에
 
 파일은 평문입니다. 권한(0600)을 유지하고, 백업 매체도 같은 수준으로 보관하세요.
 클러스터를 초기화했다면 `secret sync` 를 다시 실행하면 됩니다.
+
+### Slack 앱
+
+1. [api.slack.com/apps](https://api.slack.com/apps) 에서 **From a manifest** 로 앱을 만들고 [`deploy/slack/app-manifest.yaml`](deploy/slack/app-manifest.yaml) 을 붙여 넣습니다.
+2. 워크스페이스에 설치하고 두 토큰을 등록합니다.
+   - 봇 토큰(`xoxb-`, OAuth & Permissions): `uv run enikk-ops secret set slack.bot-token`
+   - 앱 토큰(`xapp-`, Basic Information → App-Level Tokens, scope `connections:write`): `uv run enikk-ops secret set slack.app-token`
+3. `uv run enikk-ops secret sync` 후 커넥터가 시작되면, 봇에게 DM 을 보내거나 채널에서 멘션합니다.
+
+응답하는 사용자와 에이전트는 [`config/slack.yaml`](config/slack.yaml) 에서 정합니다. 그 외 사용자의 메시지는 무시합니다.
+진행 상태는 원본 메시지의 반응으로 표시합니다: 👀 접수 → ✅ 답변 / ❌ 실패.
 
 ### 배포 확인
 

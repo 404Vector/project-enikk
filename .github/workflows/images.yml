@@ -8,6 +8,7 @@ on:
     paths:
       - "src/**"
       - "agents/**"
+      - "config/**"
       - "deploy/docker/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -18,6 +19,7 @@ on:
     paths:
       - "src/**"
       - "agents/**"
+      - "config/**"
       - "deploy/docker/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -42,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude]
+        app: [core, runtime-claude, connector-slack]
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
       PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

@@ -43,6 +43,7 @@ uv run pytest                    # 영속성 통합 테스트는 Docker 로 Post
 - DB 스키마는 `enikk_persistence_sql/tables.py` 와 Alembic 리비전(`migrations/versions/`)을 함께 바꾼다. 둘이 어긋나면 테스트가 실패한다.
 - 새 core API 엔드포인트는 `@requires(<역할>)` 로 허용 역할을 선언한다. 선언이 없으면 앱이 시작되지 않는다.
 - 에이전트 정의(`agents/*.yaml`)는 core 테스트가 검증한다. 프롬프트 본문은 넣지 않는다.
+- Slack 과 에이전트의 연결 규칙은 `config/slack.yaml` 에 둔다. 에이전트 정의에 Slack 을 넣지 않는다.
 
 ## 배포 자산
 
@@ -53,3 +54,5 @@ uv run pytest                    # 영속성 통합 테스트는 Docker 로 Post
 - 운영 리소스를 `helm`/`kubectl` 로 직접 바꾸지 않는다. 최초 설치만 `uv run enikk-ops argocd bootstrap` 으로 한다.
 - 배포 후 확인: `uv run enikk-ops smoke core` (리소스를 만들지 않는다). Claude 런타임은 `smoke claude` 로 확인한다 (모델을 실제로 호출한다).
 - Claude Agent SDK 는 `engine-claude` 패키지에서만 import 한다 (import-linter 가 막는다).
+- `slack-sdk`·`aiohttp` 는 `connector-slack` 앱에서만 import 한다 (import-linter 가 막는다).
+- Slack 앱 설정을 바꾸면 `deploy/slack/app-manifest.yaml` 을 고치고, 소유자에게 앱 설정 화면에 반영하도록 안내한다.
