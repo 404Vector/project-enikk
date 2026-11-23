@@ -1,18 +1,18 @@
 # project-enikk
 
-Slack 으로 사용하는 개인용 AI 에이전트 플랫폼.
+Slack 으로 사용하는 개인용 AI 에이전트 에닉(enikk)과 그 플랫폼.
 작업에 따라 Claude 또는 Gemini 가 일을 맡고, 여러 MCP 서버로 기능을 확장하며, 모든 실행을 Langfuse 로 추적합니다.
 로컬 Kubernetes(Docker Desktop)에 Helm 으로 배포합니다.
 
-> **상태: 개발 중.** Slack 에서 Claude 에이전트와 대화하는 기본 경로가 동작합니다. MCP 도구, Gemini, 평가·자기 개선은 계획 단계입니다.
+> **상태: 개발 중.** Slack 에서 에닉(Claude 엔진)과 대화하는 기본 경로가 동작합니다. MCP 도구, Gemini, 평가·자기 개선은 계획 단계입니다.
 
 ## 주요 기능 (계획)
 
 - **Slack 인터페이스** — Socket Mode 로 연결되어 공개 엔드포인트 없이 동작
-- **멀티 모델** — 에이전트 정의마다 Claude(Claude Agent SDK) / Gemini(Google ADK) 선택
+- **멀티 모델** — 역할 정의마다 Claude(Claude Agent SDK) / Gemini(Google ADK) 선택
 - **MCP 확장** — agentgateway 로 여러 MCP 서버를 하나의 엔드포인트로 통합
 - **LLMOps** — Langfuse 기반 트레이싱, 프롬프트 관리, 평가, 피드백 수집
-- **운영 CLI** — 이미지 빌드, Helm 배포, 에이전트 접속을 하나의 Python CLI 로
+- **운영 CLI** — 이미지 빌드, Helm 배포, 에닉 접속 확인을 하나의 Python CLI 로
 
 ## 아키텍처
 
@@ -31,7 +31,7 @@ Slack ─► Slack 커넥터 ─► enikk-core (제어) ─┬─► Claude 런�
 | 영역 | 사용 기술 |
 |---|---|
 | 언어 / 패키지 관리 | Python, uv (workspace 모노레포) |
-| 에이전트 | Claude Agent SDK, Google ADK |
+| 엔진 | Claude Agent SDK, Google ADK |
 | 인터페이스 | Slack (slack-sdk, Socket Mode) |
 | 도구 연동 | MCP, agentgateway |
 | 관측 | OpenTelemetry, Langfuse Cloud |
@@ -41,8 +41,8 @@ Slack ─► Slack 커넥터 ─► enikk-core (제어) ─┬─► Claude 런�
 
 ```
 project-enikk/
-├─ agents/      에이전트 정의 (YAML, 프롬프트 본문 없음)
-├─ config/      인터페이스 연결 규칙 (Slack 소유자, 에이전트 매핑)
+├─ agents/      역할 정의 (YAML, 프롬프트 본문 없음)
+├─ config/      인터페이스 연결 규칙 (Slack 소유자, 역할 매핑)
 ├─ docs/        설계 문서 — 아키텍처, 원칙, 불변식, ADR
 ├─ deploy/      배포 자산 — Dockerfile, Helm 차트, 매니페스트, Argo CD Application
 ├─ src/         Python 소스 (uv workspace 멤버들)
@@ -73,7 +73,7 @@ uv sync --all-packages
 uv run pytest   # 영속성 통합 테스트는 Docker 로 Postgres 를 띄운다
 ```
 
-Docker 없이 로컬 Postgres 로 돌리는 방법과 개발 에이전트 Pod 에서 도는 방식은 [docs/development/testing.md](docs/development/testing.md) 를 참고하세요.
+Docker 없이 로컬 Postgres 로 돌리는 방법과 개발 역할의 Pod 에서 도는 방식은 [docs/development/testing.md](docs/development/testing.md) 를 참고하세요.
 
 ### 클러스터 부트스트랩
 
@@ -109,14 +109,14 @@ uv run enikk-ops secret sync                  # 파일 내용을 클러스터에
    - 앱 토큰(`xapp-`, Basic Information → App-Level Tokens, scope `connections:write`): `uv run enikk-ops secret set slack.app-token`
 3. `uv run enikk-ops secret sync` 후 커넥터가 시작되면, 봇에게 DM 을 보내거나 채널에서 멘션합니다.
 
-응답하는 사용자와 에이전트는 [`config/slack.yaml`](config/slack.yaml) 에서 정합니다. 그 외 사용자의 메시지는 무시합니다.
+응답하는 사용자와 역할은 [`config/slack.yaml`](config/slack.yaml) 에서 정합니다. 그 외 사용자의 메시지는 무시합니다.
 진행 상태는 원본 메시지의 반응으로 표시합니다: 👀 접수 → ✅ 답변 / ❌ 실패.
-Slack 에서 enikk 자체(코드, 설정, 에이전트 정의, 문서)를 바꿔 달라고 요청하면 개발 에이전트가 격리된 환경에서 작업해 pull request 를 만들고, 소유자가 Slack 에서 승인한 뒤에야 반영됩니다.
+Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달라고 요청하면 에닉의 개발 역할이 격리된 환경에서 작업해 pull request 를 만들고, 소유자가 Slack 에서 승인한 뒤에야 반영됩니다.
 승인 요청 DM 에는 PR 제목, 한두 줄 요약, 링크, [승인하고 머지] [반려] 버튼만 담깁니다. 저장소·브랜치 정보, PR 본문 전체, 바뀐 파일, 검사 결과는 그 메시지의 스레드 댓글로 나눠 올리고, diff 파일도 같은 스레드에 첨부합니다.
 
 ### 프롬프트 수정 방법
 
-에이전트의 시스템 프롬프트(대화 방식, 말투)는 git 이 아니라 Langfuse 에만 있습니다([ADR-0006](docs/adr/0006-prompts-managed-in-langfuse.md)).
+역할마다의 시스템 프롬프트(대화 방식, 말투)는 git 이 아니라 Langfuse 에만 있습니다([ADR-0006](docs/adr/0006-prompts-managed-in-langfuse.md)).
 코드 배포 없이 Langfuse 화면에서 바로 고칩니다.
 
 **어디를 고치나**
@@ -124,12 +124,12 @@ Slack 에서 enikk 자체(코드, 설정, 에이전트 정의, 문서)를 바꿔
 - Langfuse 호스트: `https://jp.cloud.langfuse.com` (Langfuse Cloud 일본 리전, 직접 호스팅 아님, [ADR-0001](docs/adr/0001-observability-langfuse-cloud.md), [ADR-0016](docs/adr/0016-langfuse-adapter.md))
   - 기본값: `ENIKK_RUNTIME_LANGFUSE_URL`, `ENIKK_DEV_LANGFUSE_URL` 설정의 기본값
   - 배포값: Helm values 의 `langfuseUrl` (`deploy/helm/runtime-claude/values.yaml`, `deploy/helm/dev-agent/values.yaml`). Argo CD Application 은 이 값을 덮어쓰지 않습니다.
-- 프롬프트 (에이전트 정의 `agents/*.yaml` 의 `prompt`):
+- 프롬프트 (역할 정의 `agents/*.yaml` 의 `prompt`):
 
-  | 에이전트 | 하는 일 | 프롬프트 이름 | label |
+  | 역할 | 하는 일 | 프롬프트 이름 | label |
   |---|---|---|---|
-  | `assistant` | Slack DM·멘션에 답하는 메인 대화 에이전트 (`config/slack.yaml`) | `assistant` | `production` |
-  | `developer` | 코드 변경 요청을 받아 PR 을 만드는 개발 에이전트 | `developer` | `production` |
+  | `assistant` | Slack DM·멘션에 답하는 에닉의 대화 역할 (`config/slack.yaml`) | `assistant` | `production` |
+  | `developer` | 코드 변경 요청을 받아 PR 을 만드는 에닉의 개발 역할 | `developer` | `production` |
 
 - 프로젝트 ID: **저장소에 없습니다.** 런타임은 API 키로 프로젝트를 정하므로 코드와 설정에 프로젝트 ID 를 적지 않습니다.
   Langfuse 에 로그인해 프로젝트를 열면 주소창의 `/project/<프로젝트 ID>/...` 부분, 또는 **Settings → General** 화면에서 확인합니다.
@@ -142,11 +142,11 @@ Slack 에서 enikk 자체(코드, 설정, 에이전트 정의, 문서)를 바꿔
 
 1. 위 주소로 들어가거나, 왼쪽 메뉴 **Prompts** 에서 고칠 프롬프트(`assistant` 등)를 엽니다.
 2. 현재 `production` label 이 붙은 버전을 확인하고 **New version** 으로 새 버전을 만듭니다.
-3. 형식을 지킵니다. 어기면 그 에이전트는 실행을 거부합니다([ADR-0016](docs/adr/0016-langfuse-adapter.md)).
+3. 형식을 지킵니다. 어기면 그 역할은 실행을 거부합니다([ADR-0016](docs/adr/0016-langfuse-adapter.md)).
    - 프롬프트 형식은 **text** 입니다 (chat 아님).
    - **Config** 에 `"model"` 키가 있어야 합니다. 이전 버전의 config 를 그대로 가져가세요. `model` 외의 키는 생성 파라미터로 엔진에 전달됩니다.
 4. 새 버전에 **`production` label** 을 지정합니다. 저장할 때 바로 지정하거나, 나중에 버전 목록에서 label 을 옮깁니다.
-   label 을 옮기지 않으면 새 버전을 만들어도 에이전트는 이전 버전을 계속 씁니다.
+   label 을 옮기지 않으면 새 버전을 만들어도 그 역할은 이전 버전을 계속 씁니다.
 5. 되돌릴 때는 `production` label 을 이전 버전으로 옮깁니다.
 
 **반영 시점**
@@ -173,4 +173,4 @@ uv run enikk-ops smoke claude       # Claude 런타임과 두 메시지 대화 (
 
 ## 기여
 
-코딩 에이전트용 작업 지침은 [AGENTS.md](AGENTS.md) 에 있습니다.
+코딩 에이전트(에닉의 developer 역할, Claude Code 등)용 작업 지침은 [AGENTS.md](AGENTS.md) 에 있습니다.

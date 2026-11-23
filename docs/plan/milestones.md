@@ -53,14 +53,14 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 ## M2. core 골격 — 완료 (2026-11-21, PR #4 ~ #9)
 
-**목표**: core 의 상태 관리·작업 큐·API·인증을 완성한다. 아직 실제 에이전트 실행은 없다.
+**목표**: core 의 상태 관리·작업 큐·API·인증을 완성한다. 아직 실제 역할 실행은 없다.
 **세부 결정**: ADR-0012
 
-- `contracts` v0: 이벤트, 작업, 결과, outbox 메시지, 에이전트 정의 스키마
+- `contracts` v0: 이벤트, 작업, 결과, outbox 메시지, 역할 정의 스키마
 - `core-domain`: Task·Session 상태 기계, 레포지토리·UoW·JobQueue 포트
 - `persistence-sql`: SQLAlchemy 구현, Postgres 큐(SKIP LOCKED, 임대), Alembic 마이그레이션
 - `k8s-auth`: TokenReview 검증기, 역할 매핑
-- core 앱: 이벤트 접수, 작업 배정·임대·재배정, 결과·진행 보고, outbox, 에이전트 정의 카탈로그(`agents/` 로딩·검증)
+- core 앱: 이벤트 접수, 작업 배정·임대·재배정, 결과·진행 보고, outbox, 역할 정의 카탈로그(`agents/` 로딩·검증)
 - `core-client`: 타입 있는 클라이언트 + projected token 첨부
 - 테스트: 도메인 단위 테스트(가짜 레포지토리), 영속성 통합 테스트(실제 Postgres)
 
@@ -74,14 +74,14 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 ## M3. 첫 대화 (End-to-End) — 완료 (2026-11-22, PR #12 ~ #17)
 
-**목표**: Slack 에 말을 걸면 Claude 에이전트가 답한다.
+**목표**: Slack 에 말을 걸면 Claude 엔진 역할이 답한다.
 
 - 비밀값 관리 ([ADR-0013](../adr/0013-credentials-local-file-core-broker.md)): `enikk-ops secret`, core 의 비밀값 API
 - `connector-slack`: Socket Mode, 소유자 확인(I-01), 연결 규칙(`config/`), 진행 상태 표시
 - `runtime` 프레임워크: 작업 가져오기 루프, 임대 연장, 프롬프트 조회(캐시·실패 시 거부, I-13)
 - `engine-claude`: Claude Agent SDK, 내장 도구 전부 차단(I-14), 세션 유지(I-11)
 - `langfuse` 어댑터: PromptStore, OTel 트레이스 내보내기
-- 에이전트 정의 1개 (도구 없음), Langfuse 프롬프트 1개
+- 역할 정의 1개 (도구 없음), Langfuse 프롬프트 1개
 
 **완료 조건**: Slack 스레드에서 대화가 이어지고, Langfuse 에 프롬프트 버전과 연결된 트레이스가 남는다. 다른 사용자의 메시지는 무시된다.
 **소유자 준비물**: Slack 앱(Socket Mode, 봇·앱 토큰), `claude setup-token` 토큰, Langfuse 프로젝트 키와 프롬프트. 토큰과 키는 `enikk-ops secret set` 으로 등록한다.
@@ -94,10 +94,10 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 ## M4. MCP 도구
 
-**목표**: 에이전트가 agentgateway 를 통해 MCP 도구를 쓴다.
+**목표**: 에닉이 agentgateway 를 통해 MCP 도구를 쓴다.
 
 - agentgateway 배포·구성, 첫 MCP 서버(외부 1개 또는 자체 1개)
-- 에이전트 정의의 도구 허용 목록을 엔진 설정과 게이트웨이 양쪽에서 적용
+- 역할 정의의 도구 허용 목록을 엔진 설정과 게이트웨이 양쪽에서 적용
 - 도구 호출 트레이스
 
 **완료 조건**: 허용된 도구만 호출되고, 허용되지 않은 도구 호출은 차단·기록된다.
@@ -105,7 +105,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 ## M5. Gemini 엔진과 엔진 간 위임
 
-**목표**: Gemini 에이전트를 쓰고, Claude 에이전트가 Gemini 에이전트에 일을 맡길 수 있다.
+**목표**: Gemini 엔진 역할을 쓰고, Claude 엔진 역할이 Gemini 엔진 역할에 일을 맡길 수 있다.
 
 - `engine-gemini`(Google ADK), `runtime-gemini` 앱
 - core 의 부모-자식 작업 위임 (명시적 입력·출력만, I-12)
@@ -129,7 +129,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 
 **목표**: Slack 대화로 정의·코드 변경을 요청하면 PR 이 만들어지고, 승인하면 배포된다.
 
-- 개발 에이전트 배포 프로필(전용 이미지·ServiceAccount·격리 Pod, 실행 빈도 제한)
+- 개발 역할 배포 프로필(전용 이미지·ServiceAccount·격리 Pod, 실행 빈도 제한)
 - GitHub App 신원, 민감 경로의 강화된 승인(I-20), PR 생성·Slack 승인 연동
 - 배포 실패 시 자동 롤백 확인
 
@@ -139,14 +139,14 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 **작업 순서**:
 1. CI 보강: PR 빌드에서 이미지 push 권한 제거(ADR-0008 위험), 보호 경로 검사, `main` ruleset 과 auto-merge 설정. (보호 경로 검사는 7 에서 민감 경로로 대체)
 2. GitHub 어댑터와 core 의 토큰 발급(ADR-0019), 키 등록(`secret set` 의 파일 입력).
-3. 개발 에이전트: `enikk-dev` 네임스페이스, Job 템플릿 차트, 이미지, `agents/developer.yaml`, core dispatcher 와 실행 제한(ADR-0021).
+3. 개발 역할(developer): `enikk-dev` 네임스페이스, Job 템플릿 차트, 이미지, `agents/developer.yaml`, core dispatcher 와 실행 제한(ADR-0021).
 4. 위임: `delegate` 도구, 하위 작업과 세션, 스레드 게시(ADR-0022).
 5. 승인: PR 감시, 소유자 DM 승인 요청, Slack 버튼, 승인 상태 기록과 auto-merge(ADR-0020).
 6. 배포 안전장치(ADR-0023): RollingUpdate 전환과 PostSync 스모크 검사, 배포 감시와 결과 DM(성공·실패, 빌드 실패), [되돌리기]와 롤백 결과 DM, 끝에서 끝까지 확인.
 7. 민감 경로(ADR-0024): core 판정과 강화된 승인, 개발 토큰 `workflows` 권한, `protected-paths` 워크플로와 필수 검사 제거.
 
 **확인한 것** (2026-11-22)
-- Slack 요청 → 개발 에이전트 PR(#34) → DM 승인 → 머지 → 자동 배포 → "배포 성공" DM.
+- Slack 요청 → 개발 역할 PR(#34) → DM 승인 → 머지 → 자동 배포 → "배포 성공" DM.
 - 일부러 실패시킨 배포(#37) → "배포 실패" DM → [되돌리기] → core 가 연 되돌리기 PR(#38) → 승인 → "롤백 성공" DM. 실패하는 동안 이전 Pod 가 계속 동작했다.
 - 민감 경로를 바꾼 PR(#40) 의 승인 요청에 민감 경로 목록과 diff 가 담겼고, 확인 창을 거쳐 머지됐다.
 
