@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 MAX_MESSAGES: Final = 20
 MAX_PER_MESSAGE: Final = 4_000
 MAX_INPUT: Final = 40_000
-HEADER: Final = "[이 스레드에 그 사이 다른 에이전트와 시스템이 올린 내용]"
+HEADER: Final = "[이 스레드에 그 사이 에닉의 다른 역할과 시스템이 올린 내용]"
 SEPARATOR: Final = "[소유자의 새 메시지]"
 
 

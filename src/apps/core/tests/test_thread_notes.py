@@ -75,6 +75,7 @@ def test_a_delegated_answer_with_a_pull_request_becomes_a_status_line() -> None:
     assert "src/a.py" not in status
     assert "x = 1" not in status
     assert "소유자 DM" in status
+    assert status.startswith("에닉의 developer 역할이 작업을 마쳤습니다.")  # ADR-0031
 
 
 def test_a_delegated_answer_without_a_pull_request_is_kept() -> None:

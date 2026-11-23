@@ -162,6 +162,7 @@ async def test_review_thread_and_asking_thread_link_each_other(failed: bool) -> 
     )
     assert report[:2] == ("D0OWNER", "1.0")
     assert "상세 보고: src/a.py 수정" in report[2]
+    assert report[2].startswith("*개발 역할 보고*")
     assert all(channel == "D0OWNER" for channel, _, _ in slack.posts)
 
 

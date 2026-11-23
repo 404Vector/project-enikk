@@ -148,7 +148,7 @@ class NoticeRelay:
         linked = await self._link_threads(posted, card, updated=updated)
         await self._post_details(posted.channel, posted.ts, card)
         if linked.report is not None and not updated:
-            await self._post_text(posted, card, f"*개발 에이전트 보고*\n{linked.report}")
+            await self._post_text(posted, card, f"*개발 역할 보고*\n{linked.report}")
         if card.diff:
             name = f"pr-{card.number}-{card.head_sha[:7]}.diff"
             note = " (잘림)" if card.diff_truncated else ""
