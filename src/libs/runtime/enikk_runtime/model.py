@@ -74,6 +74,14 @@ class SkillUse(FrozenModel):
     version: Annotated[int, Field(ge=1)]
 
 
+class SessionBundle(FrozenModel):
+    """A session's commits after main, as ``git bundle`` output (ADR-0037 §6b)."""
+
+    data: bytes
+    base: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    head: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+
+
 class EngineJob(FrozenModel):
     """Everything an engine needs to run one task."""
 

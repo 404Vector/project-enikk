@@ -45,3 +45,8 @@ workspace:
 # shared role's session (with built-in tools), and the load_skill tool. false turns both off.
 skills:
   enabled: true
+
+# submit_pull_request (ADR-0037 §6b): a role granted pull-requests hands its worktree
+# commits to core, which pushes them and opens the PR. Needs workspace.enabled.
+pulls:
+  enabled: true

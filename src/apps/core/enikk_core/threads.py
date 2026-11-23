@@ -1,7 +1,9 @@
 """An agent's pull request in the Slack thread that asked for it (ADR-0025, ADR-0036).
 
 The developer works on ``agent/<developer session ID>``; that session replies into
-the thread that delegated to it. So the branch name alone leads back to the thread.
+the thread that delegated to it. Core pushes a Slack thread's own commits to
+``agent/<that session ID>`` (ADR-0037 §6b). So the branch name alone leads back to the
+thread.
 Older branches were ``agent/<task ID>``; their task leads to the session.
 
 The PR's progress is one status card in that thread, updated in place.
@@ -17,6 +19,7 @@ from typing import TYPE_CHECKING, Final
 from pydantic import ValidationError
 
 from enikk_contracts.approvals import PullStage, PullStatusCard
+from enikk_contracts.common import ConnectorKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.threads import ReviewThreadLinked
@@ -110,9 +113,13 @@ class ThreadNotes:
         return True
 
     async def origin(self, uow: UnitOfWork, branch: str) -> tuple[Session, Task] | None:
-        """The delegated session behind ``branch`` and its most recent task."""
+        """The session behind ``branch`` and its most recent task: a delegated session
+        (it replies into the thread it came from), or a Slack thread's own session whose
+        commits core pushed (ADR-0037 §6b)."""
         session = await self._session(uow, branch)
-        if session is None or session.reply_to is None:
+        if session is None:
+            return None
+        if session.reply_to is None and session.conversation.connector is not ConnectorKind.SLACK:
             return None
         latest = await uow.tasks.latest_in_session(session.id)
         if latest is None:

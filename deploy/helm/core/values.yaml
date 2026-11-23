@@ -70,6 +70,12 @@ diagnostics:
 # Prompt candidates and their promotion in Slack (ADR-0032). core writes to Langfuse
 # with its own langfuse.public-key / langfuse.secret-key; the owner's Slack ID comes
 # from config/slack.yaml. Without the keys the feature answers with an error.
+# A Slack thread's commits pushed by core to agent/<session> and opened as a PR
+# (ADR-0037 §6b). The runtime's pulls.enabled offers the tool; false here refuses it.
+submissions:
+  enabled: true
+  cloneSize: 1Gi
+
 prompts:
   enabled: true
   langfuseUrl: https://jp.cloud.langfuse.com

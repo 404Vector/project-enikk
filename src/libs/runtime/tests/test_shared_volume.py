@@ -336,3 +336,30 @@ def test_a_moved_ref_does_not_change_the_snapshot(tmp_path: Path, origin: Origin
     assert second.commit == commit
     assert second.snapshot_dir is not None
     assert (second.snapshot_dir / "a.txt").read_text() == "a\n"
+
+
+def test_the_sessions_commits_are_bundled_after_main(tmp_path: Path, origin: Origin) -> None:
+    from enikk_runtime.workspace import WorkspaceError
+
+    base = origin.commit("README.md", "hello\n")
+    workspaces = _workspaces(tmp_path, origin, _clock())
+    ws = workspaces.prepare(SESSION)
+    assert ws.worktree_dir is not None
+    with pytest.raises(WorkspaceError, match="no commits after main"):
+        workspaces.bundle(SESSION)
+
+    worktree = Origin.__new__(Origin)
+    worktree.path = ws.worktree_dir
+    worktree._run = SubprocessRunner()
+    head = worktree.commit("docs/a.md", "a\n")
+    (ws.worktree_dir / "uncommitted.md").write_text("not sent\n")
+    bundle = workspaces.bundle(SESSION)
+
+    assert (bundle.base, bundle.head) == (base, head)
+    saved = tmp_path / "check.bundle"
+    saved.write_bytes(bundle.data)
+    heads = SubprocessRunner().run(["git", "bundle", "list-heads", str(saved)]).stdout
+    assert heads.strip() == f"{head} refs/heads/session/{SESSION}"
+    assert not list((tmp_path / "data" / "state" / "bundles").iterdir())
+    with pytest.raises(WorkspaceError, match="no branch"):
+        workspaces.bundle(OTHER)

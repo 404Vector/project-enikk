@@ -22,6 +22,9 @@ class TokenPurpose(StrEnum):
     """Core's memory: writes notes into the owner's vault repository (ADR-0028)."""
     SETUP = "setup"
     """Core's repository onboarding: applies the standard ruleset."""
+    SUBMIT = "submit"
+    """Core pushes a session's commits to its agent branch and opens the PR
+    (ADR-0037 §6b). Never workflows, statuses or settings."""
 
 
 Permissions = dict[str, Access]
@@ -51,6 +54,11 @@ _FIXED: Final[dict[TokenPurpose, Permissions]] = {
     TokenPurpose.MEMORY: {
         "metadata": Access.READ,
         "contents": Access.WRITE,
+    },
+    TokenPurpose.SUBMIT: {
+        "metadata": Access.READ,
+        "contents": Access.WRITE,
+        "pull_requests": Access.WRITE,
     },
     TokenPurpose.SETUP: {
         "metadata": Access.READ,

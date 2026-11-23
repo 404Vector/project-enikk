@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -13,7 +14,7 @@ from enikk_kernel.errors import ExternalCommandError, ToolNotFoundError
 from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Iterator, Mapping, Sequence
     from pathlib import Path
 
 BACKGROUND_STOP_TIMEOUT = 5.0
@@ -40,6 +41,7 @@ class ProcessRunner(Protocol):
         check: raise ``ExternalCommandError`` on a non-zero exit status.
         mutating: the command changes state. Skipped under dry-run and logged at INFO.
         stream: inherit the terminal instead of capturing output.
+        env: extra environment variables. Use this (or stdin) for secrets, never argv.
     """
 
     def run(
@@ -51,6 +53,7 @@ class ProcessRunner(Protocol):
         check: bool = True,
         mutating: bool = True,
         stream: bool = False,
+        env: Mapping[str, str] | None = None,
     ) -> ProcessResult: ...
 
     def background(self, argv: Sequence[str]) -> AbstractContextManager[None]:
@@ -73,6 +76,7 @@ class SubprocessRunner:
         check: bool = True,
         mutating: bool = True,
         stream: bool = False,
+        env: Mapping[str, str] | None = None,
     ) -> ProcessResult:
         if not argv:
             raise ValueError("argv must not be empty")
@@ -90,6 +94,7 @@ class SubprocessRunner:
             list(command),
             input=stdin,
             cwd=cwd,
+            env=None if env is None else {**os.environ, **env},
             text=True,
             capture_output=not stream,
             check=False,
