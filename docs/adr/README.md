@@ -16,7 +16,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0007](0007-self-improvement-workflow.md) | 에닉의 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 (프롬프트 후보를 만드는 곳은 ADR-0032 로 부분 대체) | 2026-11-21 |
 | [0008](0008-cicd-github-ghcr-gitops.md) | CI/CD — GitHub Actions 빌드, GHCR, GitOps 배포 | 승인 | 2026-11-21 |
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
-| [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 | 2026-11-21 |
+| [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 (런타임 무상태(I-25)는 ADR-0037 로 부분 대체) | 2026-11-21 |
 | [0011](0011-core-persistence-and-api.md) | enikk-core 의 저장소·작업 큐·API·데이터 모델링 | 승인 | 2026-11-21 |
 | [0012](0012-core-skeleton-implementation.md) | enikk-core 골격 구현 세부 결정 | 승인 (§1 은 ADR-0030 으로 부분 대체) | 2026-11-21 |
 | [0013](0013-credentials-local-file-core-broker.md) | 비밀값은 소유자 PC 의 파일이 원본이고, core 가 서비스에 나눠 준다 | 승인 | 2026-11-22 |
@@ -39,10 +39,11 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 | 2026-11-23 |
 | [0032](0032-prompt-candidates-and-promotion-in-slack.md) | Slack 에서 프롬프트 후보를 만들고, 소유자가 승격한다 | 승인 (승격 요청 위치는 ADR-0036 으로 부분 대체) | 2026-11-23 |
-| [0033](0033-sdk-tools-for-every-role-in-a-sandbox.md) | 모든 역할에 SDK 기본 도구를 주고, 서비스의 비밀값과 떼어 놓는다 | 승인 (요약 역할은 ADR-0035 로 부분 대체) | 2026-11-23 |
+| [0033](0033-sdk-tools-for-every-role-in-a-sandbox.md) | 모든 역할에 SDK 기본 도구를 주고, 서비스의 비밀값과 떼어 놓는다 | 승인 (요약 역할은 ADR-0035 로, 쓰기 경로·작업 폴더는 ADR-0037 로 부분 대체) | 2026-11-23 |
 | [0034](0034-resume-inside-the-sandbox-and-failed-runs.md) | 세션 이어받기를 샌드박스 안에서 하고, 실패한 실행을 자세히 남긴다 | 승인 | 2026-11-23 |
 | [0035](0035-daily-conversation-summaries.md) | 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다 | 승인 | 2026-11-23 |
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 | 2026-11-23 |
+| [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1단계 구현) | 2026-11-23 |
 
 ## 상태 정의
 
