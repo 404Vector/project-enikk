@@ -278,7 +278,7 @@ class ClaudeEngine:
             hooks=audit_hooks(job),
             env={
                 **{k: v for k, v in self._config.tool_env.items() if k not in _TOKEN_NAMES},
-                **self._sandbox_env(home),
+                **self._sandbox_env(home, job),
                 sandbox.ENV_TOKEN: self._token.get_secret_value(),
                 "ANTHROPIC_API_KEY": "",
                 "CLAUDE_CONFIG_DIR": str(home),
@@ -300,8 +300,9 @@ class ClaudeEngine:
             return []
         return builtin
 
-    def _sandbox_env(self, home: Path) -> dict[str, str]:
+    def _sandbox_env(self, home: Path, job: EngineJob) -> dict[str, str]:
         config = self._config
+        workspace = job.workspace
         code = [Path(sandbox.__file__).parents[1], Path(enikk_kernel.__file__).parents[1]]
         read = [
             *config.sandbox.read,
@@ -309,6 +310,7 @@ class ClaudeEngine:
             Path(sys.base_prefix),
             config.cli.parent,
             *code,
+            *(workspace.read_paths if workspace else ()),
         ]
         write = [
             config.workdir,
@@ -316,6 +318,8 @@ class ClaudeEngine:
             home,
             *(Path(p) for p in SANDBOX_WRITE),
             *config.sandbox.write,
+            # Only this session's worktree and tmp on the shared volume (ADR-0037 §7).
+            *(workspace.write_paths if workspace else ()),
         ]
         secrets = list(config.sandbox.secrets)
         return {

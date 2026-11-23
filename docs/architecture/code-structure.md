@@ -50,6 +50,7 @@ src/
    │                                          포트: 레포지토리, UnitOfWork, JobQueue, AgentCatalog
    ├─ runtime/         enikk_runtime        런타임 프레임워크: 작업 가져오기 루프, 임대 연장,
    │                                          ModelEngine 포트, PromptStore 포트, 결과 보고
+   │                                          공유 볼륨의 스레드 작업 공간(ADR-0037)
    └─ adapters/                          ── 포트 구현 (외부와 닿는 곳). 서로 import 하지 않음
       ├─ persistence-sql/ enikk_persistence_sql  SQLAlchemy 레포지토리·UoW·Postgres 큐, Alembic
       ├─ k8s-auth/        enikk_k8s_auth         TokenReview 검증기 (core 용)

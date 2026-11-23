@@ -47,7 +47,7 @@ if TYPE_CHECKING:
         ResultAccepted,
         ResultReport,
     )
-    from enikk_runtime.model import EngineJob, EngineResult, ResolvedPrompt
+    from enikk_runtime.model import EngineJob, EngineResult, ResolvedPrompt, SessionWorkspace
 
 
 class TaskSource(Protocol):
@@ -56,6 +56,12 @@ class TaskSource(Protocol):
     async def lease_task(self, request: LeaseRequest) -> LeaseResponse: ...
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended: ...
     async def report_result(self, task_id: uuid.UUID, report: ResultReport) -> ResultAccepted: ...
+
+
+class Workspaces(Protocol):
+    """A session's place on the shared volume (ADR-0037 §7). Blocking; may raise."""
+
+    def prepare(self, session_id: uuid.UUID) -> SessionWorkspace: ...
 
 
 class Delegator(Protocol):

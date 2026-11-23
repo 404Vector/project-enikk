@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +35,7 @@ from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.resume import EMPTY_HEADER, with_history
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_runtime.errors import EngineError
-from enikk_runtime.model import EngineJob, ResolvedPrompt
+from enikk_runtime.model import EngineJob, ResolvedPrompt, SessionWorkspace
 from enikk_runtime.testing import definition
 
 if TYPE_CHECKING:
@@ -467,3 +468,31 @@ def test_history_keeps_the_newest_main_thread_text() -> None:
     assert text.endswith("- 답:\n" + "a" * 1_500 + "\nlast answer\n\n[새 메시지]\n\nnew")
     assert len(text) < 14_000
     assert with_history("new", []) == f"{EMPTY_HEADER}\n\nnew"
+
+
+async def test_the_session_workspace_opens_only_its_own_paths(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    session = "00000000-0000-0000-0000-000000000001"
+    workspace = SessionWorkspace(
+        repository="404Vector/project-enikk",
+        repo_dir=data / "repo.git",
+        snapshot_dir=data / "snapshots" / ("a" * 40),
+        commit="a" * 40,
+        fetched_at=None,
+        fresh=True,
+        worktree_dir=data / "worktrees" / session,
+        branch=f"session/{session}",
+        tmp_dir=data / "tmp" / session,
+    )
+    script = _Script(_init(), _result())
+    await _engine(script, tmp_path).run(_job().model_copy(update={"workspace": workspace}))
+
+    assert script.options is not None
+    read = script.options.env[sandbox.ENV_READ].split(os.pathsep)
+    write = script.options.env[sandbox.ENV_WRITE].split(os.pathsep)
+    assert str(data / "snapshots" / ("a" * 40)) in read
+    assert str(data / "snapshots" / ("a" * 40)) not in write
+    for path in (data / "repo.git", data / "worktrees" / session, data / "tmp" / session):
+        assert str(path) in write
+    assert str(data) not in write
+    assert str(data / "worktrees") not in write

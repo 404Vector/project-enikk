@@ -22,3 +22,21 @@ resources:
 # Scratch space for the CLI's per-task config directory and its working directory.
 scratch:
   sizeLimit: 1Gi
+
+# Shared volume (ADR-0037 §7): base repository, snapshots of main, per-thread
+# worktrees and tmp. Only things that can be made again live here; never secrets.
+# The repository is public, so it is fetched without a token, on demand (no sidecar).
+workspace:
+  enabled: true
+  mountPath: /data
+  size: 5Gi
+  # Empty: the cluster's default class. One node (ADR-0011, ADR-0013), so
+  # ReadWriteOnce lets the old and new Pod share it during a rolling update.
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  repository: 404Vector/project-enikk
+  remoteUrl: https://github.com/404Vector/project-enikk.git
+  branch: main
+  fetchIntervalSeconds: 60
+  idleDays: 7
+  minFreeMiB: 512

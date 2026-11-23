@@ -19,6 +19,14 @@ RUN test -n "${PACKAGE}" \
  && uv sync --frozen --no-dev --no-editable --package "${PACKAGE}"
 
 FROM ${PYTHON_IMAGE}
+ARG PACKAGE
+# The Claude runtime reads and works on the repository in the shared volume with git
+# (ADR-0037 §7). Other apps get no extra packages.
+RUN if [ "${PACKAGE}" = "enikk-runtime-claude" ]; then \
+      apt-get update \
+      && apt-get install --yes --no-install-recommends git ca-certificates \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home app
 COPY --from=build /app/.venv /app/.venv
