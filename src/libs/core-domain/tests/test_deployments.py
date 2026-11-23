@@ -148,3 +148,58 @@ def test_revert_records_identify_rollbacks() -> None:
     assert watch.rollback_target(51) is None
     again = watch.with_revert(record.model_copy(update={"pull_number": 52}))
     assert [r.pull_number for r in again.reverts] == [52]
+
+
+def _deploy(
+    watch: DeploymentWatch,
+    apps: tuple[str, ...],
+    start: int,
+    phase: str = "Succeeded",
+    health: str = "Healthy",
+) -> tuple[DeploymentWatch, list[object]]:
+    """Every app of ``apps`` syncs NEW at ``start`` and settles; returns what was reported."""
+    others = [_obs(a, OLD, T0) for a in APPS if a not in apps]
+    began = [_obs(a, NEW, _at(start), phase="Running", health="Progressing") for a in apps]
+    watch, first = watch.observe([*began, *others], _at(start), TIMING)
+    done = [_obs(a, NEW, _at(start), phase=phase, health=health) for a in apps]
+    reported: list[object] = list(first)
+    for seconds in (start + 30, start + 100):
+        watch, finished = watch.observe([*done, *others], _at(seconds), TIMING)
+        reported += finished
+    return watch, reported
+
+
+def test_an_app_updated_after_the_report_does_not_report_the_commit_again() -> None:
+    # The runtime syncs first and is reported; core follows in a later Image Updater cycle.
+    watch, first = _deploy(_baseline(), ("enikk-runtime-claude",), 100)
+    assert len(first) == 1
+    later = [_obs(app, NEW, _at(300)) for app in APPS]
+    later[1] = _obs("enikk-runtime-claude", NEW, _at(100))
+    watch, again = watch.observe(
+        [_obs("enikk-core", NEW, _at(300), phase="Running", health="Progressing"), later[1]],
+        _at(300),
+        TIMING,
+    )
+    for seconds in (330, 400):
+        watch, finished = watch.observe(later, _at(seconds), TIMING)
+        again += finished
+    assert again == []
+    assert NEW in watch.reported
+
+
+def test_a_later_failure_of_a_reported_commit_is_still_reported() -> None:
+    watch, first = _deploy(_baseline(), ("enikk-runtime-claude",), 100)
+    assert len(first) == 1
+    runtime = _obs("enikk-runtime-claude", NEW, _at(100))
+    watch, _ = watch.observe(
+        [_obs("enikk-core", NEW, _at(300), phase="Running", health="Progressing"), runtime],
+        _at(300),
+        TIMING,
+    )
+    failed = [_obs("enikk-core", NEW, _at(300), phase="Failed"), runtime]
+    reported: list[object] = []
+    for seconds in (330, 400):
+        watch, finished = watch.observe(failed, _at(seconds), TIMING)
+        reported += finished
+    [failure] = reported
+    assert not failure.succeeded  # type: ignore[attr-defined]

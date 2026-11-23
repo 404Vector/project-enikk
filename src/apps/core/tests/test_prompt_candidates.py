@@ -20,6 +20,7 @@ from enikk_contracts.prompts import (
     PromotionStatus,
     PromptCandidateRequest,
     PromptConfigChange,
+    PromptReadRequest,
 )
 from enikk_contracts.tasks import LeaseRequest
 from enikk_core.prompts import PromptService, load_owner
@@ -478,3 +479,55 @@ async def test_validation_errors_are_domain_errors(
     harness.catalog.put(agent("assistant"))
     with pytest.raises(PermissionDeniedError):
         await prompts.propose(lease.task_id, _request(lease.lease_id))
+
+
+async def test_read_prompt_returns_a_role_prompt_without_writing(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    langfuse.fail_writes = True
+    lease = await _leased(harness, claude)
+    current = await claude.read_prompt(
+        lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant")
+    )
+    assert (current.version, current.text) == (3, "You are enikk.")
+    assert current.config == {"model": "claude-a", "effort": "low"}
+    assert PRODUCTION in current.labels
+    older = await claude.read_prompt(
+        lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant", version=1)
+    )
+    assert older.text == "v1 text"
+    developer = await claude.read_prompt(
+        lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="developer")
+    )
+    assert developer.text == "dev text"
+    with pytest.raises(CoreApiError, match="not the prompt of any role"):
+        await claude.read_prompt(
+            lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="other")
+        )
+    with pytest.raises(CoreApiError, match="has no label candidate"):
+        await claude.read_prompt(
+            lease.task_id,
+            PromptReadRequest(lease_id=lease.lease_id, prompt="assistant", label="candidate"),
+        )
+    assert langfuse.created == []
+    assert langfuse.production_moves == []
+
+
+async def test_read_prompt_needs_the_grant_and_the_lease(
+    harness: Harness, prompts: PromptService, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    with pytest.raises(CoreApiError):
+        await claude.read_prompt(
+            lease.task_id, PromptReadRequest(lease_id=uuid.uuid4(), prompt="assistant")
+        )
+    async with harness.client("slack") as slack:
+        with pytest.raises(CoreApiError, match="may not call this endpoint"):
+            await slack.read_prompt(
+                lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant")
+            )
+    harness.catalog.put(agent("assistant"))
+    with pytest.raises(CoreApiError, match="may not create prompt candidates"):
+        await claude.read_prompt(
+            lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant")
+        )

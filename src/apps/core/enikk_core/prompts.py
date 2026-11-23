@@ -28,6 +28,7 @@ from enikk_contracts.prompts import (
     PromotionResult,
     PromotionStatus,
     PromptCandidateCreated,
+    PromptRead,
 )
 from enikk_core_domain.errors import (
     InvalidRequestError,
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
         PromotionDecision,
         PromotionPosted,
         PromptCandidateRequest,
+        PromptReadRequest,
     )
     from enikk_core_domain.model import Session, Task
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
@@ -95,22 +97,50 @@ class PromptService:
         self._clock = clock
         self._ids = ids
 
+    # ------------------------------------------------------------ reading (ADR-0032 §8)
+
+    async def read(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
+        """One version of a role's prompt, for a role that may propose candidates.
+        Read-only; Langfuse's keys stay in core (I-36)."""
+        await self._granted(task_id, request.prompt)
+        label = None if request.version is not None else (request.label or PRODUCTION)
+        stored = await self._registry.get(request.prompt, label=label, version=request.version)
+        if stored is None:
+            selector = f"label {label}" if label is not None else f"version {request.version}"
+            raise NotFoundError(f"prompt '{request.prompt}' has no {selector}")
+        return PromptRead(
+            prompt=stored.name,
+            version=stored.version,
+            labels=stored.labels,
+            type=stored.type,
+            text=stored.text,
+            config=dict(stored.config),
+        )
+
+    async def _granted(
+        self, task_id: uuid.UUID, prompt: str
+    ) -> tuple[Task, Session, tuple[str, ...]]:
+        """The task, its session and the roles using ``prompt``; refuse unless the task's
+        role may handle prompts and ``prompt`` is a role's prompt."""
+        task, session = await self._origin(task_id)
+        definition = self._catalog.get(task.agent)
+        if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
+            raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
+        roles = roles_using(prompt, self._definitions())
+        if not roles:
+            known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
+            raise InvalidRequestError(
+                f"'{prompt}' is not the prompt of any role; roles use: {known}"
+            )
+        return task, session, roles
+
     # ------------------------------------------------------------ candidates
 
     async def propose(
         self, task_id: uuid.UUID, request: PromptCandidateRequest
     ) -> PromptCandidateCreated:
         """Create a candidate version and ask the owner. Never touches ``production``."""
-        task, session = await self._origin(task_id)
-        definition = self._catalog.get(task.agent)
-        if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
-            raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
-        roles = roles_using(request.prompt, self._definitions())
-        if not roles:
-            known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
-            raise InvalidRequestError(
-                f"'{request.prompt}' is not the prompt of any role; roles use: {known}"
-            )
+        task, session, roles = await self._granted(task_id, request.prompt)
         production = await self._registry.get(request.prompt, label=PRODUCTION)
         candidate = check_candidate(request.prompt, production, request.text, request.config)
         created = await self._registry.create_candidate(

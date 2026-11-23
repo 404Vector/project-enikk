@@ -112,8 +112,11 @@ class TranscriptRepository(Protocol):
 
 
 class JobQueue(Protocol):
-    async def claim_next(self, engine: Engine) -> Task | None:
+    async def claim_next(self, engine: Engine, held: uuid.UUID | None = None) -> Task | None:
         """Lock and return the next ``QUEUED`` shared task for ``engine``.
+
+        Held tasks (event ID starting with ``HELD_EVENT_PREFIX``) are skipped. With
+        ``held``, only that task is returned, and only if it is a held task.
 
         A task is eligible only when no other task of its session is leased and
         no older task of its session is queued (I-29). Tasks locked by another

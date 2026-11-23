@@ -135,6 +135,6 @@ def delegated_status(agent: str, output: str) -> str:
     if not links:
         return output
     return (
-        f"{agent} 에이전트가 작업을 마쳤습니다. PR: {' '.join(links)}\n"
+        f"에닉의 {agent} 역할이 작업을 마쳤습니다. PR: {' '.join(links)}\n"
         "검사가 끝나면 소유자 DM 에 검토 스레드가 열립니다. 바뀐 내용과 상세는 그곳에 있습니다."
     )

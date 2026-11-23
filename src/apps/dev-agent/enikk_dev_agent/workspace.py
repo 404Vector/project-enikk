@@ -87,13 +87,8 @@ class GitWorkspace:
         )
         if not found.ok:
             raise WorkspaceError(f"git ls-remote failed: {found.stderr.strip()[:500]}")
-        continuing = bool(found.stdout.strip())
+        continuing = bool(found.stdout.strip()) and self._fetch_branch(repo_dir, branch)
         if continuing:
-            # A shallow clone fetches only main. Add the branch to origin's fetch
-            # refspec too, or git refuses to track origin/<branch> as a branch.
-            refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
-            self._git("config", "--add", "remote.origin.fetch", refspec, cwd=repo_dir)
-            self._git("fetch", "--depth", "100", "origin", refspec, cwd=repo_dir)
             self._git("switch", "--create", branch, "--track", f"origin/{branch}", cwd=repo_dir)
         else:
             self._git("switch", "--create", branch, cwd=repo_dir)
@@ -141,6 +136,30 @@ class GitWorkspace:
             "\tdefaultBranch = main\n",
             encoding="utf-8",
         )
+
+    def _fetch_branch(self, repo_dir: Path, branch: str) -> bool:
+        """Fetch ``branch`` as ``origin/<branch>``. False when it is gone by now (deleted
+        after ``ls-remote``, e.g. a merged PR's branch): then a new branch is made."""
+        # A shallow clone fetches only main. Add the branch to origin's fetch refspec
+        # too, or git refuses to track origin/<branch> as a branch.
+        refspec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
+        self._git("config", "--add", "remote.origin.fetch", refspec, cwd=repo_dir)
+        fetched = self._runner.run(
+            ["git", "fetch", "--depth", "100", "origin", refspec], cwd=repo_dir, check=False
+        )
+        if not fetched.ok:
+            if "couldn't find remote ref" not in fetched.stderr:
+                raise WorkspaceError(f"git fetch failed: {fetched.stderr.strip()[:500]}")
+            _log.warning("branch %s vanished after ls-remote; starting it anew", branch)
+            return False
+        tracking = self._runner.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+            cwd=repo_dir,
+            check=False,
+        )
+        if not tracking.ok:
+            raise WorkspaceError(f"fetched {branch}, but origin/{branch} is not a branch")
+        return True
 
     def _git(self, *args: str, cwd: Path | None = None) -> None:
         result = self._runner.run(["git", *args], cwd=cwd, check=False)

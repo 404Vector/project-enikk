@@ -46,6 +46,7 @@ ADR-0011 은 저장소·큐·API·인증의 방향을 정했다. M2 구현에 �
 - `enikk-ops smoke core` 는 검증용 Pod 를 띄우지 않는다. 대상 ServiceAccount 의 audience=`enikk-core` 토큰을 TokenRequest 로 발급받고, port-forward 로 core 를 호출한다.
 - 운영 리소스를 바꾸지 않으므로 I-18 에 해당하지 않으며, core 는 실제 TokenReview 경로로 검증한다.
 - 커넥터·런타임 ServiceAccount 는 해당 앱이 생기기 전에 `deploy/k8s/identities/` 에 먼저 둔다.
+- (2026-11-23) `smoke core` 의 작업은 *보류 작업*이다(이벤트 ID 가 `held:` 로 시작). 큐는 보류 작업을 내주지 않고, 작업 ID 를 지정한 임대(`LeaseRequest.task_id`)만 그 작업을 가져간다. 그래서 실제 런타임이 smoke 작업을 처리하거나, smoke 가 실제 대화의 작업을 가져가 닫는 일이 없다. 보류 이벤트는 smoke 커넥터만 보낼 수 있다. `smoke claude`·`smoke dev` 는 실제 런타임·개발 역할이 처리해야 하므로 보류 작업을 쓰지 않는다.
 
 ### 8. API 형식
 - 모든 API 는 `/v1` 아래에 있고, 상태를 바꾸거나 대기하는 요청은 `POST` + 계약 모델 본문을 쓴다.

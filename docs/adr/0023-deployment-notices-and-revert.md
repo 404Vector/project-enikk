@@ -74,6 +74,7 @@ ADR-0020 §3 은 배포 실패 대응으로 RollingUpdate, PostSync 스모크 �
 - 되돌리는 PR 은 `agent/revert-<SHA 12자리>` 브랜치에 App 이름으로 열린다. 같은 커밋의 PR 이 열려 있으면 새로 만들지 않고 그 PR 을 알려 준다. 개발 토큰(DEVELOP)을 쓰며, 워크플로 파일을 바꾼 커밋은 워크플로 권한이 없으면 되돌리지 못한다.
 - 머지된 PR 이 되돌리기 기록에 있으면, 그 커밋의 배포 알림은 "롤백 성공/실패", 빌드 실패는 "롤백 실패"가 된다. 롤백 결과에는 [되돌리기] 버튼을 붙이지 않는다.
 - [되돌리기] 버튼은 Slack 확인 창을 거친다. 누른 사람이 소유자일 때만 처리한다(I-01).
+- (2026-11-23) **커밋마다 한 번만 알린다.** 보고한 뒤 같은 커밋의 앱 동기화가 새로 시작되면(Image Updater 가 다음 주기에 다른 앱을 바꾸거나, 같은 커밋이 다시 동기화될 때) 감시는 그것을 새 배포로 보고 "배포 성공"을 두 번 보냈다(0157cd2, ee7b2fb, 7ebbcbf 가 1~2분 간격으로 두 번). 이제 감시의 기억에 보고한 커밋(최근 50개)을 두고, 그 커밋의 이후 동기화는 실패했을 때만 알린다.
 
 ## 근거
 - Argo CD Application 의 `status.sync`, `status.health`, `status.operationState` 와 `spec.source.helm.parameters` 는 현재 클러스터에서 확인했다(2026-11-22, `enikk-core` 의 `image.tag` 파라미터와 `operationState.phase: Succeeded`).

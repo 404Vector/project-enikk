@@ -65,6 +65,8 @@ async def test_the_next_turn_sees_what_the_delegate_posted(harness: Harness) -> 
     harness.clock.advance(timedelta(minutes=1))
     nxt = await _say(harness, "Ev2", "방금 초안대로 만들어 줘")
     assert nxt.input.startswith(HEADER)
+    # The assistant's prompt quotes this header (ADR-0031 wording).
+    assert HEADER == "[이 스레드에 그 사이 에닉의 다른 역할과 시스템이 올린 내용]"
     assert DRAFT in nxt.input
     assert "넘겼어요" not in nxt.input  # its own reply is already in its conversation
     assert nxt.input.endswith("방금 초안대로 만들어 줘")

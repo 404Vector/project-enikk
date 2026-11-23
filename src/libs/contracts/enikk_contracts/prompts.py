@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import uuid
 from enum import StrEnum
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, Self
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, JsonValue, StringConstraints, model_validator
 
 from enikk_contracts.base import Contract
 from enikk_contracts.common import AgentName, ConversationRef, Identifier
@@ -41,6 +41,32 @@ class PromptCandidateRequest(Contract):
     text: Annotated[str, StringConstraints(min_length=1, max_length=MAX_PROMPT_CHARS)]
     reason: Reason
     config: PromptConfigChange | None = None
+
+
+class PromptReadRequest(Contract):
+    """Read one version of a role's prompt through core (ADR-0032 §8). Read-only.
+    Neither ``label`` nor ``version``: ``production``."""
+
+    lease_id: uuid.UUID
+    prompt: PromptName
+    label: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None = None
+    version: Version | None = None
+
+    @model_validator(mode="after")
+    def _one_selector(self) -> Self:
+        if self.label is not None and self.version is not None:
+            raise ValueError("give label or version, not both")
+        return self
+
+
+class PromptRead(Contract):
+    prompt: PromptName
+    version: Version
+    labels: Annotated[tuple[str, ...], Field(max_length=50)] = ()
+    type: Literal["text", "chat"]
+    text: Annotated[str, StringConstraints(max_length=MAX_PROMPT_CHARS)] | None
+    """The prompt of a text prompt; ``None`` for a chat prompt."""
+    config: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class PromptCandidateCreated(Contract):

@@ -21,6 +21,7 @@ COMMIT: Final = re.compile(r"^[0-9a-f]{40}$")
 FAILED_PHASES: Final = frozenset({"Failed", "Error"})
 MAX_SEEN_RUNS: Final = 200
 MAX_REVERTS: Final = 50
+MAX_REPORTED: Final = 50
 MAX_DETAIL: Final = 500
 
 
@@ -107,6 +108,9 @@ class DeploymentWatch(FrozenModel):
     builds_since: AwareDatetime | None = None
     """Build runs created before the watcher first ran are history, not news."""
     reverts: tuple[RevertRecord, ...] = ()
+    reported: tuple[str, ...] = ()
+    """Commits already reported. Another rollout of one of them (an app updated after the
+    report, or a second sync of the same commit) is reported only if it fails."""
 
     def observe(
         self, observations: list[AppObservation], now: AwareDatetime, timing: WatchTiming
@@ -138,6 +142,7 @@ class DeploymentWatch(FrozenModel):
 
         finished: list[FinishedDeployment] = []
         remaining: list[PendingDeployment] = []
+        reported = list(self.reported)
         for deployment in pending.values():
             judged = deployment.model_copy(
                 update={
@@ -148,8 +153,11 @@ class DeploymentWatch(FrozenModel):
             )
             if judged.settled and now - judged.last_change_at >= timing.settle:
                 result = FinishedDeployment(commit=judged.commit, rollouts=judged.rollouts)
-                if result.worth_reporting:
+                again = result.commit in reported
+                if result.worth_reporting and (not again or not result.succeeded):
                     finished.append(result)
+                if not again:
+                    reported.append(result.commit)
             else:
                 remaining.append(judged)
 
@@ -158,6 +166,7 @@ class DeploymentWatch(FrozenModel):
                 "baselines": tuple(sorted(baselines.values(), key=lambda b: b.app)),
                 "pending": tuple(remaining),
                 "builds_since": self.builds_since or now,
+                "reported": tuple(reported[-MAX_REPORTED:]),
             }
         )
         return state, finished

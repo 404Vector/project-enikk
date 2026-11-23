@@ -16,7 +16,13 @@ from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
 from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
 from enikk_contracts.routes import AUDIENCE
-from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport, Succeeded
+from enikk_contracts.tasks import (
+    HELD_EVENT_PREFIX,
+    Heartbeat,
+    LeaseRequest,
+    ResultReport,
+    Succeeded,
+)
 from enikk_core_client import (
     CoreClient,
     CoreForbiddenError,
@@ -144,20 +150,13 @@ class CoreSmokeTest:
         self._ok(f"GitHub App has every permission it needs and reaches {names}")
 
     async def _lease(self, runtime: CoreClient, task_id: uuid.UUID) -> TaskAssignment:
-        for _ in range(self._settings.max_foreign_tasks + 1):
-            response = await runtime.lease_task(LeaseRequest(wait_seconds=10))
-            assignment = response.assignment
-            if assignment is None:
-                break
-            if assignment.task_id == task_id:
-                return assignment
-            # A leftover task from an earlier, interrupted smoke run: close it.
-            leftover = ResultReport(
-                lease_id=assignment.lease_id,
-                outcome=Failed(reason="closed by enikk-ops smoke", retryable=False),
-            )
-            await runtime.report_result(assignment.task_id, leftover)
-        raise SmokeTestError(f"task {task_id} was not assigned to the runtime")
+        """Take exactly the smoke task: a held task the real runtime never takes, and
+        no other task is ever leased or closed by the smoke check."""
+        response = await runtime.lease_task(LeaseRequest(wait_seconds=10, task_id=task_id))
+        assignment = response.assignment
+        if assignment is None or assignment.task_id != task_id:
+            raise SmokeTestError(f"task {task_id} was not assigned to the runtime")
+        return assignment
 
     async def _receive(self, connector: CoreClient, task_id: uuid.UUID) -> uuid.UUID:
         batch = await connector.poll_outbox(OutboxPoll(wait_seconds=10, limit=100))
@@ -305,7 +304,7 @@ class DevSmokeTest(ClaudeSmokeTest):
 def _smoke_event() -> InboundEvent:
     run = uuid.uuid4().hex
     return InboundEvent(
-        event_id=f"smoke-{run}",
+        event_id=f"{HELD_EVENT_PREFIX}smoke-{run}",
         conversation=ConversationRef(
             connector=ConnectorKind.SMOKE, channel=SMOKE_CHANNEL, thread=run
         ),

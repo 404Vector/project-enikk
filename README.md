@@ -85,6 +85,15 @@ uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
 
 이후에는 `main` 에 머지된 변경이 Argo CD 를 통해 자동으로 배포됩니다.
 
+Argo CD 화면에 처음 로그인할 때만 초기 관리자 Secret(`argocd-initial-admin-secret`)의 비밀번호를 씁니다. `argocd ui` 가 그 명령을 보여 줍니다.
+로그인한 뒤 화면의 **User Info → Update Password** 에서 비밀번호를 바꾸고, 더는 쓰이지 않는 초기 Secret 을 지웁니다(Argo CD 문서의 권장 절차).
+
+```bash
+kubectl -n argocd delete secret argocd-initial-admin-secret
+```
+
+이 Secret 은 Argo CD 설치 때 생기며 git 이 관리하지 않습니다. 지우는 일은 부트스트랩의 마지막 단계로 보고 소유자가 직접 합니다(I-18 의 부트스트랩 예외). 클러스터를 다시 설치하면 새로 생기므로 그때 다시 지웁니다.
+
 ### 비밀값
 
 비밀값(Slack, Claude, Langfuse 토큰)은 이 PC 의 `~/.config/enikk/secrets.yaml` 에 보관하고,
@@ -142,6 +151,8 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
 5. 승격 결과 메시지의 [vN 로 되돌리기] 를 누르면 `production` 이 승격 전 버전으로 돌아갑니다(그 사이 다른 버전이 승격됐으면 되돌리지 않습니다). 프롬프트가 잘못돼 assistant 가 답하지 못해도 이 버튼은 동작합니다.
 
 - 버튼은 소유자만 누를 수 있습니다. 같은 버튼을 여러 번 눌러도 한 번만 처리됩니다.
+- 승격하면 이미 진행 중인 스레드도 다음 메시지부터 새 프롬프트를 씁니다. 이때 그 스레드는 새 대화로 다시 시작하고, 이전 대화의 마지막 부분이 글로 이어집니다(ADR-0032 §7).
+- assistant 는 `read_prompt` 로 지금 프롬프트 원문을 읽은 뒤 후보를 만듭니다. 읽기도 core 를 거치고, Langfuse 키는 core 밖으로 나가지 않습니다.
 - core 가 자기에게 있는 `langfuse.public-key`, `langfuse.secret-key` 로 Langfuse 에 씁니다. 키가 없으면 "core 에 Langfuse 키가 없다"는 오류로 답합니다.
 
 **Langfuse 화면에서 직접 고치기**

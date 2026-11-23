@@ -57,6 +57,8 @@ from enikk_contracts.prompts import (
     PromotionResult,
     PromptCandidateCreated,
     PromptCandidateRequest,
+    PromptRead,
+    PromptReadRequest,
 )
 from enikk_contracts.tasks import (
     ClaimRequest,
@@ -321,6 +323,14 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PromptCandidateRequest)
         await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
         return _json(await _prompts(services).propose(task_id, body))
+
+    @app.post(routes.PROMPT_READ, responses={200: {"model": PromptRead}})
+    @requires("runtime")
+    async def read_prompt(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        body = await _parse(request, PromptReadRequest)
+        await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
+        return _json(await _prompts(services).read(task_id, body))
 
     @app.post(routes.PROMOTION_DECISION, responses={200: {"model": PromotionResult}})
     @requires("connector")

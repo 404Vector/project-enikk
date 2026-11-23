@@ -7,9 +7,11 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.common import ConnectorKind
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import (
+    HELD_EVENT_PREFIX,
     DelegationAccepted,
     LeaseExtended,
     LeaseResponse,
@@ -33,7 +35,7 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Awaitable, Callable
 
-    from enikk_contracts.common import ConnectorKind, Engine
+    from enikk_contracts.common import Engine
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
@@ -76,6 +78,11 @@ class CoreUseCases:
     # ------------------------------------------------------------ connector
 
     async def accept_event(self, event: InboundEvent) -> EventAccepted:
+        if (
+            event.event_id.startswith(HELD_EVENT_PREFIX)
+            and event.conversation.connector is not ConnectorKind.SMOKE
+        ):
+            raise PermissionDeniedError("only the smoke check submits held events")
         async with self._uow() as uow:
             existing = await uow.tasks.find_by_source_event(event.event_id)
             if existing is not None:
@@ -153,14 +160,16 @@ class CoreUseCases:
     async def lease_task(self, engine: Engine, request: LeaseRequest) -> LeaseResponse:
         deadline = self._clock.now() + timedelta(seconds=request.wait_seconds)
         while True:
-            assignment = await self._try_lease(engine)
+            assignment = await self._try_lease(engine, request.task_id)
             if assignment is not None or self._clock.now() >= deadline:
                 return LeaseResponse(assignment=assignment)
             await self._sleep(self._policy.poll_interval_seconds)
 
-    async def _try_lease(self, engine: Engine) -> TaskAssignment | None:
+    async def _try_lease(
+        self, engine: Engine, held: uuid.UUID | None = None
+    ) -> TaskAssignment | None:
         async with self._uow() as uow:
-            queued = await uow.queue.claim_next(engine)
+            queued = await uow.queue.claim_next(engine, held)
             if queued is None:
                 return None
             session = await uow.sessions.get(queued.session_id)

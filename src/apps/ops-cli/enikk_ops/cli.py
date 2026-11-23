@@ -60,12 +60,19 @@ def argocd_ui(ctx: typer.Context) -> None:
     container = _container(ctx)
     settings = container.settings.argocd
     typer.echo(f"Argo CD UI: http://localhost:{settings.ui_port}  (user: admin)")
-    typer.echo(
-        "Initial password: kubectl -n "
-        f"{settings.namespace} get secret argocd-initial-admin-secret "
-        "-o jsonpath='{.data.password}' | base64 -d"
-    )
+    typer.echo(initial_password_steps(settings.namespace))
     raise typer.Exit(container.argocd.open_ui())
+
+
+def initial_password_steps(namespace: str) -> str:
+    """How to log in the first time and then retire the initial admin Secret (README)."""
+    secret = "argocd-initial-admin-secret"  # noqa: S105 - a Secret name, not a value
+    return (
+        f"First login only - initial password: kubectl -n {namespace} get secret {secret} "
+        "-o jsonpath='{.data.password}' | base64 -d\n"
+        "Then change it in the UI (User Info > Update Password) and delete the initial "
+        f"Secret, which Argo CD no longer needs: kubectl -n {namespace} delete secret {secret}"
+    )
 
 
 FromFile = Annotated[
