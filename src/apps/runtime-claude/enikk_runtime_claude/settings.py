@@ -47,6 +47,13 @@ class WorkspaceSettings(SettingsModel):
         )
 
 
+class SkillSettings(SettingsModel):
+    """Skills (ADR-0037 §2, §3): the skill list and ``load_skill`` for shared roles with
+    built-in tools. Off unless the chart turns it on."""
+
+    enabled: bool = False
+
+
 class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     core_url: str = "http://enikk-core.enikk.svc"
     token_file: Path = PROJECTED_TOKEN_FILE
@@ -57,3 +64,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     verbose: bool = False
     worker: WorkerSettings = WorkerSettings()
     workspace: WorkspaceSettings = WorkspaceSettings()
+    skills: SkillSettings = SkillSettings()

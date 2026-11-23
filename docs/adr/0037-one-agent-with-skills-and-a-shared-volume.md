@@ -1,10 +1,10 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2~5단계는 단계마다 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a 구현됨. 3~5단계는 단계마다 따로 구현한다)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
-> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)만 이번에 표시했다.
+> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)과 2a 에서 바뀌는 것(ADR-0032·I-36, ADR-0005·I-16 의 스킬 부분)만 표시했다.
 
 ## 배경
 
@@ -113,6 +113,22 @@
 - **이미지**: 공용 Dockerfile 이 `PACKAGE=enikk-runtime-claude` 일 때만 git 과 ca-certificates 를 설치한다. uv·검사 도구·Postgres 는 4단계에서 넣는다.
 - 아직 하지 않은 것: push 권한, `load_skill`, 스레드 세션화와 취소, 동시 처리 2, `delegate`·개발 Job 제거.
 
+### 2a 구현 세부 (2026-11-23)
+2단계는 둘로 나눈다. 2a 는 스킬의 형식과 불러오기, 2b 는 core 의 PR 제출 도구(patch·bundle → core 전용 clone → push·PR)다. 2a 는 `delegate`·개발 Job 을 건드리지 않고, Langfuse 에 스킬을 만들거나 assistant 프롬프트를 바꾸지 않는다.
+- **스킬 config 스키마** (`enikk_contracts.skills`): 스킬은 이름이 `skill-` 로 시작하는 text 프롬프트다(`skill-` 뒤는 소문자·숫자·`-`, 63자 이하). config 는 아래 키만 가진다. 다른 키나 알 수 없는 값이 있으면 거부한다.
+  - `model`(필수), `effort`(선택)
+  - `description`(필수): 언제 쓰는지 한 줄, 200자 이하
+  - `requires`(선택, 기본 없음): `repo.push`, `pr.write`, `prompt.propose` 중에서, 겹치지 않게. 2a 에서는 선언과 승격 경고에만 쓴다. core 가 이 값으로 동작을 허용·거부하는 것은 2b 부터다.
+- **후보와 승격** (ADR-0032 의 흐름을 넓힘):
+  - `propose_prompt` 의 대상은 역할의 프롬프트이거나 스킬(`skill-*`)이다. 스킬은 아직 어떤 역할 정의도 쓰지 않으므로 core 는 "역할이 쓰는 이름" 검사를 스킬에는 하지 않는다. 후보를 만들 수 있는 역할(`prompt-candidates`)과 그 밖의 검사는 그대로다.
+  - config 변경에 `description`, `requires`(새 목록 전체)를 넘길 수 있다. 역할의 프롬프트에 이 둘을 넘기면 거부한다. 스킬 후보는 `production` 의 config 위에 덮어쓴 결과가 위 스키마를 통과해야 한다. 새 스킬은 `model` 과 `description` 이 필요하다.
+  - core 는 후보의 `requires` 에서 `production` 에 없던 것(새 스킬이면 전부)을 승격 요청(`PromotionRequested.requires_added`)에 담는다. 승인 채널의 승격 카드는 그 값이 있으면 `:warning: 권한 확장` 경고를 버튼 위에 띄우고, [승격] 확인 창에도 새로 요구하는 동작을 적는다(ADR-0036). 좁히거나 그대로 두는 변경은 경고 없이 Config diff 로만 보인다.
+- **`load_skill(name)`** (플랫폼 도구, runtime 이 Langfuse 에서 직접 읽는다): 스킬의 `production` 본문과 버전, `requires` 를 돌려준다. config 가 스키마에 맞지 않거나 `production` 이 없는 스킬은 거부한다. 불러온 스킬의 이름과 버전은 runtime 로그와 그 작업의 Langfuse 트레이스(trace·generation 의 metadata `skills`)에 남는다. 실패한 실행의 트레이스에는 남지 않고 로그에만 남는다.
+- **스킬 목록**: 세션의 각 작업 입력 맨 앞에 `[스킬 …]` 머리말로 쓸 수 있는 스킬(이름, `description`)을 붙인다. Langfuse 의 `production` label 이 달린 프롬프트 가운데 `skill-*` 이고 스키마를 통과한 것만, 최대 50개를 이름 순으로 싣는다. 목록과 본문은 60초 캐시한다. 목록을 가져오지 못하면 빈 목록으로 알리고 `load_skill` 은 그대로 준다.
+- **누가 받나**: 기본 도구를 가진 공용 역할(`execution: shared`, `tools.builtin` 이 있고 `platform_defaults: true`, 지금은 assistant)만. 개발 역할(격리)과 요약 역할(도구 없음, I-38)은 받지 않는다. 역할 정의 파일에 도구 이름을 더하지 않고 runtime 이 이 조건으로 준다. 스킬 본문은 지시만 담고 권한을 더하지 않는다(새 도구도, 새 core 동작도 생기지 않는다).
+- **기능 플래그**: runtime 의 `ENIKK_RUNTIME_SKILLS__ENABLED`(Helm `deploy/helm/runtime-claude` 의 `skills.enabled`, 차트 기본 `true`, 코드 기본 `false`). 끄면 스킬 목록과 `load_skill` 이 모두 빠진다. 스킬 후보의 검증과 승격 경고는 core 에 늘 있다. 스킬이 쓰이지 않으면 아무 효과가 없으므로 따로 끄지 않는다.
+- 아직 하지 않은 것(2b 이후): `requires` 의 강제, core 의 PR 제출 도구, 스케줄 작업에 스킬을 미리 로드하는 것, 기본 프롬프트 `enikk` 로의 전환.
+
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
 - 권한을 역할 대신 **동작**에 묶으면(6) 스킬은 지시만 담으면 된다. 되돌릴 수 없는 동작은 모두 core 를 거치거나 소유자 승인을 받으므로, 프롬프트 인젝션이 닿는 범위가 넓어져도 결과가 GitHub 이나 운영에 바로 닿지 않는다.
@@ -144,9 +160,10 @@
 |---|---|---|
 | ADR-0010 §3, I-25 | 런타임은 상태를 갖지 않는다 → 공유 볼륨(다시 만들 수 있는 캐시·작업 공간)은 예외 | **1 (이번)** |
 | ADR-0033 §2.2·§2.5 | 쓰기 허용 경로에 그 스레드의 볼륨 경로 추가. 작업 폴더는 지우되 스레드 worktree 는 남긴다 | **1 (이번)** |
-| ADR-0019, ADR-0021 §3·§7, I-32 | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | 2·4 |
-| ADR-0032, I-36 | 스킬 config(`requires`)와 승격 경고 | 2 |
-| ADR-0005, I-10, I-14, I-16 | 역할 정의 파일 → 기본 프롬프트 + 스킬 + 동작 권한 | 2·4 |
+| ADR-0019, ADR-0021 §3·§7, I-32 | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | 2b·4 |
+| ADR-0032, I-36 | 스킬 config(`requires`)와 승격 경고 | **2a (표시함)** |
+| ADR-0005, I-16 | Langfuse 의 스킬 config 에 `requires`(core 경유 동작의 선언)를 둔다 | **2a (표시함)** |
+| ADR-0005, I-10, I-14, I-16 | 역할 정의 파일 → 기본 프롬프트 + 스킬 + 동작 권한 | 2b·4 |
 | ADR-0012(I-29), ADR-0014, ADR-0027, ADR-0034 | 세션 = 스레드, 스레드 사이 동시 2, 취소 | 3 |
 | ADR-0007, ADR-0021, ADR-0022, ADR-0025, ADR-0030, ADR-0031, I-11, I-12, I-17, I-28 | 위임·개발 Job·`enikk-dev`·역할 개념 제거, 테스트 DB 이전, core 의 Job 권한 제거 | 4 |
 | ADR-0035, I-38 | 요약 역할 → 도구 없는 요약 스킬 세션, 스케줄러 정리 | 5 |
@@ -155,13 +172,13 @@
 ## 이행 순서
 각 단계는 따로 배포할 수 있고, 4단계 전까지는 이전 방식(위임, 개발 Job)이 그대로 동작한다.
 1. 공유 볼륨·기준 저장소·worktree. runtime 이 저장소 원문을 읽는다. **(이 PR)**
-2. core 의 PR 제출 도구(patch/bundle → core 전용 clone → push·PR), `load_skill`, 스킬 config 스키마.
+2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(patch/bundle → core 전용 clone → push·PR).
 3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정.
 4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv·검사 도구, 테스트 DB 이전, 관련 ADR·불변식 대체 표시.
 5. conversation-summary 스킬로 전환, 스케줄러 정리.
 
 ### 되돌리기
-- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다).
+- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다.
 - 4단계부터: 이전 이미지와 이전 매니페스트로 되돌린다(ADR-0023 의 되돌리기).
 
 ## 재검토 조건

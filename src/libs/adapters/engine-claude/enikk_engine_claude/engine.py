@@ -66,6 +66,7 @@ if TYPE_CHECKING:
         DigestRequester,
         MemoryKeeper,
         PromptProposer,
+        SkillLibrary,
     )
 
     QueryFn = Callable[..., AsyncIterator[Message]]
@@ -93,6 +94,9 @@ SANDBOX_WRITE: Final = ("/dev",)
 """Writable besides the working directory and the scratch directory, which holds the
 task's home and ``TMPDIR``. ``/tmp`` itself is not."""
 
+_KNOWN_CONFIG: Final = frozenset({"effort", "description", "requires"})
+"""Prompt config keys besides the model; ``description`` and ``requires`` are for skills
+(ADR-0037 §2) and do not change the run."""
 _TOKEN_NAMES: Final = frozenset({"CLAUDE_CODE_OAUTH_TOKEN", sandbox.ENV_TOKEN, sandbox.TOKEN_FD})
 
 _log = logging.getLogger(__name__)
@@ -146,6 +150,7 @@ class ClaudeEngine:
         diagnostics: Diagnostician | None = None,
         prompts: PromptProposer | None = None,
         digests: DigestRequester | None = None,
+        skills: SkillLibrary | None = None,
         query_fn: QueryFn = query,
         landlock: bool | None = None,
     ) -> None:
@@ -157,6 +162,7 @@ class ClaudeEngine:
         self._diagnostics = diagnostics
         self._prompts = prompts
         self._digests = digests
+        self._skills = skills
         self._query = query_fn
         self._landlock = sandbox.available() if landlock is None else landlock
         if not self._landlock:
@@ -250,12 +256,19 @@ class ClaudeEngine:
         trace: RunTrace,
     ) -> ClaudeAgentOptions:
         effort = job.prompt.parameters.get("effort")
-        unknown = sorted(set(job.prompt.parameters) - {"effort"})
+        unknown = sorted(set(job.prompt.parameters) - _KNOWN_CONFIG)
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = self._builtin(job)
         server = platform_server(
-            job, self._delegator, self._memory, self._diagnostics, self._prompts, self._digests
+            job,
+            self._delegator,
+            self._memory,
+            self._diagnostics,
+            self._prompts,
+            self._digests,
+            self._skills,
+            trace.skills,
         )
         platform = self._platform(job) if server is not None else []
         return ClaudeAgentOptions(
@@ -342,6 +355,7 @@ class ClaudeEngine:
             diagnostics=self._diagnostics is not None,
             prompts=self._prompts is not None,
             digests=self._digests is not None,
+            skills=self._skills is not None,
         )
 
     async def _consume(
@@ -447,6 +461,7 @@ def _finish(job: EngineJob, result: ResultMessage, trace: RunTrace) -> EngineRes
         engine_session_id=result.session_id,
         model=trace.model or job.prompt.model,
         usage=_usage(result.usage),
+        skills=tuple(trace.skills),
     )
 
 

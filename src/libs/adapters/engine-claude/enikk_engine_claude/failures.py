@@ -18,6 +18,8 @@ from enikk_kernel.redaction import redact
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKError, ResultMessage
 
+    from enikk_runtime.model import SkillUse
+
 NOT_RETRYABLE_RESULTS: Final = frozenset({"error_max_turns", "error_max_budget_usd"})
 NOT_RETRYABLE_STATUS: Final = frozenset({400, 401, 403, 404, 413})
 STDERR_LINES: Final = 20
@@ -36,6 +38,8 @@ class RunTrace:
         self.answered = False
         """Whether the model produced a turn that was not an API error."""
         self.stderr: deque[str] = deque(maxlen=STDERR_LINES)
+        self.skills: list[SkillUse] = []
+        """Skills the run loaded (ADR-0037 §3)."""
 
     def stderr_line(self, line: str) -> None:
         self.stderr.append(redact(line.rstrip())[:MAX_CAUSE])

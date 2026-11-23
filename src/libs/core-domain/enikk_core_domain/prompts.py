@@ -15,6 +15,14 @@ from pydantic import AwareDatetime, Field, JsonValue
 
 from enikk_contracts.common import Identifier
 from enikk_contracts.prompts import PromotionStatus
+from enikk_contracts.skills import (
+    Capability,
+    declared_requires,
+    is_skill,
+    skill_config,
+    valid_skill_name,
+    widened,
+)
 from enikk_core_domain.errors import InvalidRequestError, InvalidTransitionError
 from enikk_core_domain.model import Entity
 from enikk_core_domain.redaction import looks_secret
@@ -99,6 +107,8 @@ class Candidate(FrozenModel):
     config: dict[str, JsonValue]
     text_diff: str
     config_diff: str
+    requires_added: tuple[Capability, ...] = ()
+    """Skills only: actions the candidate relies on that production does not."""
 
 
 def roles_using(prompt: str, definitions: Sequence[AgentDefinition]) -> tuple[str, ...]:
@@ -113,6 +123,17 @@ def check_candidate(
     change: PromptConfigChange | None,
 ) -> Candidate:
     """The candidate's text and config, or ``InvalidRequestError`` saying what is wrong."""
+    skill = is_skill(prompt)
+    if skill and not valid_skill_name(prompt):
+        raise InvalidRequestError(
+            f"'{prompt}' is not a valid skill name: skill- then lowercase letters, digits, '-'"
+        )
+    if (
+        not skill
+        and change is not None
+        and (change.description is not None or change.requires is not None)
+    ):
+        raise InvalidRequestError("description and requires are only for skill prompts (skill-*)")
     if not text.strip():
         raise InvalidRequestError("the prompt text is empty")
     if looks_secret(text):
@@ -123,10 +144,18 @@ def check_candidate(
         )
     config: dict[str, JsonValue] = dict(production.config) if production is not None else {}
     if change is not None:
-        config.update(change.model_dump(exclude_none=True))
+        config.update(change.model_dump(mode="json", exclude_none=True))
     model = config.get(MODEL_KEY)
     if not isinstance(model, str) or not model.strip():
         raise InvalidRequestError(f'the config of the candidate has no "{MODEL_KEY}"')
+    requires_added: tuple[Capability, ...] = ()
+    if skill:
+        try:
+            checked = skill_config(config)
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from exc
+        before_requires = declared_requires(production.config) if production is not None else ()
+        requires_added = widened(before_requires, checked.requires)
     before_text = (production.text or "") if production is not None else ""
     before_config = production.config if production is not None else {}
     if production is not None and before_text == text and before_config == config:
@@ -137,6 +166,7 @@ def check_candidate(
         config=config,
         text_diff=_diff(before_text, text, before),
         config_diff=_diff(_json(before_config), _json(config), before),
+        requires_added=requires_added,
     )
 
 

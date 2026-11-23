@@ -40,8 +40,11 @@ from enikk_contracts.prompts import (
     PromptConfigChange,
     PromptReadRequest,
 )
+from enikk_contracts.skills import Capability
 from enikk_contracts.tasks import DelegateRequest, TaskStatus
 from enikk_core_client.errors import CoreApiError, CoreUnavailableError
+from enikk_runtime.errors import PromptInvalidError, PromptUnavailableError
+from enikk_runtime.model import SkillUse
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -56,6 +59,7 @@ if TYPE_CHECKING:
         DigestRequester,
         MemoryKeeper,
         PromptProposer,
+        SkillLibrary,
     )
 
 SERVER: Final = "enikk"
@@ -72,6 +76,7 @@ DIAGNOSTIC_TOOLS: Final = tuple(
 PROPOSE_PROMPT_TOOL: Final = f"mcp__{SERVER}__propose_prompt"
 READ_PROMPT_TOOL: Final = f"mcp__{SERVER}__read_prompt"
 SUMMARIZE_DAY_TOOL: Final = f"mcp__{SERVER}__summarize_day"
+LOAD_SKILL_TOOL: Final = f"mcp__{SERVER}__load_skill"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
 )
@@ -114,14 +119,18 @@ RECALL_DESCRIPTION: Final = (
 
 
 PROPOSE_PROMPT_DESCRIPTION: Final = (
-    "Change the system prompt of one of enikk's roles: create a candidate version in "
-    "Langfuse and ask the owner, in a Slack DM with the diff, to promote it. Nothing "
-    "changes until the owner presses [승격]; this tool can never change the production "
-    "prompt. Use it only when the owner asked to change a prompt. prompt: the prompt "
-    "name of a role (e.g. assistant, developer). text: the complete new prompt, not a "
-    "fragment. reason: one or two lines on why. config: only to change the model or "
-    "effort; the rest of the current config is kept. If it is refused, tell the owner "
-    "why instead of retrying with the same input."
+    "Change the system prompt of one of enikk's roles, or a skill (a prompt named "
+    "skill-*): create a candidate version in Langfuse and ask the owner, in the approval "
+    "channel with the diff, to promote it. Nothing changes until the owner presses "
+    "[승격]; this tool can never change the production prompt. Use it only when the "
+    "owner asked to change a prompt or a skill. prompt: the prompt name of a role (e.g. "
+    "assistant, developer) or a skill (e.g. skill-developer). text: the complete new "
+    "prompt, not a fragment. reason: one or two lines on why. config: only the values to "
+    "change; the rest of the current config is kept. model and effort for any prompt; "
+    "description (one line: when to use it) and requires (the whole list of "
+    "core-enforced actions it relies on: repo.push, pr.write, prompt.propose) for skills "
+    "only. A new skill needs model and description. If it is refused, tell the owner why "
+    "instead of retrying with the same input."
 )
 
 
@@ -137,6 +146,10 @@ def _defaults(job: EngineJob) -> bool:
     return job.definition.tools.platform_defaults
 
 
+def _has_skills(job: EngineJob) -> bool:
+    return job.skills is not None
+
+
 def granted_platform_tools(
     job: EngineJob,
     *,
@@ -145,6 +158,7 @@ def granted_platform_tools(
     diagnostics: bool = False,
     prompts: bool = False,
     digests: bool = False,
+    skills: bool = False,
 ) -> list[str]:
     granted = [DELEGATE_TOOL] if delegator and job.definition.delegates else []
     return [
@@ -153,6 +167,7 @@ def granted_platform_tools(
         *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
         *([SUMMARIZE_DAY_TOOL] if digests and _grants_digests(job) else ()),
+        *([LOAD_SKILL_TOOL] if skills and _has_skills(job) else ()),
     ]
 
 
@@ -163,6 +178,8 @@ def platform_server(
     diagnostics: Diagnostician | None = None,
     prompts: PromptProposer | None = None,
     digests: DigestRequester | None = None,
+    skills: SkillLibrary | None = None,
+    loaded: list[SkillUse] | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
     if delegator is not None and job.definition.delegates:
@@ -175,7 +192,48 @@ def platform_server(
         tools.extend([read_prompt_tool(job, prompts), propose_prompt_tool(job, prompts)])
     if digests is not None and _grants_digests(job):
         tools.append(summarize_day_tool(job, digests))
+    if skills is not None and _has_skills(job):
+        tools.append(load_skill_tool(job, skills, [] if loaded is None else loaded))
     return create_sdk_mcp_server(SERVER, tools=tools) if tools else None
+
+
+LOAD_SKILL_DESCRIPTION: Final = (
+    "Load a skill: the owner-approved procedure for one kind of work, kept in Langfuse "
+    "as a prompt named skill-*. The skills you can load are listed at the start of the "
+    "input. Load one when the work matches its description, then follow it together "
+    "with your system prompt; if they conflict, the system prompt wins. name: the "
+    "skill's name, e.g. skill-developer."
+)
+
+
+def load_skill_tool(
+    job: EngineJob, skills: SkillLibrary, loaded: list[SkillUse]
+) -> SdkMcpTool[Any]:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "A skill name (skill-*)."}},
+        "required": ["name"],
+    }
+
+    @tool("load_skill", LOAD_SKILL_DESCRIPTION, schema)
+    async def load_skill(args: dict[str, Any]) -> dict[str, Any]:
+        name = str(args.get("name", "")).strip()
+        try:
+            skill = await skills.load(name)
+        except PromptUnavailableError:
+            return _result("Langfuse is unreachable right now; try again later.", True)
+        except PromptInvalidError as exc:
+            listed = ", ".join(s.name for s in job.skills or ()) or "none"
+            return _result(f"No such skill: {exc.reason}. Skills: {listed}.", True)
+        loaded.append(SkillUse(name=skill.name, version=skill.version))
+        _log.info("task %s loaded skill %s v%d", job.task_id, skill.name, skill.version)
+        requires = ", ".join(c.value for c in skill.requires) or "none"
+        return _result(
+            f"[skill {skill.name} v{skill.version}; requires: {requires}]\n\n{skill.text}",
+            False,
+        )
+
+    return load_skill
 
 
 SUMMARIZE_DAY_DESCRIPTION: Final = (
@@ -258,6 +316,19 @@ def read_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]
     return read_prompt
 
 
+def _config_change(raw: dict[str, Any]) -> PromptConfigChange:
+    """The tool's ``config`` argument; ``ValueError`` for an unknown ``requires`` value."""
+    requires = raw.get("requires")
+    if requires is not None and not isinstance(requires, list):
+        raise ValueError("requires must be a list")
+    return PromptConfigChange(
+        model=str(raw["model"]) if raw.get("model") else None,
+        effort=str(raw["effort"]) if raw.get("effort") else None,
+        description=str(raw["description"]) if raw.get("description") else None,
+        requires=None if requires is None else tuple(Capability(str(v)) for v in requires),
+    )
+
+
 def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
     schema: dict[str, Any] = {
         "type": "object",
@@ -268,7 +339,16 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
             "config": {
                 "type": "object",
                 "description": "Optional. Only the values to change.",
-                "properties": {"model": {"type": "string"}, "effort": {"type": "string"}},
+                "properties": {
+                    "model": {"type": "string"},
+                    "effort": {"type": "string"},
+                    "description": {"type": "string", "description": "Skills only."},
+                    "requires": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": [c.value for c in Capability]},
+                        "description": "Skills only. The whole new list.",
+                    },
+                },
             },
         },
         "required": ["prompt", "text", "reason"],
@@ -278,14 +358,7 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
     async def propose_prompt(args: dict[str, Any]) -> dict[str, Any]:
         raw = args.get("config")
         try:
-            config = (
-                PromptConfigChange(
-                    model=str(raw["model"]) if raw.get("model") else None,
-                    effort=str(raw["effort"]) if raw.get("effort") else None,
-                )
-                if isinstance(raw, dict)
-                else None
-            )
+            config = _config_change(raw) if isinstance(raw, dict) else None
             request = PromptCandidateRequest(
                 lease_id=job.lease_id,
                 prompt=str(args.get("prompt", "")),
@@ -293,10 +366,13 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
                 reason=str(args.get("reason", "")),
                 config=config,
             )
-        except ValidationError:
+        except (ValidationError, ValueError):
             return _result(
                 "prompt, text and reason are required (text 100000, reason 500 characters "
-                "at most; config may hold only model and effort).",
+                "at most). config may hold only model, effort, description (one line, 200 "
+                "characters at most) and requires (each of "
+                + ", ".join(c.value for c in Capability)
+                + ", once).",
                 True,
             )
         try:
@@ -308,7 +384,8 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
         before = f"v{created.production_version}" if created.production_version else "no production"
         return _result(
             f"Candidate v{created.candidate_version} of '{created.prompt}' created "
-            f"(production is {before}). The owner was asked in a DM to promote it; "
+            f"(production is {before}). The owner was asked in the approval channel to "
+            "promote it; "
             "nothing changes until they do.",
             False,
         )

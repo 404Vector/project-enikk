@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         PromptRead,
         PromptReadRequest,
     )
+    from enikk_contracts.skills import SkillSummary
     from enikk_contracts.tasks import (
         DelegateRequest,
         DelegationAccepted,
@@ -47,7 +48,13 @@ if TYPE_CHECKING:
         ResultAccepted,
         ResultReport,
     )
-    from enikk_runtime.model import EngineJob, EngineResult, ResolvedPrompt, SessionWorkspace
+    from enikk_runtime.model import (
+        EngineJob,
+        EngineResult,
+        LoadedSkill,
+        ResolvedPrompt,
+        SessionWorkspace,
+    )
 
 
 class TaskSource(Protocol):
@@ -126,6 +133,20 @@ class Diagnostician(Protocol):
 class PromptStore(Protocol):
     async def get(self, ref: PromptRef) -> ResolvedPrompt:
         """Fetch a prompt. Raises ``PromptUnavailableError`` instead of falling back (I-13)."""
+        ...
+
+
+class SkillLibrary(Protocol):
+    """Skill prompts (``skill-*``) in the prompt store (ADR-0037 §2, §3)."""
+
+    async def catalog(self) -> tuple[SkillSummary, ...]:
+        """Name and description of every usable skill's production version."""
+        ...
+
+    async def load(self, name: str) -> LoadedSkill:
+        """The production version of skill ``name``. Raises ``PromptInvalidError`` when it
+        does not exist or is not a valid skill, ``PromptUnavailableError`` when the store
+        cannot be reached."""
         ...
 
 

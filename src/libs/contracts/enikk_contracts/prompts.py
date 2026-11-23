@@ -14,6 +14,7 @@ from pydantic import Field, JsonValue, StringConstraints, model_validator
 
 from enikk_contracts.base import Contract
 from enikk_contracts.common import AgentName, ConversationRef, Identifier
+from enikk_contracts.skills import Capability, SkillDescription
 
 MAX_PROMPT_CHARS: Final = 100_000
 MAX_DIFF_CHARS: Final = 200_000
@@ -30,6 +31,10 @@ class PromptConfigChange(Contract):
 
     model: ModelId | None = None
     effort: Effort | None = None
+    description: SkillDescription | None = None
+    """Skills only (ADR-0037 §2): when to use the skill, in one line."""
+    requires: Annotated[tuple[Capability, ...], Field(max_length=len(Capability))] | None = None
+    """Skills only: the whole new list of core-enforced actions the skill relies on."""
 
 
 class PromptCandidateRequest(Contract):
@@ -90,6 +95,8 @@ class PromotionRequested(Contract):
     reason: Reason
     text_diff: Annotated[str, StringConstraints(max_length=MAX_DIFF_CHARS)] = ""
     config_diff: Annotated[str, StringConstraints(max_length=20_000)] = ""
+    requires_added: Annotated[tuple[Capability, ...], Field(max_length=len(Capability))] = ()
+    """Actions the candidate skill relies on that production does not (ADR-0037 §2)."""
     origin: ConversationRef | None = None
     """The thread where the owner asked for the change."""
 
