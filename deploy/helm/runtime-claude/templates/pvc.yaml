@@ -1,0 +1,21 @@
+{{- if .Values.workspace.enabled }}
+# The shared volume (ADR-0037 §7). Everything on it can be made again from GitHub,
+# so losing it loses only unfinished work in thread worktrees.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: enikk-runtime-claude-data
+  labels:
+    app.kubernetes.io/name: enikk-runtime-claude
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  accessModes: [{{ .Values.workspace.accessMode }}]
+  {{- with .Values.workspace.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.workspace.size }}
+{{- end }}

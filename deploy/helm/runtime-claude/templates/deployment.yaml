@@ -37,6 +37,8 @@ spec:
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
+        # The shared volume can hold many files; only fix ownership when the root differs.
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -53,6 +55,24 @@ spec:
               value: /work
             - name: ENIKK_RUNTIME_SCRATCH_DIR
               value: /tmp/enikk
+            - name: ENIKK_RUNTIME_WORKSPACE__ENABLED
+              value: {{ .Values.workspace.enabled | quote }}
+            {{- if .Values.workspace.enabled }}
+            - name: ENIKK_RUNTIME_WORKSPACE__ROOT
+              value: {{ .Values.workspace.mountPath | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__REPOSITORY
+              value: {{ .Values.workspace.repository | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__REMOTE_URL
+              value: {{ .Values.workspace.remoteUrl | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__BRANCH
+              value: {{ .Values.workspace.branch | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__FETCH_INTERVAL_SECONDS
+              value: {{ .Values.workspace.fetchIntervalSeconds | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__IDLE_DAYS
+              value: {{ .Values.workspace.idleDays | quote }}
+            - name: ENIKK_RUNTIME_WORKSPACE__MIN_FREE_MIB
+              value: {{ .Values.workspace.minFreeMiB | quote }}
+            {{- end }}
           volumeMounts:
             - name: core-token
               mountPath: /var/run/secrets/enikk/core
@@ -61,6 +81,10 @@ spec:
               mountPath: /tmp
             - name: work
               mountPath: /work
+            {{- if .Values.workspace.enabled }}
+            - name: data
+              mountPath: {{ .Values.workspace.mountPath }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
@@ -82,3 +106,8 @@ spec:
         - name: work
           emptyDir:
             sizeLimit: 64Mi
+        {{- if .Values.workspace.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: enikk-runtime-claude-data
+        {{- end }}
