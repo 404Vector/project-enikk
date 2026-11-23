@@ -78,7 +78,7 @@ class PromptCandidateCreated(Contract):
 
 
 class PromotionRequested(Contract):
-    """The owner's DM: promote ``candidate_version`` of ``prompt`` to production?"""
+    """The approval channel: promote ``candidate_version`` of ``prompt`` to production?"""
 
     kind: Literal["prompt-promotion-requested"] = "prompt-promotion-requested"
     promotion_id: uuid.UUID
@@ -129,7 +129,7 @@ class PromotionResult(Contract):
 
 
 class PromotionPosted(Contract):
-    """The promotion request is in the owner's DM; ``link`` is its permalink, if any."""
+    """The promotion request is posted; ``link`` is its permalink, if any."""
 
     link: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
 

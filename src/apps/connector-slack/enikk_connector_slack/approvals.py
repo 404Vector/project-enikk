@@ -1,5 +1,9 @@
-"""The owner's DM: approval and prompt promotion requests out, button presses in
-(ADR-0020, ADR-0032)."""
+"""Notices out, button presses in (ADR-0020, ADR-0026, ADR-0032, ADR-0036).
+
+Approval requests (pull requests, prompt promotions) go to the approval channel,
+deployment notices to the deployment channel, both to the owner's DM if that fails.
+An agent PR's status is one card in the thread that asked for it, updated in place.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +26,8 @@ from enikk_contracts.approvals import (
     DecisionRequest,
     NoticeAck,
     NoticePoll,
+    PullStatusCard,
+    StatusCardPosted,
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
 from enikk_contracts.digests import DigestFailed
@@ -55,7 +61,7 @@ _log = logging.getLogger(__name__)
 
 
 class NoticeRelay:
-    """Posts each owner notice to the owner's DM, then acknowledges it to core."""
+    """Posts each notice where it belongs, then acknowledges it to core."""
 
     def __init__(
         self,
@@ -69,6 +75,7 @@ class NoticeRelay:
         self._slack = slack
         self._owner = config.owner
         self._deploy_channel = config.deploy_notify_channel
+        self._approval_channel = config.approval_channel
         self._policy = policy
         self._sleep = sleep
 
@@ -88,16 +95,29 @@ class NoticeRelay:
         poll = NoticePoll(wait_seconds=self._policy.wait_seconds, limit=10)
         batch = await self._core.poll_notices(poll)
         settled: list[uuid.UUID] = []
+        cards: list[StatusCardPosted] = []
         try:
             for notice in batch.notices:
-                await self._deliver(notice)
+                card = await self._deliver(notice)
+                if card is not None:
+                    cards.append(card)
                 settled.append(notice.notice_id)
         finally:
             if settled:
-                await self._core.ack_notices(NoticeAck(notice_ids=tuple(settled)))
+                await self._core.ack_notices(
+                    NoticeAck(notice_ids=tuple(settled), cards=tuple(cards))
+                )
         return len(settled)
 
-    async def _deliver(self, notice: OwnerNotice) -> None:
+    async def _deliver(self, notice: OwnerNotice) -> StatusCardPosted | None:
+        """Deliver one notice; a newly posted status card is returned for core."""
+        body = notice.body
+        if isinstance(body, PullStatusCard):
+            return await self._deliver_status_card(notice, body)
+        await self._deliver_other(notice)
+        return None
+
+    async def _deliver_other(self, notice: OwnerNotice) -> None:
         body = notice.body
         if isinstance(body, PromotionRequested):
             await self._deliver_promotion(notice, body)
@@ -107,6 +127,13 @@ class NoticeRelay:
             return
         if isinstance(body, ApprovalOutdated):
             message = blocks.outdated(body)
+            await self._slack.update_message(
+                body.replaces.channel, body.replaces.ts, message.text, message.json_blocks()
+            )
+            return
+        if isinstance(body, ApprovalResolved) and body.replaces is not None:
+            # The outcome replaces the approval message and its buttons.
+            message = blocks.resolved(body)
             await self._slack.update_message(
                 body.replaces.channel, body.replaces.ts, message.text, message.json_blocks()
             )
@@ -124,7 +151,7 @@ class NoticeRelay:
         elif isinstance(body, BuildFailed):
             message = blocks.build_failed(body)
         if isinstance(body, DeploymentFinished | BuildFailed):
-            await self._deliver_deployment(notice, message)
+            await self._post_or_dm(notice, self._deploy_channel, message)
             return
         if replaces is not None and card is not None:
             # One message per pull request: a new commit updates it in place.
@@ -139,13 +166,10 @@ class NoticeRelay:
                 "아래는 새 커밋의 상세입니다.",
             )
         else:
-            try:
-                posted = await self._slack.post_message(self._owner, message)
-            except SlackDeliveryError as exc:
-                if exc.transient:
-                    raise
-                _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
+            found = await self._post_or_dm(notice, self._approval_channel, message)
+            if found is None:
                 return
+            posted = found
         if card is None:
             return
         updated = replaces is not None
@@ -161,14 +185,11 @@ class NoticeRelay:
             )
 
     async def _deliver_promotion(self, notice: OwnerNotice, body: PromotionRequested) -> None:
-        """The request in the owner's DM, the diff in its thread, then the asking thread
-        hears where it is (ADR-0032)."""
-        try:
-            posted = await self._slack.post_message(self._owner, blocks.promotion_request(body))
-        except SlackDeliveryError as exc:
-            if exc.transient:
-                raise
-            _log.error("dropped prompt promotion notice %s: %s", notice.notice_id, exc)
+        """The request in the approval channel, the diff in its thread, then the asking
+        thread hears where it is (ADR-0032, ADR-0036)."""
+        message = blocks.promotion_request(body)
+        posted = await self._post_or_dm(notice, self._approval_channel, message)
+        if posted is None:
             return
         if body.origin is not None:
             origin = await self._slack.permalink(body.origin.channel, body.origin.thread)
@@ -200,27 +221,69 @@ class NoticeRelay:
         except SlackDeliveryError as exc:
             _log.warning("could not reply in %s: %s", posted.channel, exc)
 
-    async def _deliver_deployment(self, notice: OwnerNotice, message: blocks.Message) -> None:
-        """Post in the deployment channel, or in the owner's DM if that fails (ADR-0026)."""
+    async def _post_or_dm(
+        self, notice: OwnerNotice, channel: str, message: blocks.Message
+    ) -> PostedMessage | None:
+        """Post in ``channel``, or in the owner's DM if that fails (ADR-0026 §3, ADR-0036).
+
+        ``None`` if the DM failed for good too; a transient DM failure is raised so the
+        notice is not acknowledged and is tried again from the channel.
+        """
         try:
-            await self._slack.post_message(self._deploy_channel, message)
+            return await self._slack.post_message(channel, message)
         except SlackDeliveryError as exc:
             _log.error(
                 "could not post notice %s in %s, sending it to the owner's DM: %s",
                 notice.notice_id,
-                self._deploy_channel,
+                channel,
                 exc,
             )
-        else:
-            return
         try:
-            await self._slack.post_message(
-                self._owner, blocks.sent_to_dm_instead(message, self._deploy_channel)
+            return await self._slack.post_message(
+                self._owner, blocks.sent_to_dm_instead(message, channel)
             )
         except SlackDeliveryError as exc:
             if exc.transient:
                 raise
             _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
+            return None
+
+    async def _deliver_status_card(
+        self, notice: OwnerNotice, card: PullStatusCard
+    ) -> StatusCardPosted | None:
+        """Update the PR's card in the asking thread, or post it the first time.
+        Failures also get a new line, so the thread notifies (ADR-0036)."""
+        origin = card.origin
+        review_link = None
+        if card.review is not None:
+            review_link = await self._slack.permalink(card.review.channel, card.review.ts)
+        message = blocks.status_card(card, review_link, self._deploy_channel)
+        posted = None
+        if card.card is not None:
+            await self._slack.update_message(
+                card.card.channel, card.card.ts, message.text, message.json_blocks()
+            )
+        else:
+            try:
+                made = await self._slack.post_message(origin.channel, message, thread=origin.thread)
+            except SlackDeliveryError as exc:
+                if exc.transient:
+                    raise
+                _log.error("dropped status card %s: %s", notice.notice_id, exc)
+            else:
+                posted = StatusCardPosted(
+                    repository=card.repository,
+                    number=card.number,
+                    channel=made.channel,
+                    ts=made.ts,
+                )
+        alert = blocks.status_alert(card, self._deploy_channel)
+        if alert is not None:
+            try:
+                await self._slack.post_message(origin.channel, alert, thread=origin.thread)
+            except SlackDeliveryError as exc:
+                _log.warning("could not alert the thread of PR #%d: %s", card.number, exc)
+        return posted
 
     async def _link_threads(
         self, posted: PostedMessage, pull: PullRequestCard, *, updated: bool = False

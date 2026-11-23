@@ -55,13 +55,13 @@ def _plain(blocks: object) -> list[Any]:
     return plain
 
 
-async def test_request_goes_to_the_owner_with_buttons_and_the_diff_in_its_thread() -> None:
+async def test_request_goes_to_the_approval_channel_with_buttons_and_the_diff() -> None:
     core, slack = FakeCore(), FakeSlack()
     core.notices = [OwnerNotice(notice_id=uuid.uuid4(), body=REQUEST)]
     assert await NoticeRelay(core, slack, CONFIG, POLICY).relay_once() == 1
 
     [(channel, message)] = slack.messages
-    assert channel == OWNER
+    assert channel == CONFIG.approval_channel
     shown = _all_text(message.payload())
     assert "`assistant`" in shown
     assert "production v3 → 후보 v5" in shown
@@ -84,7 +84,7 @@ async def test_request_goes_to_the_owner_with_buttons_and_the_diff_in_its_thread
     [(promotion_id, posted)] = core.promotions_posted
     assert promotion_id == PROMOTION
     assert posted.link is not None
-    assert posted.link.startswith("https://slack.test/archives/D0OWNER/")
+    assert posted.link.startswith(f"https://slack.test/archives/{CONFIG.approval_channel}/")
     assert core.notices_acked
 
 

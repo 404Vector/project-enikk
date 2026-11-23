@@ -1,6 +1,7 @@
-"""Owner approval of pull requests in Slack (ADR-0020).
+"""Owner approval of pull requests in Slack (ADR-0020, ADR-0036).
 
-Core → connector: notices for the owner's DM. Connector → core: the owner's decision.
+Core → connector: notices (the approval channel, the owner's DM, the asking thread's
+status card). Connector → core: the owner's decision and where status cards were posted.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Annotated, Literal
 from pydantic import Field, StringConstraints
 
 from enikk_contracts.base import Contract
-from enikk_contracts.common import Identifier
+from enikk_contracts.common import ConversationRef, Identifier
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
 from enikk_contracts.digests import DigestFailed
 from enikk_contracts.prompts import PromotionRequested
@@ -58,7 +59,8 @@ class PullRequestCard(Contract):
 
 
 class ReviewMessage(Contract):
-    """The owner's DM message that shows a pull request; updated in place (ADR-0020 §4)."""
+    """A Slack message updated in place: the approval message of a pull request
+    (ADR-0020 §4, ADR-0036) or its status card in the asking thread."""
 
     channel: Identifier
     ts: Identifier
@@ -114,6 +116,49 @@ class ApprovalResolved(Contract):
     title: str
     outcome: ResolutionOutcome
     detail: ShortText = ""
+    replaces: ReviewMessage | None = None
+    """The PR's approval message: update it instead of posting a new one."""
+
+
+class PullStage(StrEnum):
+    """Where an agent's pull request stands, as its status card shows (ADR-0036)."""
+
+    CHECKING = "checking"
+    """New commits are being checked."""
+    CHECKS_FAILED = "checks-failed"
+    AWAITING_APPROVAL = "awaiting-approval"
+    MERGED = "merged"
+    """Approved and merged; the image build and deployment follow if there are any."""
+    BLOCKED = "blocked"
+    """Approved, but GitHub refused the merge."""
+    REJECTED = "rejected"
+    CLOSED = "closed"
+    DEPLOYED = "deployed"
+    DEPLOY_FAILED = "deploy-failed"
+    BUILD_FAILED = "build-failed"
+    ROLLED_BACK = "rolled-back"
+    """The merge commit was reverted and the revert deployed."""
+    ROLLBACK_FAILED = "rollback-failed"
+
+
+class PullStatusCard(Contract):
+    """The one message in the asking thread that shows an agent PR's status (ADR-0036).
+
+    Core fills ``card`` and ``review`` when it hands the notice out: ``card`` is the
+    card already posted (update it), ``review`` the PR's approval message (link to it).
+    """
+
+    kind: Literal["pull-status"] = "pull-status"
+    repository: Annotated[str, StringConstraints(min_length=3, max_length=200)]
+    number: Annotated[int, Field(ge=1)]
+    url: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    title: Annotated[str, StringConstraints(max_length=300)]
+    origin: ConversationRef
+    stage: PullStage
+    commit: Sha | None = None
+    detail: ShortText = ""
+    card: ReviewMessage | None = None
+    review: ReviewMessage | None = None
 
 
 OwnerNoticeBody = Annotated[
@@ -124,7 +169,8 @@ OwnerNoticeBody = Annotated[
     | DeploymentFinished
     | BuildFailed
     | PromotionRequested
-    | DigestFailed,
+    | DigestFailed
+    | PullStatusCard,
     Field(discriminator="kind"),
 ]
 
@@ -143,8 +189,19 @@ class NoticeBatch(Contract):
     notices: tuple[OwnerNotice, ...]
 
 
+class StatusCardPosted(Contract):
+    """A pull request's status card was posted at ``channel``/``ts`` (ADR-0036)."""
+
+    repository: Annotated[str, StringConstraints(min_length=3, max_length=200)]
+    number: Annotated[int, Field(ge=1)]
+    channel: Identifier
+    ts: Identifier
+
+
 class NoticeAck(Contract):
     notice_ids: Annotated[tuple[uuid.UUID, ...], Field(min_length=1, max_length=MAX_NOTICE_BATCH)]
+    cards: Annotated[tuple[StatusCardPosted, ...], Field(max_length=MAX_NOTICE_BATCH)] = ()
+    """Status cards posted while delivering these notices; later ones update them."""
 
 
 class NoticeAcked(Contract):

@@ -74,7 +74,8 @@ def test_a_delegated_answer_with_a_pull_request_becomes_a_status_line() -> None:
     assert status.count(url) == 1
     assert "src/a.py" not in status
     assert "x = 1" not in status
-    assert "소유자 DM" in status
+    assert "승인 채널" in status
+    assert "상태 카드" in status
     assert status.startswith("에닉의 developer 역할이 작업을 마쳤습니다.")  # ADR-0031
 
 

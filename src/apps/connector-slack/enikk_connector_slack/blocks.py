@@ -1,4 +1,5 @@
-"""Slack Block Kit messages for the owner's DM (ADR-0020, ADR-0023, ADR-0032)."""
+"""Slack Block Kit messages: approval requests, deployment notices and the status card
+of an agent PR (ADR-0020, ADR-0023, ADR-0032, ADR-0036)."""
 
 from __future__ import annotations
 
@@ -13,6 +14,8 @@ from enikk_contracts.approvals import (
     ApprovalResolved,
     ChecksFailed,
     PullRequestCard,
+    PullStage,
+    PullStatusCard,
     ResolutionOutcome,
 )
 from enikk_contracts.deployments import (
@@ -279,6 +282,7 @@ def outdated(notice: ApprovalOutdated) -> Message:
 
 
 def resolved(notice: ApprovalResolved) -> Message:
+    """The PR's outcome; it replaces the approval message (and its buttons) if known."""
     line = (
         f"<{notice.url}|#{notice.number} {_escape(notice.title)}> — {OUTCOME_TEXT[notice.outcome]}"
     )
@@ -392,6 +396,89 @@ def revert_requested(result: RevertResult, by: str) -> Context:
     return Context(elements=(Text(text=text[:SECTION_LIMIT]),))
 
 
+# ---------------------------------------------------------------- status card (ADR-0036)
+
+STAGE_TEXT: Final = {
+    PullStage.CHECKING: ":hourglass_flowing_sand: 새 커밋 검사 중",
+    PullStage.CHECKS_FAILED: ":x: 검사 실패",
+    PullStage.AWAITING_APPROVAL: ":inbox_tray: 승인 대기",
+    PullStage.MERGED: ":white_check_mark: 승인·머지됨 → 빌드·배포 중",
+    PullStage.BLOCKED: ":warning: 승인했지만 머지되지 않음",
+    PullStage.REJECTED: ":no_entry_sign: 반려됨 (PR 닫힘)",
+    PullStage.CLOSED: ":heavy_minus_sign: PR 닫힘",
+    PullStage.DEPLOYED: ":rocket: 배포됨",
+    PullStage.DEPLOY_FAILED: ":rotating_light: 배포 실패",
+    PullStage.BUILD_FAILED: ":rotating_light: 이미지 빌드 실패",
+    PullStage.ROLLED_BACK: ":leftwards_arrow_with_hook: 롤백됨",
+    PullStage.ROLLBACK_FAILED: ":rotating_light: 롤백 실패",
+}
+STAGE_NOTE: Final = {
+    PullStage.CHECKS_FAILED: "이 스레드에서 고쳐 달라고 하면 같은 PR 에서 고칩니다.",
+    PullStage.MERGED: "배포할 것이 없는 변경(문서 등)은 여기서 끝납니다.",
+    PullStage.ROLLED_BACK: "이 PR 의 머지를 되돌린 버전이 배포됐습니다.",
+}
+ALERT_STAGES: Final = frozenset(
+    {
+        PullStage.CHECKS_FAILED,
+        PullStage.BLOCKED,
+        PullStage.DEPLOY_FAILED,
+        PullStage.BUILD_FAILED,
+        PullStage.ROLLED_BACK,
+        PullStage.ROLLBACK_FAILED,
+    }
+)
+"""Stages that also post a new line in the thread, so the failure notifies."""
+DEPLOY_STAGES: Final = frozenset(
+    {
+        PullStage.DEPLOYED,
+        PullStage.DEPLOY_FAILED,
+        PullStage.BUILD_FAILED,
+        PullStage.ROLLED_BACK,
+        PullStage.ROLLBACK_FAILED,
+    }
+)
+
+
+def status_card(card: PullStatusCard, review_link: str | None, deploy_channel: str) -> Message:
+    """The PR's one message in the asking thread: status and links, never buttons."""
+    stage = STAGE_TEXT[card.stage]
+    if card.commit is not None:
+        stage += f" · 커밋 `{card.commit[:7]}`"
+    lines = [f"*PR 상태* <{card.url}|#{card.number} {_escape(card.title)}>", stage]
+    if card.detail:
+        lines.append(f"> {_escape(card.detail)}")
+    note = STAGE_NOTE.get(card.stage)
+    if note:
+        lines.append(note)
+    links = []
+    if review_link is not None:
+        links.append(f"<{review_link}|승인 요청과 상세>")
+    if card.stage in DEPLOY_STAGES:
+        links.append(f"배포 상세 <#{deploy_channel}>")
+    blocks: list[Block] = [_section("\n".join(lines))]
+    if links:
+        blocks.append(Context(elements=(Text(text=" · ".join(links)),)))
+    return Message(text=f"PR #{card.number} 상태: {_plain_stage(card.stage)}", blocks=tuple(blocks))
+
+
+def status_alert(card: PullStatusCard, deploy_channel: str) -> Message | None:
+    """A new line for a failure, so the thread notifies; ``None`` for other stages."""
+    if card.stage not in ALERT_STAGES:
+        return None
+    text = f"{STAGE_TEXT[card.stage]}: <{card.url}|PR #{card.number}>"
+    if card.detail:
+        text += f" — {_escape(card.detail)}"
+    if card.stage in DEPLOY_STAGES:
+        text += f"\n상세와 [되돌리기] 는 <#{deploy_channel}> 에 있습니다."
+    elif card.stage is PullStage.CHECKS_FAILED:
+        text += f"\n{STAGE_NOTE[card.stage]}"
+    return Message(text=f"PR #{card.number} {_plain_stage(card.stage)}", blocks=(_section(text),))
+
+
+def _plain_stage(stage: PullStage) -> str:
+    return STAGE_TEXT[stage].split(" ", 1)[1]
+
+
 # ---------------------------------------------------------------- prompts (ADR-0032)
 
 PROMOTION_TEXT: Final = {
@@ -406,7 +493,7 @@ PROMOTION_TEXT: Final = {
 
 
 def promotion_request(notice: PromotionRequested) -> Message:
-    """The owner's DM: which prompt, from which version to which, why, and the buttons.
+    """The approval channel: which prompt, from which version to which, why, and the buttons.
     The diff follows in the thread (``promotion_details``)."""
     promotion = str(notice.promotion_id)
     roles = ", ".join(notice.roles)

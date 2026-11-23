@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol
 
+from enikk_contracts.approvals import PullStage
 from enikk_contracts.deployments import (
     AppDeployment,
     AppResult,
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
     from enikk_core.github import GitHubAppApi
     from enikk_core.threads import ThreadNotes
     from enikk_core_domain.deployments import FinishedDeployment
-    from enikk_core_domain.ports import ApplicationReader, UnitOfWorkFactory
+    from enikk_core_domain.ports import ApplicationReader, UnitOfWork, UnitOfWorkFactory
     from enikk_github.activity import CommitPull, WorkflowRun
     from enikk_github.app import InstallationToken
     from enikk_github.reverts import RevertPull
@@ -107,11 +108,17 @@ class DeploymentService:
                 for deployment in finished:
                     notice, branch = await self._deployment_notice(token, deployment, watch)
                     bodies.append(notice)
-                    if branch is not None and self._threads is not None:
-                        await self._threads.post(uow, branch, _thread_note(notice))
+                    stage = PullStage.DEPLOYED if notice.succeeded else PullStage.DEPLOY_FAILED
+                    await self._card(uow, notice.repository, notice.pull, branch, stage, notice)
+                    await self._rollback_card(uow, token, notice)
                 if token is not None:
                     watch, failed = await self._failed_builds(token, watch)
-                    bodies.extend(failed)
+                    for build, branch in failed:
+                        bodies.append(build)
+                        await self._card(
+                            uow, build.repository, build.pull, branch, PullStage.BUILD_FAILED, build
+                        )
+                        await self._rollback_card(uow, token, build)
                 for body in bodies:
                     await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=now))
                 await uow.deployment_watch.save(watch)
@@ -122,16 +129,53 @@ class DeploymentService:
         for body in bodies:
             _log.info("%s %s", body.kind, body.commit[:7])
 
+    async def _card(
+        self,
+        uow: UnitOfWork,
+        repository: str,
+        pull: PullLink | None,
+        branch: str | None,
+        stage: PullStage,
+        notice: DeploymentFinished | BuildFailed,
+    ) -> None:
+        """Update the status card of the PR behind ``branch`` (ADR-0036)."""
+        if self._threads is None or pull is None or branch is None:
+            return
+        await self._threads.card(
+            uow,
+            branch,
+            repository=repository,
+            number=pull.number,
+            url=pull.url,
+            title=pull.title,
+            stage=stage,
+            commit=notice.commit,
+            detail=_card_detail(notice),
+        )
+
+    async def _rollback_card(
+        self,
+        uow: UnitOfWork,
+        token: InstallationToken | None,
+        notice: DeploymentFinished | BuildFailed,
+    ) -> None:
+        """A rollback result also updates the card of the PR that was rolled back."""
+        if notice.rollback_of is None:
+            return
+        found = await self._commit_pull(token, notice.rollback_of)
+        if found is None:
+            return
+        pull, branch = found
+        rolled_back = isinstance(notice, DeploymentFinished) and notice.succeeded
+        stage = PullStage.ROLLED_BACK if rolled_back else PullStage.ROLLBACK_FAILED
+        await self._card(uow, notice.repository, pull, branch, stage, notice)
+
     async def _token(self) -> InstallationToken | None:
         try:
             return await self._app.installation_token(self._policy.repository, TokenPurpose.WATCH)
         except DependencyUnavailableError as exc:
             _log.warning("deployment notices without GitHub details: %s", exc)
             return None
-
-    async def _pull(self, token: InstallationToken | None, sha: str) -> PullLink | None:
-        found = await self._commit_pull(token, sha)
-        return found[0] if found else None
 
     async def _commit_pull(
         self, token: InstallationToken | None, sha: str
@@ -175,7 +219,7 @@ class DeploymentService:
 
     async def _failed_builds(
         self, token: InstallationToken, watch: DeploymentWatch
-    ) -> tuple[DeploymentWatch, list[BuildFailed]]:
+    ) -> tuple[DeploymentWatch, list[tuple[BuildFailed, str | None]]]:
         try:
             runs = await self._activity.workflow_runs(token, self._policy.images_workflow)
         except DependencyUnavailableError as exc:
@@ -186,15 +230,19 @@ class DeploymentService:
         for run in fresh:
             if not run.build_failed:
                 continue
-            pull = await self._pull(token, run.head_sha)
+            found = await self._commit_pull(token, run.head_sha)
+            pull, branch = found if found else (None, None)
             notices.append(
-                BuildFailed(
-                    repository=self._full_name,
-                    commit=run.head_sha,
-                    pull=pull,
-                    run_url=run.url[:500],
-                    conclusion=(run.conclusion or "unknown")[:50],
-                    rollback_of=watch.rollback_target(pull.number) if pull else None,
+                (
+                    BuildFailed(
+                        repository=self._full_name,
+                        commit=run.head_sha,
+                        pull=pull,
+                        run_url=run.url[:500],
+                        conclusion=(run.conclusion or "unknown")[:50],
+                        rollback_of=watch.rollback_target(pull.number) if pull else None,
+                    ),
+                    branch,
                 )
             )
         return watch.saw_build_runs([r.id for r in fresh]), notices
@@ -249,12 +297,15 @@ class DeploymentService:
         return f"{self._app.owner}/{self._policy.repository}"
 
 
-def _thread_note(notice: DeploymentFinished) -> str:
-    number = f"PR #{notice.pull.number} " if notice.pull else ""
+def _card_detail(notice: DeploymentFinished | BuildFailed) -> str:
+    """One line for the status card; the full result is in the deployment channel."""
+    if isinstance(notice, BuildFailed):
+        return (
+            f"이미지 빌드 실패({notice.conclusion}). 배포는 시작되지 않았고 이전 버전이 동작합니다."
+        )
+    failed = ", ".join(a.app for a in notice.apps if a.result is AppResult.FAILED)
     if notice.succeeded:
-        return f"{number}배포가 끝났습니다. 바뀐 내용이 이제 동작합니다."
-    failed = ", ".join(a.app for a in notice.apps if a.result.value == "failed")
+        return ""
     return (
-        f"{number}배포가 실패했습니다({failed}). 이전 버전이 계속 동작합니다. "
-        "소유자 DM 에서 되돌릴 수 있습니다."
+        f"실패한 앱: {failed or '알 수 없음'}. 새 Pod 가 준비되지 않은 앱은 이전 버전이 동작합니다."
     )

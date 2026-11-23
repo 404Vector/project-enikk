@@ -334,7 +334,8 @@ class Notice(Entity):
 
 
 class ReviewMessageRef(FrozenModel):
-    """Where the owner's DM shows a pull request (ADR-0020 §4)."""
+    """Where a Slack message shows a pull request: its approval message (ADR-0020 §4,
+    ADR-0036) or its status card in the asking thread."""
 
     repository: str
     number: int

@@ -42,7 +42,11 @@ class ConnectorSlackApp:
 
     async def run(self) -> None:
         s = self._settings
-        config = SlackConfig.load(s.config_file).with_deploy_channel(s.deploy_notify_channel)
+        config = (
+            SlackConfig.load(s.config_file)
+            .with_deploy_channel(s.deploy_notify_channel)
+            .with_approval_channel(s.approval_channel)
+        )
         async with CoreClient.connect(s.core_url, FileTokenSource(s.token_file)) as core:
             values = (await wait_for_credentials(core, CREDENTIALS)).values
             bot_token = _value(values, CredentialName.SLACK_BOT_TOKEN)

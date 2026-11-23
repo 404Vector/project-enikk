@@ -16,7 +16,11 @@ from enikk_contracts.approvals import (
     DecisionRequest,
     NoticeAck,
     NoticePoll,
+    OwnerNotice,
+    PullStage,
+    PullStatusCard,
     ResolutionOutcome,
+    StatusCardPosted,
 )
 from enikk_core.approval.service import ApprovalService
 from enikk_core.threads import ThreadNotes
@@ -41,6 +45,7 @@ SENSITIVE = SensitivePaths(paths=("docs/adr/", "AGENTS.md"))
 SHA1 = "1" * 40
 SHA2 = "2" * 40
 OWNER = "U04CF12EKRA"
+REPO = "404Vector/project-enikk"
 
 
 def _pull(number: int = 7, sha: str = SHA1, branch: str = "agent/abc") -> PullInfo:
@@ -343,12 +348,10 @@ async def test_sensitive_paths_are_flagged_with_their_own_diff(
     assert "+readme" not in notice.pull.sensitive_diff
 
 
-async def test_progress_of_an_agent_pr_is_told_in_its_thread(
-    harness: Harness, service: ApprovalService, pulls: FakePulls
-) -> None:
+async def _delegated(harness: Harness) -> str:
+    """A developer session delegated from thread ``9.0``; returns its branch."""
     import uuid as _uuid
 
-    from enikk_contracts.common import ConnectorKind
     from enikk_core_domain.model import Session
     from enikk_core_domain.testing import T0, agent, conversation, task
 
@@ -363,20 +366,135 @@ async def test_progress_of_an_agent_pr_is_told_in_its_thread(
         await uow.sessions.add(session)
         await uow.tasks.add(task(session))
         await uow.commit()
-    pulls.pulls[7] = _pull(branch=f"agent/{session.id}")
+    return f"agent/{session.id}"
+
+
+async def _poll(service: ApprovalService) -> list[OwnerNotice]:
+    return list((await service.poll_notices(NoticePoll(wait_seconds=0))).notices)
+
+
+async def _ack(
+    service: ApprovalService, notices: list[OwnerNotice], *cards: StatusCardPosted
+) -> None:
+    await service.ack_notices(
+        NoticeAck(notice_ids=tuple(n.notice_id for n in notices), cards=cards)
+    )
+
+
+async def test_progress_of_an_agent_pr_is_one_status_card_in_its_thread(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    from enikk_contracts.common import ConnectorKind
+    from enikk_core_domain.model import ReviewMessageRef
+    from enikk_core_domain.testing import conversation
+
+    pulls.pulls[7] = _pull(branch=await _delegated(harness))
     pulls.runs[SHA1] = _passed("checks")
     await service.watch_once()
-    [notice] = await _notices(service)
-    assert isinstance(notice, ApprovalRequested)
-    await service.decide(
-        notice.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
-    )
+
+    # The card waits until the approval message is out, so it can link to it.
+    [request] = await _poll(service)
+    assert isinstance(request.body, ApprovalRequested)
     async with harness.db.unit_of_work() as uow:
-        texts = [m.text for m in await uow.outbox.pending(ConnectorKind.SLACK, 10)]
-    # Both are queued in the same instant; their order is not part of the contract.
-    assert len(texts) == 2
-    assert any("승인 요청" in t for t in texts)
-    assert any("머지됐습니다" in t for t in texts)
+        await uow.review_messages.put(
+            ReviewMessageRef(repository=REPO, number=7, channel="C0APPROVE", ts="5.0")
+        )
+        await uow.commit()
+    await _ack(service, [request])
+
+    [first] = await _poll(service)
+    assert isinstance(first.body, PullStatusCard)
+    assert first.body.stage is PullStage.AWAITING_APPROVAL
+    assert first.body.origin == conversation("9.0")
+    assert first.body.card is None
+    assert first.body.review is not None
+    assert (first.body.review.channel, first.body.review.ts) == ("C0APPROVE", "5.0")
+    card = StatusCardPosted(repository=REPO, number=7, channel="C0ASK", ts="9.5")
+    await _ack(service, [first], card)
+
+    await service.decide(
+        request.body.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    [merged] = await _poll(service)
+    assert isinstance(merged.body, PullStatusCard)
+    assert merged.body.stage is PullStage.MERGED
+    assert merged.body.card is not None
+    assert (merged.body.card.channel, merged.body.card.ts) == ("C0ASK", "9.5")
+    async with harness.db.unit_of_work() as uow:
+        assert not await uow.outbox.pending(ConnectorKind.SLACK, 10)
+
+
+async def test_one_card_per_pull_request_in_a_batch(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    pulls.pulls[7] = _pull(branch=await _delegated(harness))
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [request] = await _poll(service)
+    await _ack(service, [request])
+    pulls.merge_result = MergeResult(merged=False, detail="out of date")
+    assert isinstance(request.body, ApprovalRequested)
+    harness.clock.advance(timedelta(seconds=5))
+    await service.decide(
+        request.body.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    # Two cards of the same PR are pending: the second waits for the first to be posted.
+    [first] = await _poll(service)
+    assert isinstance(first.body, PullStatusCard)
+    assert first.body.stage is PullStage.AWAITING_APPROVAL
+    await _ack(service, [first], StatusCardPosted(repository=REPO, number=7, channel="C", ts="1"))
+    [second] = await _poll(service)
+    assert isinstance(second.body, PullStatusCard)
+    assert second.body.stage is PullStage.BLOCKED
+    assert "out of date" in second.body.detail
+    assert second.body.card is not None
+
+
+async def test_failed_checks_put_their_names_on_the_card(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    pulls.pulls[7] = _pull(branch=await _delegated(harness))
+    pulls.runs[SHA1] = [
+        *_passed("lint"),
+        CheckRun(name="tests", completed=True, conclusion="failure"),
+    ]
+    await service.watch_once()
+    await _ack(service, await _poll(service))
+    [card] = await _poll(service)
+    assert isinstance(card.body, PullStatusCard)
+    assert card.body.stage is PullStage.CHECKS_FAILED
+    assert "tests" in card.body.detail
+    assert "lint" not in card.body.detail
+
+
+async def test_owner_pulls_get_no_card(service: ApprovalService, pulls: FakePulls) -> None:
+    pulls.pulls[7] = _pull(branch="feat/owner")
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    bodies = await _notices(service)
+    assert not any(isinstance(b, PullStatusCard) for b in bodies)
+
+
+async def test_a_closed_pull_updates_its_approval_message_in_place(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    from enikk_core_domain.model import ReviewMessageRef
+
+    pulls.pulls[7] = _pull()
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    await _notices(service)
+    async with harness.db.unit_of_work() as uow:
+        await uow.review_messages.put(
+            ReviewMessageRef(repository=REPO, number=7, channel="C0APPROVE", ts="5.0")
+        )
+        await uow.commit()
+    pulls.pulls[7] = _pull().model_copy(update={"open": False})
+    await service.watch_once()
+    [notice] = await _notices(service)
+    assert isinstance(notice, ApprovalResolved)
+    assert notice.replaces is not None
+    assert (notice.replaces.channel, notice.replaces.ts) == ("C0APPROVE", "5.0")
 
 
 async def test_a_new_commit_updates_the_owners_message_instead_of_adding_one(
