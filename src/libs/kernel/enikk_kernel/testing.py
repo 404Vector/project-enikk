@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from enikk_kernel.errors import ExternalCommandError
@@ -12,8 +13,7 @@ from enikk_kernel.models import FrozenModel
 from enikk_kernel.process import ProcessResult
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
-    from pathlib import Path
+    from collections.abc import Iterator, Mapping, Sequence
 
 
 class ManualClock:
@@ -48,6 +48,9 @@ class RecordedCall(FrozenModel):
     stdin: str | None
     mutating: bool
     stream: bool
+    cwd: Path | None = None
+    env_keys: tuple[str, ...] = ()
+    """Names of the extra environment variables; their values are not recorded."""
 
 
 class RecordingRunner:
@@ -76,9 +79,19 @@ class RecordingRunner:
         check: bool = True,
         mutating: bool = True,
         stream: bool = False,
+        env: Mapping[str, str] | None = None,
     ) -> ProcessResult:
         command = tuple(argv)
-        self.calls.append(RecordedCall(argv=command, stdin=stdin, mutating=mutating, stream=stream))
+        self.calls.append(
+            RecordedCall(
+                argv=command,
+                stdin=stdin,
+                mutating=mutating,
+                stream=stream,
+                cwd=cwd,
+                env_keys=tuple(sorted(env or {})),
+            )
+        )
         result = self._match(command).model_copy(update={"argv": command})
         if check and not result.ok:
             raise ExternalCommandError(command, result.returncode, result.stderr)

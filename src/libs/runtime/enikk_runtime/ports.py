@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         PromptRead,
         PromptReadRequest,
     )
+    from enikk_contracts.pulls import PullSubmission, PullSubmitted
     from enikk_contracts.skills import SkillSummary
     from enikk_contracts.tasks import (
         DelegateRequest,
@@ -53,6 +54,7 @@ if TYPE_CHECKING:
         EngineResult,
         LoadedSkill,
         ResolvedPrompt,
+        SessionBundle,
         SessionWorkspace,
     )
 
@@ -69,6 +71,16 @@ class Workspaces(Protocol):
     """A session's place on the shared volume (ADR-0037 §7). Blocking; may raise."""
 
     def prepare(self, session_id: uuid.UUID) -> SessionWorkspace: ...
+
+    def bundle(self, session_id: uuid.UUID) -> SessionBundle:
+        """The session's committed work after main, for core to push (ADR-0037 §6b)."""
+        ...
+
+
+class PullSubmitter(Protocol):
+    """Core pushes a session's bundle and opens its PR. ``CoreClient`` implements it."""
+
+    async def submit_pull(self, task_id: uuid.UUID, request: PullSubmission) -> PullSubmitted: ...
 
 
 class Delegator(Protocol):

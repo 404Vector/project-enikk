@@ -21,8 +21,9 @@ RUN test -n "${PACKAGE}" \
 FROM ${PYTHON_IMAGE}
 ARG PACKAGE
 # The Claude runtime reads and works on the repository in the shared volume with git
-# (ADR-0037 §7). Other apps get no extra packages.
-RUN if [ "${PACKAGE}" = "enikk-runtime-claude" ]; then \
+# (ADR-0037 §7); core checks and pushes a session's bundle from its own clone (§6b).
+# Other apps get no extra packages.
+RUN if [ "${PACKAGE}" = "enikk-runtime-claude" ] || [ "${PACKAGE}" = "enikk-core" ]; then \
       apt-get update \
       && apt-get install --yes --no-install-recommends git ca-certificates \
       && rm -rf /var/lib/apt/lists/*; \

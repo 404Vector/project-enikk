@@ -24,3 +24,5 @@ paths:
   - src/libs/adapters/engine-claude/enikk_engine_claude/sandbox.py
   - src/libs/adapters/engine-claude/enikk_engine_claude/audit.py
   - src/libs/adapters/github/
+  # Core pushes a thread's commits and opens its PR; who may, and to which branch (ADR-0037 §6b).
+  - src/apps/core/enikk_core/submissions.py

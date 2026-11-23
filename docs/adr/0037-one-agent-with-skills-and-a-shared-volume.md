@@ -1,10 +1,10 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a 구현됨. 3~5단계는 단계마다 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3~5단계는 단계마다 따로 구현한다)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
-> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)과 2a 에서 바뀌는 것(ADR-0032·I-36, ADR-0005·I-16 의 스킬 부분)만 표시했다.
+> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)과 2a 에서 바뀌는 것(ADR-0032·I-36, ADR-0005·I-16 의 스킬 부분), 2b 에서 바뀌는 것(ADR-0019 §2, ADR-0021 §3·§7, ADR-0007 의 I-17, I-32)만 표시했다.
 
 ## 배경
 
@@ -129,6 +129,24 @@
 - **기능 플래그**: runtime 의 `ENIKK_RUNTIME_SKILLS__ENABLED`(Helm `deploy/helm/runtime-claude` 의 `skills.enabled`, 차트 기본 `true`, 코드 기본 `false`). 끄면 스킬 목록과 `load_skill` 이 모두 빠진다. 스킬 후보의 검증과 승격 경고는 core 에 늘 있다. 스킬이 쓰이지 않으면 아무 효과가 없으므로 따로 끄지 않는다.
 - 아직 하지 않은 것(2b 이후): `requires` 의 강제, core 의 PR 제출 도구, 스케줄 작업에 스킬을 미리 로드하는 것, 기본 프롬프트 `enikk` 로의 전환.
 
+### 2b 구현 세부 (2026-11-23)
+2a 다음으로 §6(b)의 "브랜치 push, PR 생성·갱신"을 core 경유로 만든다. 개발 Job 과 `delegate` 는 4단계까지 그대로 동작한다.
+- **도구**: 플랫폼 도구 `submit_pull_request(title?, body?)`. 역할 정의의 `tools.platform` 에 `pull-requests` 가 있고 그 작업에 스레드 worktree 가 있을 때만 준다(지금 `agents/assistant.yaml`).
+- **runtime (모델이 아님)**: 볼륨 잠금을 잡고 1단계와 같은 샌드박스 git 으로 `session/<세션>` 을 `git bundle` 로 만든다. 범위는 `state/` 에 기록된 main 커밋과의 merge-base 이후, 커밋한 것만이다(작업 트리의 커밋하지 않은 변경은 가지 않는다). bundle 은 `state/bundles/` 에 잠시 쓰고 바로 지운다. 4MiB 를 넘으면 보내지 않는다.
+- **전달**: runtime 이 bundle(base64)·base·head·제목·본문을 `POST /v1/tasks/{task}/pulls` 로 보낸다. core 는 `runtime` 역할과 그 작업의 활성 임대를 확인한다.
+- **core 의 확인**: 역할에 `pull-requests` 가 있고 `execution: shared` 이며, 세션이 소유자가 Slack 에서 시작한 스레드다(위임받은 세션 아님). 브랜치는 요청이 아니라 세션으로 정한다: `agent/<세션 ID>`. 그래서 한 스레드는 자기 브랜치에만 push 할 수 있고, 그 PR 은 기존 승인 흐름(ADR-0020)과 스레드 상태 카드(ADR-0025·ADR-0036)에 그대로 이어진다. 상태 카드가 위임받은 세션뿐 아니라 Slack 스레드 자신의 세션도 찾도록 `ThreadNotes.origin` 을 넓혔다.
+- **core 전용 clone** (`enikk_github.clone`, core Pod 의 emptyDir `/var/lib/enikk/clone`): bundle 은 바이트로만 받아 그 안에 파일로 쓰고 `git bundle list-heads`·`verify`·`unbundle` 한 뒤 지운다. core 는 공유 볼륨을 마운트하지 않으며, clone 위치가 `/data` 아래면 시작하지 않는다. 모든 git 은 시스템·전역 설정을 무시하고 hooks·fsmonitor 를 끄고 시간을 제한한다. 토큰은 환경변수의 git 설정(`http.extraheader`)으로만 git 에 가고 명령 인자에는 없다.
+  - head 는 정확히 `refs/heads/session/<그 세션 ID>` 하나여야 하고 요청의 head 와 같아야 한다.
+  - base 는 GitHub main 에 있는 커밋이어야 하고 head 는 base 위에 있어야 한다.
+  - merge 커밋 금지, 커밋 50개·파일 300개 이하, `.github/workflows/` 를 건드린 커밋 금지(이 토큰에는 워크플로 권한도 없다).
+  - 커밋을 GitHub App 봇을 작성자·커미터로 다시 쓴다(`git commit-tree`, 트리·메시지·작성/커밋 날짜 유지). 메시지에 `Co-Authored-By` 가 없으면 붙인다(core 설정 `submissions.co_author`). 같은 입력이면 같은 커밋이 나오므로, 같은 스레드가 커밋을 더해 다시 내면 앞의 커밋은 그대로이고 브랜치가 fast-forward 된다.
+  - push 는 `agent/` 브랜치에만, 강제 없이 한다. GitHub 의 그 브랜치가 새 head 의 조상이 아니면(amend·rebase 등) 거부한다. `main` 은 대상이 될 수 없다.
+- **PR**: 그 브랜치의 열린 PR 이 있으면 갱신한다(제목·본문을 넘겼을 때만 고친다). 없으면 만든다(제목이 없으면 첫 커밋의 제목). 민감 경로 표시와 승인은 기존 승인 흐름(ADR-0024, I-33)이 그대로 한다.
+- **토큰**: GitHub App 의 새 용도 `submit`(`contents`·`pull_requests` 쓰기, `metadata` 읽기). 제출마다 발급하고 끝나면 폐기한다. 이미 설치에 있는 권한이라 새 비밀값이나 App 권한은 필요 없다.
+- **이미지**: 공용 Dockerfile 이 `enikk-core` 에도 git 을 설치한다.
+- **기능 플래그 (양쪽)**: runtime `ENIKK_RUNTIME_PULLS__ENABLED`(Helm `deploy/helm/runtime-claude` 의 `pulls.enabled`)는 도구를 주는지, core `ENIKK_CORE_SUBMISSIONS__ENABLED`(Helm `deploy/helm/core` 의 `submissions.enabled`)는 요청을 받는지 정한다. 둘을 따로 두는 이유: runtime 만 끄면 모델에게 도구가 보이지 않고, core 만 끄면 오래된 runtime 이나 다른 호출이 와도 거부된다. 둘 다 코드 기본값은 꺼짐, 차트 기본값은 켜짐이다.
+- **스킬 `requires` 강제는 하지 않았다**: core 는 세션이 어떤 스킬을 불러왔는지 모른다(`load_skill` 은 runtime 이 Langfuse 에서 직접 읽는다). 강제하려면 "스킬을 불러온 세션만 `pr.write` 를 쓴다"를 core 가 확인할 근거(로드 기록을 core 에 남기거나 core 를 거쳐 로드)가 먼저 필요하다. 지금은 역할 정의의 `pull-requests` 가 권한이다. 3·4단계에서 다시 정한다.
+
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
 - 권한을 역할 대신 **동작**에 묶으면(6) 스킬은 지시만 담으면 된다. 되돌릴 수 없는 동작은 모두 core 를 거치거나 소유자 승인을 받으므로, 프롬프트 인젝션이 닿는 범위가 넓어져도 결과가 GitHub 이나 운영에 바로 닿지 않는다.
@@ -160,7 +178,7 @@
 |---|---|---|
 | ADR-0010 §3, I-25 | 런타임은 상태를 갖지 않는다 → 공유 볼륨(다시 만들 수 있는 캐시·작업 공간)은 예외 | **1 (이번)** |
 | ADR-0033 §2.2·§2.5 | 쓰기 허용 경로에 그 스레드의 볼륨 경로 추가. 작업 폴더는 지우되 스레드 worktree 는 남긴다 | **1 (이번)** |
-| ADR-0019, ADR-0021 §3·§7, I-32 | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | 2b·4 |
+| ADR-0019, ADR-0021 §3·§7, I-32, ADR-0007(I-17) | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | **2b (표시함)**·4 |
 | ADR-0032, I-36 | 스킬 config(`requires`)와 승격 경고 | **2a (표시함)** |
 | ADR-0005, I-16 | Langfuse 의 스킬 config 에 `requires`(core 경유 동작의 선언)를 둔다 | **2a (표시함)** |
 | ADR-0005, I-10, I-14, I-16 | 역할 정의 파일 → 기본 프롬프트 + 스킬 + 동작 권한 | 2b·4 |
@@ -172,13 +190,13 @@
 ## 이행 순서
 각 단계는 따로 배포할 수 있고, 4단계 전까지는 이전 방식(위임, 개발 Job)이 그대로 동작한다.
 1. 공유 볼륨·기준 저장소·worktree. runtime 이 저장소 원문을 읽는다. **(이 PR)**
-2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(patch/bundle → core 전용 clone → push·PR).
+2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(bundle → core 전용 clone → push·PR). **(구현됨)**
 3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정.
 4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv·검사 도구, 테스트 DB 이전, 관련 ADR·불변식 대체 표시.
 5. conversation-summary 스킬로 전환, 스케줄러 정리.
 
 ### 되돌리기
-- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다.
+- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다. 2b 는 같은 차트의 `pulls.enabled: false`(도구가 빠진다)와 `deploy/helm/core` 의 `submissions.enabled: false`(core 가 제출을 거부한다). 이미 연 PR 은 GitHub 에 남으므로 소유자가 거절하거나 닫는다.
 - 4단계부터: 이전 이미지와 이전 매니페스트로 되돌린다(ADR-0023 의 되돌리기).
 
 ## 재검토 조건

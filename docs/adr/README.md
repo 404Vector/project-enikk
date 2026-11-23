@@ -13,7 +13,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0004](0004-agentgateway-mcp-only.md) | agentgateway 를 MCP 통로에만 배치 | 승인 | 2026-11-21 |
 | [0005](0005-agent-definition-format.md) | 역할 정의 공통 형식 | 승인 (Langfuse 쪽 책임은 ADR-0037 로 부분 대체: 스킬의 `requires`) | 2026-11-21 |
 | [0006](0006-prompts-managed-in-langfuse.md) | 프롬프트의 원본은 Langfuse 이며 git 에 두지 않는다 | 승인 | 2026-11-21 |
-| [0007](0007-self-improvement-workflow.md) | 에닉의 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 (프롬프트 후보를 만드는 곳은 ADR-0032 로 부분 대체) | 2026-11-21 |
+| [0007](0007-self-improvement-workflow.md) | 에닉의 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 (프롬프트 후보를 만드는 곳은 ADR-0032 로, 실행용 역할의 git 쓰기 금지는 ADR-0037 로 부분 대체) | 2026-11-21 |
 | [0008](0008-cicd-github-ghcr-gitops.md) | CI/CD — GitHub Actions 빌드, GHCR, GitOps 배포 | 승인 | 2026-11-21 |
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
 | [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 (런타임 무상태(I-25)는 ADR-0037 로 부분 대체) | 2026-11-21 |
@@ -25,9 +25,9 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0016](0016-langfuse-adapter.md) | Langfuse 어댑터 — 프롬프트 조회와 트레이스 전송 설정 | 승인 | 2026-11-22 |
 | [0017](0017-claude-engine-runtime.md) | Claude 엔진 런타임 — 도구 차단, 대화 이어 가기, 트레이스 | 승인 (공용 역할의 도구 차단과 토큰 전달 방식은 ADR-0033 으로 부분 대체) | 2026-11-22 |
 | [0018](0018-slack-connector.md) | Slack 커넥터 — 연결 규칙, 중복 처리, 진행 표시 | 승인 | 2026-11-22 |
-| [0019](0019-github-app-scoped-tokens.md) | GitHub App 신원과 용도별로 좁힌 설치 토큰 | 승인 | 2026-11-22 |
+| [0019](0019-github-app-scoped-tokens.md) | GitHub App 신원과 용도별로 좁힌 설치 토큰 | 승인 (용도별 토큰에 `submit` 을 ADR-0037 로 추가) | 2026-11-22 |
 | [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 (알림 위치는 ADR-0026, 승인 요청 위치는 ADR-0036 으로 부분 대체) | 2026-11-22 |
-| [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로 부분 대체) | 2026-11-22 |
+| [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로, push·PR 을 개발 Pod 만 하는 부분은 ADR-0037 로 부분 대체) | 2026-11-22 |
 | [0022](0022-delegation-to-developer.md) | assistant 역할이 개발 역할에 작업을 위임한다 | 승인 | 2026-11-22 |
 | [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 (알림 위치는 ADR-0026 으로 부분 대체) | 2026-11-22 |
 | [0024](0024-sensitive-paths-instead-of-protected.md) | 보호 경로를 막지 않고, 민감 경로로 표시해 강화된 승인을 받는다 | 승인 | 2026-11-22 |
@@ -43,7 +43,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0034](0034-resume-inside-the-sandbox-and-failed-runs.md) | 세션 이어받기를 샌드박스 안에서 하고, 실패한 실행을 자세히 남긴다 | 승인 | 2026-11-23 |
 | [0035](0035-daily-conversation-summaries.md) | 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다 | 승인 | 2026-11-23 |
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 | 2026-11-23 |
-| [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1단계·2a 구현) | 2026-11-23 |
+| [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1단계·2a·2b 구현) | 2026-11-23 |
 | [0038](0038-multi-platform-images.md) | 이미지를 amd64 와 arm64 로 함께 빌드한다 | 승인 | 2026-11-24 |
 
 ## 상태 정의

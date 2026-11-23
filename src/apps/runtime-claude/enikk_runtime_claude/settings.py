@@ -54,6 +54,13 @@ class SkillSettings(SettingsModel):
     enabled: bool = False
 
 
+class PullSettings(SettingsModel):
+    """``submit_pull_request`` (ADR-0037 §6b): roles granted ``pull-requests`` with a
+    thread worktree hand their commits to core. Needs the shared volume."""
+
+    enabled: bool = False
+
+
 class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     core_url: str = "http://enikk-core.enikk.svc"
     token_file: Path = PROJECTED_TOKEN_FILE
@@ -65,3 +72,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     worker: WorkerSettings = WorkerSettings()
     workspace: WorkspaceSettings = WorkspaceSettings()
     skills: SkillSettings = SkillSettings()
+    pulls: PullSettings = PullSettings()

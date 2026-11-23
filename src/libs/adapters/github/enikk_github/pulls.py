@@ -146,6 +146,18 @@ class _CloseBody(FrozenModel):
     state: str
 
 
+class _NewPullBody(FrozenModel):
+    title: str
+    head: str
+    base: str
+    body: str
+
+
+class _EditPullBody(FrozenModel):
+    title: str | None = None
+    body: str | None = None
+
+
 class PullRequests:
     """Pull requests of the repository a token is scoped to, through the GitHub App."""
 
@@ -163,6 +175,44 @@ class PullRequests:
             params={"state": "open", "base": base, "per_page": "50"},
         )
         return [_pull(p) for p in _parse(_PULLS, response)]
+
+    async def open_for_branch(self, token: InstallationToken, branch: str) -> PullInfo | None:
+        """The open PR whose head is ``branch`` of the repository itself."""
+        response = await self._app.call(
+            "GET",
+            f"{self._repo(token)}/pulls",
+            token,
+            params={"head": f"{self._app.owner}:{branch}", "state": "open"},
+        )
+        pulls = [_pull(p) for p in _parse(_PULLS, response)]
+        return pulls[0] if pulls else None
+
+    async def create(
+        self, token: InstallationToken, *, branch: str, title: str, body: str, base: str = "main"
+    ) -> PullInfo:
+        new = _NewPullBody(title=title, head=branch, base=base, body=body)
+        return _pull(_parse(_PULL, await self._send(token, "POST", "/pulls", new)))
+
+    async def edit(
+        self, token: InstallationToken, number: int, *, title: str | None, body: str | None
+    ) -> PullInfo:
+        change = _EditPullBody(title=title, body=body)
+        return _pull(_parse(_PULL, await self._send(token, "PATCH", f"/pulls/{number}", change)))
+
+    async def _send(
+        self, token: InstallationToken, method: str, path: str, body: FrozenModel
+    ) -> httpx.Response:
+        try:
+            return await self._app.call(
+                method,
+                f"{self._repo(token)}{path}",
+                token,
+                body=body.model_dump_json(exclude_none=True),
+            )
+        except GitHubRequestError as exc:
+            raise DependencyUnavailableError(
+                f"GitHub refused {method} {path}: {exc.message or exc.status}"
+            ) from exc
 
     async def get(self, token: InstallationToken, number: int) -> PullInfo:
         response = await self._app.call("GET", f"{self._repo(token)}/pulls/{number}", token)

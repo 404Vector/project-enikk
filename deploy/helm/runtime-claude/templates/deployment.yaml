@@ -55,6 +55,8 @@ spec:
               value: /work
             - name: ENIKK_RUNTIME_SCRATCH_DIR
               value: /tmp/enikk
+            - name: ENIKK_RUNTIME_PULLS__ENABLED
+              value: {{ .Values.pulls.enabled | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
               value: {{ .Values.skills.enabled | quote }}
             - name: ENIKK_RUNTIME_WORKSPACE__ENABLED

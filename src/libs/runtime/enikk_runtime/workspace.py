@@ -36,11 +36,12 @@ from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import Field, StringConstraints
 
+from enikk_contracts.pulls import MAX_BUNDLE_BYTES
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
 from enikk_runtime.memory import SEPARATOR
-from enikk_runtime.model import SessionWorkspace
+from enikk_runtime.model import SessionBundle, SessionWorkspace
 
 if TYPE_CHECKING:
     import uuid
@@ -146,6 +147,39 @@ class SessionWorkspaces:
             branch=f"{BRANCH_PREFIX}{session_id}" if worktree else None,
             tmp_dir=tmp,
         )
+
+    def bundle(self, session_id: uuid.UUID) -> SessionBundle:
+        """The session's commits after the last fetched main, as a git bundle. The file
+        is written under ``state/`` (sessions cannot reach it) and removed at once."""
+        c = self._config
+        branch = f"refs/heads/{BRANCH_PREFIX}{session_id}"
+        with self._locked():
+            self._reset_repository()
+            main = self._head()
+            if main is None:
+                raise WorkspaceError("main has never been fetched; nothing to compare with")
+            head = (
+                self._git("rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}", check=False)
+                or ""
+            ).strip()
+            if not _COMMIT.match(head):
+                raise WorkspaceError(f"there is no branch {branch.removeprefix('refs/heads/')}")
+            base = (self._git("merge-base", main, head, check=False) or "").strip()
+            if not _COMMIT.match(base):
+                raise WorkspaceError("the session's branch has no common commit with main")
+            if base == head:
+                raise WorkspaceError("there are no commits after main; commit the change first")
+            folder = c.state_dir / "bundles"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"{session_id}.bundle"
+            try:
+                self._git("bundle", "create", "--quiet", str(path), branch, f"^{base}")
+                if path.stat().st_size > MAX_BUNDLE_BYTES:
+                    raise WorkspaceError(f"the commits are larger than {MAX_BUNDLE_BYTES} bytes")
+                data = path.read_bytes()
+            finally:
+                path.unlink(missing_ok=True)
+        return SessionBundle(data=data, base=base, head=head)
 
     # ------------------------------------------------------------ the lock
 
@@ -388,7 +422,8 @@ def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
         lines.append(
             f"- 이 스레드의 git worktree: {workspace.worktree_dir} (브랜치 {workspace.branch}, "
             "쓰기 가능). 같은 스레드의 다음 요청에서도 이어 쓴다. 7일 동안 쓰지 않으면 지워진다. "
-            "push 와 PR 은 아직 여기서 할 수 없다."
+            "push 는 할 수 없다. PR 은 submit_pull_request 도구가 있을 때 그것으로 낸다"
+            "(커밋한 것만 가고, core 가 검사해 push 한다)."
         )
     lines.append(
         f"- 임시 자료: {workspace.tmp_dir} (웹에서 받은 파일처럼 신뢰하지 않는 자료는 여기에 둔다)"

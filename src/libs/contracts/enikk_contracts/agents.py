@@ -69,6 +69,9 @@ class PlatformTool(StrEnum):
     """Create a candidate version of a role's prompt and ask the owner to promote it."""
     CONVERSATION_DIGEST = "conversation-digest"
     """Ask core to make (or remake) one day's conversation summary (ADR-0035)."""
+    PULL_REQUESTS = "pull-requests"
+    """Submit the session's worktree commits; core pushes them and opens the PR
+    (ADR-0037 §6b)."""
 
 
 class ToolPolicy(Contract):

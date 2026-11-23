@@ -13,7 +13,9 @@ tools:
      WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
   # Create prompt candidates through core; only the owner promotes them (ADR-0032, I-36).
   # Make one day's conversation summary again when the owner asks (ADR-0035).
-  platform: [prompt-candidates, conversation-digest]
+  # Hand the thread worktree's commits to core, which pushes them and opens the PR;
+  # the assistant never holds a GitHub token (ADR-0037 §6b).
+  platform: [prompt-candidates, conversation-digest, pull-requests]
 # Change requests for the platform go to the developer role (ADR-0022). The assistant
 # has a shell but no git credentials or cluster access; it delegates changes (I-17).
 delegates: [developer]
