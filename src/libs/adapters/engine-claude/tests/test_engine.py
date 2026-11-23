@@ -9,9 +9,12 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     CLIConnectionError,
     MirrorErrorMessage,
+    ResultError,
     ResultMessage,
     SystemMessage,
     TextBlock,
+    ToolUseBlock,
+    project_key_for_directory,
 )
 from claude_agent_sdk.testing import run_session_store_conformance
 from pydantic import SecretStr
@@ -28,6 +31,7 @@ from enikk_contracts.transcripts import (
 )
 from enikk_engine_claude import sandbox
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
+from enikk_engine_claude.resume import EMPTY_HEADER, with_history
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_runtime.errors import EngineError
 from enikk_runtime.model import EngineJob, ResolvedPrompt
@@ -252,7 +256,8 @@ async def test_transcript_mirror_failure_is_retryable(tmp_path: Path) -> None:
     ("overrides", "retryable"),
     [
         ({"subtype": "error_max_turns", "is_error": True}, False),
-        ({"subtype": "error_during_execution", "is_error": True}, True),
+        ({"subtype": "error_during_execution", "is_error": True}, False),
+        ({"is_error": True, "terminal_reason": "api_error"}, True),
         ({"is_error": True, "api_error_status": 429}, True),
         ({"is_error": True, "api_error_status": 401}, False),
     ],
@@ -290,3 +295,175 @@ def test_only_claude_models_are_accepted(tmp_path: Path) -> None:
     engine = _engine(_Script(), tmp_path)
     assert engine.accepts_model("claude-opus-5-5")
     assert not engine.accepts_model("gemini-3-pro")
+
+
+# ---------------------------------------------------------------- failures and resume (ADR-0034)
+
+
+class _Scripts:
+    """One script per run, in order; records each run's prompt and options."""
+
+    def __init__(self, *scripts: _Script) -> None:
+        self._scripts = list(scripts)
+        self.runs: list[_Script] = []
+
+    def __call__(self, *, prompt: str, options: ClaudeAgentOptions) -> AsyncIterator[Message]:
+        script = self._scripts.pop(0)
+        self.runs.append(script)
+        return script(prompt=prompt, options=options)
+
+
+def _engine_with(query: Any, tmp_path: Path, transcripts: FakeTranscripts) -> ClaudeEngine:  # noqa: ANN401
+    return ClaudeEngine(
+        config=ClaudeEngineConfig(workdir=tmp_path / "work", scratch_dir=tmp_path / "scratch"),
+        oauth_token=SecretStr("sk-ant-oat-test"),
+        transcripts=transcripts,
+        query_fn=query,
+    )
+
+
+def _refused(message: str = "No conversation found with session ID: old") -> ResultError:
+    data = {"subtype": "error_during_execution", "is_error": True, "errors": [message]}
+    return ResultError(f"Claude Code returned an error result: {message}", data=data)
+
+
+class _StderrScript(_Script):
+    """Writes ``lines`` to the CLI's stderr callback before its messages."""
+
+    def __init__(self, lines: list[str], *messages: Message, error: Exception | None) -> None:
+        super().__init__(*messages, error=error)
+        self._lines = lines
+
+    async def __call__(self, *, prompt: str, options: ClaudeAgentOptions) -> AsyncIterator[Message]:
+        assert options.stderr is not None
+        for line in self._lines:
+            options.stderr(line)
+        async for message in super().__call__(prompt=prompt, options=options):
+            yield message
+
+
+async def test_a_result_error_is_logged_and_reported_in_detail(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "sk-ant-oat01-" + "s" * 30
+    search = ToolUseBlock(id="toolu_1", name="WebSearch", input={"query": "x"})
+    error = ResultError(
+        "Claude Code returned an error result: boom",
+        data={
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "errors": [f"Tool failed with {secret}\nsecond line"],
+            "terminal_reason": "tool_error",
+        },
+    )
+    script = _StderrScript(
+        ["starting", f"auth {secret} rejected"],
+        _init(),
+        AssistantMessage(content=[search], model="claude-test-1"),
+        error=error,
+    )
+    with pytest.raises(EngineError) as raised:
+        await _engine(script, tmp_path).run(_job())
+
+    failure = raised.value
+    assert not failure.retryable
+    assert failure.reason == (
+        "Claude stopped: error_during_execution: Tool failed with [가림] (last tool WebSearch)"
+    )
+    [logged] = [r.getMessage() for r in caplog.records if "Claude Code failed" in r.getMessage()]
+    assert "subtype='error_during_execution'" in logged
+    assert "is_error=True" in logged
+    assert "terminal_reason='tool_error'" in logged
+    assert "last_tool='WebSearch'" in logged
+    assert "stderr=starting | auth [가림] rejected" in logged
+    assert secret not in logged
+
+
+async def test_a_refused_resume_starts_a_new_session_with_the_old_conversation(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    transcripts = FakeTranscripts()
+    store = CoreSessionStore(transcripts, uuid.uuid4(), uuid.uuid4())
+    project = project_key_for_directory(str(tmp_path / "work"))
+    old_session = str(uuid.uuid4())
+    entries: list[Any] = [
+        {"type": "user", "uuid": "u1", "message": {"role": "user", "content": "무슨상황이야?"}},
+        {
+            "type": "assistant",
+            "uuid": "a1",
+            "message": {"content": [{"type": "text", "text": "배포가 끝났습니다."}]},
+        },
+    ]
+    await store.append({"project_key": project, "session_id": old_session}, entries)
+    fresh = _Script(_init(), _result({"session_id": "claude-session-new", "result": "ok"}))
+    query = _Scripts(_Script(_init(), error=_refused()), fresh)
+
+    result = await _engine_with(query, tmp_path, transcripts).run(_job(resume=old_session))
+
+    assert result.text == "ok"
+    assert result.engine_session_id == "claude-session-new"
+    first, second = query.runs
+    assert first.options is not None
+    assert first.options.resume == old_session
+    assert second.options is not None
+    assert second.options.resume is None
+    assert second.prompt is not None
+    assert "이어받지 못해 새 대화로 시작한다" in second.prompt
+    assert "무슨상황이야?" in second.prompt
+    assert "배포가 끝났습니다." in second.prompt
+    assert second.prompt.endswith("[새 메시지]\n\nhello")
+    assert any("starting a new session" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_new_session_that_also_fails_reports_its_own_failure(tmp_path: Path) -> None:
+    query = _Scripts(
+        _Script(_init(), error=_refused()),
+        _Script(_init(), error=_refused("the prompt is too long")),
+    )
+    with pytest.raises(EngineError, match="the prompt is too long") as raised:
+        await _engine_with(query, tmp_path, FakeTranscripts()).run(_job(resume="old"))
+    assert not raised.value.retryable
+    assert len(query.runs) == 2
+
+
+async def test_a_passing_api_failure_is_retried_on_the_same_session(tmp_path: Path) -> None:
+    overloaded = ResultError(
+        "overloaded",
+        data={"subtype": "success", "is_error": True, "api_error_status": 529},
+    )
+    query = _Scripts(_Script(_init(), error=overloaded))
+    with pytest.raises(EngineError, match="API status 529") as raised:
+        await _engine_with(query, tmp_path, FakeTranscripts()).run(_job(resume="old"))
+    assert raised.value.retryable
+    assert len(query.runs) == 1
+
+
+async def test_a_resumed_run_that_already_answered_is_not_started_again(tmp_path: Path) -> None:
+    query = _Scripts(
+        _Script(
+            _init(),
+            AssistantMessage(content=[TextBlock(text="working")], model="claude-test-1"),
+            error=_refused("Bash failed"),
+        )
+    )
+    with pytest.raises(EngineError, match="Bash failed"):
+        await _engine_with(query, tmp_path, FakeTranscripts()).run(_job(resume="old"))
+    assert len(query.runs) == 1
+
+
+def test_history_keeps_the_newest_main_thread_text() -> None:
+    entries: list[dict[str, Any]] = [
+        {"type": "user", "message": {"content": "old " * 2_000}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "a" * 1_500}]}},
+        {"type": "user", "isSidechain": True, "message": {"content": "subagent"}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "content": "r"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "last answer"}]}},
+        {"type": "system", "message": {"content": "skip"}},
+    ]
+    text = with_history("new", entries)
+    assert "subagent" not in text
+    assert "skip" not in text
+    assert text.endswith("- 답:\n" + "a" * 1_500 + "\nlast answer\n\n[새 메시지]\n\nnew")
+    assert len(text) < 14_000
+    assert with_history("new", []) == f"{EMPTY_HEADER}\n\nnew"

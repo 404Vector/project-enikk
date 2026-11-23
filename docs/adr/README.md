@@ -40,6 +40,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 | 2026-11-23 |
 | [0032](0032-prompt-candidates-and-promotion-in-slack.md) | Slack 에서 프롬프트 후보를 만들고, 소유자가 승격한다 | 승인 | 2026-11-23 |
 | [0033](0033-sdk-tools-for-every-role-in-a-sandbox.md) | 모든 역할에 SDK 기본 도구를 주고, 서비스의 비밀값과 떼어 놓는다 | 승인 | 2026-11-23 |
+| [0034](0034-resume-inside-the-sandbox-and-failed-runs.md) | 세션 이어받기를 샌드박스 안에서 하고, 실패한 실행을 자세히 남긴다 | 승인 | 2026-11-23 |
 
 ## 상태 정의
 

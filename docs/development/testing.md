@@ -50,4 +50,5 @@ ENIKK_TEST_POSTGRES_DSN=postgresql://enikk@127.0.0.1:5432/postgres uv run pytest
 
 `src/libs/adapters/engine-claude/tests/test_sandbox.py` 는 역할의 기본 도구를 가두는 Landlock 샌드박스(ADR-0033)를 실제 커널과 실제 Claude Code CLI(SDK 에 들어 있는 것)로 확인한다.
 CLI 는 테스트가 localhost 에 띄운 가짜 Anthropic API 와 통신하므로 자격증명이 필요 없고 외부로 나가지 않는다.
+같은 방법으로 앞 작업의 세션을 샌드박스 안에서 이어받는지, 검색 요청이 거부된 WebSearch 가 작업 실패가 아니라 도구 오류로 끝나는지도 확인한다(ADR-0034).
 Landlock 이 없는 커널에서는 이 테스트들이 그 이유와 함께 건너뛰어진다. Docker Desktop(WSL2)과 개발 Pod, GitHub 호스팅 runner 의 커널에는 Landlock 이 있다(GitHub runner 는 CI 결과로 확인한다).
