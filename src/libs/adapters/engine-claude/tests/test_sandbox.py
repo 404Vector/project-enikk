@@ -161,6 +161,7 @@ def api() -> Iterator[FakeApi]:
         yield fake
     finally:
         server.shutdown()
+        server.server_close()
 
 
 class Transcripts:
