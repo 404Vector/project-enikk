@@ -14,6 +14,7 @@ from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.memory import NoteKind
 from enikk_contracts.outbox import OutboundKind
+from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.deployments import DeploymentWatch
 from enikk_core_domain.memory import VaultNote
@@ -29,12 +30,14 @@ from enikk_core_domain.model import (
     Session,
     Task,
 )
+from enikk_core_domain.prompts import PromptPromotion
 from enikk_persistence_sql.tables import (
     ApprovalRow,
     DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
     OutboxRow,
+    PromptPromotionRow,
     SessionRow,
     TaskRow,
     VaultNoteRow,
@@ -153,6 +156,37 @@ def approval_from_row(row: ApprovalRow) -> Approval:
         title=row.title,
         url=row.url,
         state=ApprovalState(row.state),
+        created_at=row.created_at,
+        decided_at=row.decided_at,
+        decided_by=row.decided_by,
+    )
+
+
+def prompt_promotion_to_row(
+    promotion: PromptPromotion, row: PromptPromotionRow | None = None
+) -> PromptPromotionRow:
+    row = row or PromptPromotionRow(id=promotion.id)
+    row.prompt = promotion.prompt
+    row.production_version = promotion.production_version
+    row.candidate_version = promotion.candidate_version
+    row.reason = promotion.reason
+    row.task_id = promotion.task_id
+    row.status = promotion.status.value
+    row.created_at = promotion.created_at
+    row.decided_at = promotion.decided_at
+    row.decided_by = promotion.decided_by
+    return row
+
+
+def prompt_promotion_from_row(row: PromptPromotionRow) -> PromptPromotion:
+    return PromptPromotion(
+        id=row.id,
+        prompt=row.prompt,
+        production_version=row.production_version,
+        candidate_version=row.candidate_version,
+        reason=row.reason,
+        task_id=row.task_id,
+        status=PromotionStatus(row.status),
         created_at=row.created_at,
         decided_at=row.decided_at,
         decided_by=row.decided_by,

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         Session,
         Task,
     )
+    from enikk_core_domain.prompts import PromptPromotion
 
 
 class SessionRepository(Protocol):
@@ -212,6 +213,17 @@ class ReviewMessageRepository(Protocol):
         ...
 
 
+class PromptPromotionRepository(Protocol):
+    """The owner's promotion requests of prompt candidates (ADR-0032)."""
+
+    async def add(self, promotion: PromptPromotion) -> None: ...
+    async def update(self, promotion: PromptPromotion) -> None: ...
+
+    async def get_for_update(self, promotion_id: uuid.UUID) -> PromptPromotion | None:
+        """Load a promotion and lock it until the unit of work ends."""
+        ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -225,6 +237,8 @@ class UnitOfWork(Protocol):
     def vault(self) -> VaultIndexRepository: ...
     @property
     def review_messages(self) -> ReviewMessageRepository: ...
+    @property
+    def prompt_promotions(self) -> PromptPromotionRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...

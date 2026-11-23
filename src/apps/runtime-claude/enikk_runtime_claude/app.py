@@ -60,6 +60,7 @@ class RuntimeClaudeApp:
                 delegator=core,
                 memory=core,
                 diagnostics=core,
+                prompts=core,
             )
             worker = TaskWorker(
                 core=core,

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         RememberRequest,
         UpdateMemoryRequest,
     )
+    from enikk_contracts.prompts import PromptCandidateCreated, PromptCandidateRequest
     from enikk_contracts.tasks import (
         DelegateRequest,
         DelegationAccepted,
@@ -68,6 +69,17 @@ class MemoryKeeper(Protocol):
     ) -> MemoryWritten: ...
     async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten: ...
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches: ...
+
+
+class PromptProposer(Protocol):
+    """Prompt candidates through core (ADR-0032). ``CoreClient`` implements it.
+
+    Core creates the candidate and asks the owner; nothing here can change ``production``.
+    """
+
+    async def propose_prompt(
+        self, task_id: uuid.UUID, request: PromptCandidateRequest
+    ) -> PromptCandidateCreated: ...
 
 
 class Diagnostician(Protocol):

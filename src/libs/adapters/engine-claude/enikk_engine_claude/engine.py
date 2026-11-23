@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
-    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper
+    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper, PromptProposer
 
     QueryFn = Callable[..., AsyncIterator[Message]]
 
@@ -71,6 +71,7 @@ class ClaudeEngine:
         delegator: Delegator | None = None,
         memory: MemoryKeeper | None = None,
         diagnostics: Diagnostician | None = None,
+        prompts: PromptProposer | None = None,
         query_fn: QueryFn = query,
     ) -> None:
         self._config = config
@@ -79,6 +80,7 @@ class ClaudeEngine:
         self._delegator = delegator
         self._memory = memory
         self._diagnostics = diagnostics
+        self._prompts = prompts
         self._query = query_fn
 
     @property
@@ -107,7 +109,9 @@ class ClaudeEngine:
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = list(job.definition.tools.builtin)
-        server = platform_server(job, self._delegator, self._memory, self._diagnostics)
+        server = platform_server(
+            job, self._delegator, self._memory, self._diagnostics, self._prompts
+        )
         platform = self._platform(job) if server is not None else []
         return ClaudeAgentOptions(
             tools=builtin,
@@ -144,6 +148,7 @@ class ClaudeEngine:
             delegator=self._delegator is not None,
             memory=self._memory is not None,
             diagnostics=self._diagnostics is not None,
+            prompts=self._prompts is not None,
         )
 
     async def _consume(self, job: EngineJob, stream: AsyncIterator[Message]) -> EngineResult:

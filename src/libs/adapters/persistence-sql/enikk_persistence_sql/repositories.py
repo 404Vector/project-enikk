@@ -25,6 +25,7 @@ from enikk_persistence_sql.tables import (
     DispatchRow,
     NoticeRow,
     OutboxRow,
+    PromptPromotionRow,
     ReviewMessageRow,
     SessionRow,
     TaskRow,
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
         Session,
         Task,
     )
+    from enikk_core_domain.prompts import PromptPromotion
 
 
 async def _flush(db: AsyncSession, what: str) -> None:
@@ -395,6 +397,31 @@ class SqlReviewMessageRepository:
         row.channel = ref.channel
         row.ts = ref.ts
         await _flush(self._db, f"review message of {ref.repository}#{ref.number}")
+
+
+class SqlPromptPromotionRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, promotion: PromptPromotion) -> None:
+        self._db.add(mappers.prompt_promotion_to_row(promotion))
+        await _flush(self._db, f"prompt promotion {promotion.id}")
+
+    async def update(self, promotion: PromptPromotion) -> None:
+        row = await self._db.get(PromptPromotionRow, promotion.id)
+        if row is None:
+            raise NotFoundError(f"prompt promotion {promotion.id} does not exist")
+        mappers.prompt_promotion_to_row(promotion, row)
+        await _flush(self._db, f"prompt promotion {promotion.id}")
+
+    async def get_for_update(self, promotion_id: uuid.UUID) -> PromptPromotion | None:
+        row = await self._db.scalar(
+            select(PromptPromotionRow)
+            .where(PromptPromotionRow.id == promotion_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.prompt_promotion_from_row(row) if row else None
 
 
 class SqlVaultIndexRepository:

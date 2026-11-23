@@ -14,6 +14,7 @@ from pydantic import Field, StringConstraints
 from enikk_contracts.base import Contract
 from enikk_contracts.common import Identifier
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
+from enikk_contracts.prompts import PromotionRequested
 from enikk_contracts.tasks import WaitSeconds
 
 MAX_NOTICE_BATCH = 50
@@ -120,7 +121,8 @@ OwnerNoticeBody = Annotated[
     | ApprovalOutdated
     | ApprovalResolved
     | DeploymentFinished
-    | BuildFailed,
+    | BuildFailed
+    | PromotionRequested,
     Field(discriminator="kind"),
 ]
 

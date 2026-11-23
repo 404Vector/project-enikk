@@ -14,6 +14,7 @@ from enikk_contracts.agents import AgentDefinition, Execution, PromptRef
 from enikk_contracts.approvals import ChecksFailed, PullRequestCard
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
+from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
@@ -31,6 +32,7 @@ from enikk_core_domain.model import (
     Session,
     Task,
 )
+from enikk_core_domain.prompts import PromptPromotion
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 
 if TYPE_CHECKING:
@@ -123,6 +125,7 @@ class InMemoryDatabase:
         self.deployment_watch: DeploymentWatch | None = None
         self.vault: dict[str, VaultNote] = {}
         self.review_messages: dict[tuple[str, int], ReviewMessageRef] = {}
+        self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -141,6 +144,7 @@ class _Staged:
         self.deployment_watch = db.deployment_watch
         self.vault = dict(db.vault)
         self.review_messages = dict(db.review_messages)
+        self.prompt_promotions = dict(db.prompt_promotions)
 
 
 class _ReviewMessages:
@@ -152,6 +156,20 @@ class _ReviewMessages:
 
     async def put(self, ref: ReviewMessageRef) -> None:
         self._s.review_messages[(ref.repository, ref.number)] = ref
+
+
+class _PromptPromotions:
+    def __init__(self, staged: _Staged) -> None:
+        self._staged = staged
+
+    async def add(self, promotion: PromptPromotion) -> None:
+        self._staged.prompt_promotions[promotion.id] = promotion
+
+    async def update(self, promotion: PromptPromotion) -> None:
+        self._staged.prompt_promotions[promotion.id] = promotion
+
+    async def get_for_update(self, promotion_id: uuid.UUID) -> PromptPromotion | None:
+        return self._staged.prompt_promotions.get(promotion_id)
 
 
 class _Vault:
@@ -474,6 +492,7 @@ class InMemoryUnitOfWork:
         self.deployment_watch = _DeploymentWatch(self._staged)
         self.vault = _Vault(self._staged)
         self.review_messages = _ReviewMessages(self._staged)
+        self.prompt_promotions = _PromptPromotions(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -501,6 +520,7 @@ class InMemoryUnitOfWork:
         self._db.deployment_watch = self._staged.deployment_watch
         self._db.vault = dict(self._staged.vault)
         self._db.review_messages = dict(self._staged.review_messages)
+        self._db.prompt_promotions = dict(self._staged.prompt_promotions)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -995,6 +1015,33 @@ async def check_review_messages(new_uow: UnitOfWorkFactory) -> None:
         _expect(found is not None and found.ts == "2.0", "replaced")
 
 
+async def check_prompt_promotions(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    asked = PromptPromotion(
+        id=uuid.uuid4(),
+        prompt="assistant",
+        production_version=3,
+        candidate_version=5,
+        reason="shorter answers",
+        task_id=work.id,
+        created_at=T0,
+    )
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.prompt_promotions.add(asked)
+        await uow.commit()
+    promoted = asked.decide(PromotionStatus.PROMOTED, T0 + timedelta(minutes=1), "U1")
+    async with new_uow() as uow:
+        _expect(await uow.prompt_promotions.get_for_update(asked.id) == asked, "round trip")
+        await uow.prompt_promotions.update(promoted)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.prompt_promotions.get_for_update(asked.id) == promoted, "updated")
+        _expect(await uow.prompt_promotions.get_for_update(uuid.uuid4()) is None, "missing")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -1013,4 +1060,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_deployment_watch,
     check_vault_index,
     check_review_messages,
+    check_prompt_promotions,
 )

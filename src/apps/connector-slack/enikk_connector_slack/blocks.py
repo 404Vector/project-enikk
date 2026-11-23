@@ -1,4 +1,4 @@
-"""Slack Block Kit messages for the owner's DM (ADR-0020, ADR-0023)."""
+"""Slack Block Kit messages for the owner's DM (ADR-0020, ADR-0023, ADR-0032)."""
 
 from __future__ import annotations
 
@@ -23,10 +23,18 @@ from enikk_contracts.deployments import (
     RevertOutcome,
     RevertResult,
 )
+from enikk_contracts.prompts import (
+    PromotionRequested,
+    PromotionResult,
+    PromotionStatus,
+)
 
 APPROVE_ACTION: Final = "enikk.approve"
 REJECT_ACTION: Final = "enikk.reject"
 REVERT_ACTION: Final = "enikk.revert"
+PROMOTE_PROMPT_ACTION: Final = "enikk.prompt.promote"
+REJECT_PROMPT_ACTION: Final = "enikk.prompt.reject"
+REVERT_PROMPT_ACTION: Final = "enikk.prompt.revert"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
 SUMMARY_LIMIT: Final = 200
@@ -369,6 +377,146 @@ def revert_requested(result: RevertResult, by: str) -> Context:
     if result.outcome is RevertOutcome.REFUSED:
         text += "\nassistant 에게 이 커밋을 되돌려 달라고 요청할 수 있습니다."
     return Context(elements=(Text(text=text[:SECTION_LIMIT]),))
+
+
+# ---------------------------------------------------------------- prompts (ADR-0032)
+
+PROMOTION_TEXT: Final = {
+    PromotionStatus.REQUESTED: ":hourglass_flowing_sand: 아직 결정되지 않았습니다.",
+    PromotionStatus.PROMOTED: ":white_check_mark: production 으로 승격했습니다.",
+    PromotionStatus.REJECTED: (
+        ":no_entry_sign: 거절했습니다. Langfuse 는 바뀌지 않았고 후보 버전은 남아 있습니다."
+    ),
+    PromotionStatus.STALE: ":warning: 승격하지 않았습니다.",
+    PromotionStatus.REVERTED: ":leftwards_arrow_with_hook: 이전 버전으로 되돌렸습니다.",
+}
+
+
+def promotion_request(notice: PromotionRequested) -> Message:
+    """The owner's DM: which prompt, from which version to which, why, and the buttons.
+    The diff follows in the thread (``promotion_details``)."""
+    promotion = str(notice.promotion_id)
+    roles = ", ".join(notice.roles)
+    used = f" ({_escape(roles)} 역할)" if roles else ""
+    change = f"production {_version(notice.production_version)} → 후보 v{notice.candidate_version}"
+    reason = "\n".join(
+        f"> {line}" for line in _escape(notice.reason).splitlines()[:SUMMARY_LINES] if line
+    )
+    return Message(
+        text=f"프롬프트 승격 요청: {notice.prompt} v{notice.candidate_version}",
+        blocks=(
+            _section(
+                f":memo: *프롬프트 승격 요청* `{_escape(notice.prompt)}`{used}\n{change}\n{reason}"
+            ),
+            Context(
+                elements=(Text(text="본문과 Config 의 차이는 이 메시지의 스레드에 있습니다."),)
+            ),
+            Actions(
+                block_id="enikk.prompt",
+                elements=(
+                    Button(
+                        text=Text(type="plain_text", text="승격"),
+                        action_id=PROMOTE_PROMPT_ACTION,
+                        value=promotion,
+                        style="primary",
+                        confirm=Confirm(
+                            title=Text(type="plain_text", text="프롬프트 승격"),
+                            text=Text(
+                                type="plain_text",
+                                text=f"{notice.prompt} 의 production 을 "
+                                f"v{notice.candidate_version} 로 옮깁니다.",
+                            ),
+                            confirm=Text(type="plain_text", text="승격"),
+                            deny=Text(type="plain_text", text="취소"),
+                        ),
+                    ),
+                    Button(
+                        text=Text(type="plain_text", text="거절"),
+                        action_id=REJECT_PROMPT_ACTION,
+                        value=promotion,
+                        style="danger",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def promotion_details(notice: PromotionRequested) -> tuple[Message, ...]:
+    """Thread replies under a promotion request: the text diff, then the config diff."""
+    replies: list[Message] = []
+    for title, diff in (("본문 diff", notice.text_diff), ("Config diff", notice.config_diff)):
+        if not diff.strip():
+            replies.append(
+                Message(
+                    text=f"{notice.prompt} {title}",
+                    blocks=(_section(f"*{title}*: 바뀐 것이 없습니다."),),
+                )
+            )
+            continue
+        pieces = _chunks(diff.replace("```", "`\u200b``"), SECTION_LIMIT - 40)
+        replies += [
+            Message(
+                text=f"{notice.prompt} {title} ({i}/{len(pieces)})",
+                blocks=(
+                    _section(
+                        (f"*{title}*" + (f" ({i}/{len(pieces)})" if len(pieces) > 1 else ""))
+                        + f"\n```{_escape(piece)}```"
+                    ),
+                ),
+            )
+            for i, piece in enumerate(pieces, start=1)
+        ]
+    return tuple(replies)
+
+
+def promotion_decided(promotion_id: str, result: PromotionResult, by: str) -> list[Block]:
+    """Blocks that replace the buttons: what happened, and [되돌리기] after a promotion."""
+    text = PROMOTION_TEXT[result.status]
+    if not result.changed:
+        text = f":information_source: 바뀐 것이 없습니다. 지금 상태: {text}"
+    else:
+        text += (
+            f" `{_escape(result.prompt)}` {_version(result.production_version)} → "
+            f"v{result.candidate_version}"
+            if result.status is PromotionStatus.PROMOTED
+            else ""
+        )
+    text += f" (<@{by}>)"
+    if result.detail:
+        text += f"\n> {_escape(result.detail)}"
+    blocks: list[Block] = [Context(elements=(Text(text=text[:SECTION_LIMIT]),))]
+    if result.status is PromotionStatus.PROMOTED and result.production_version is not None:
+        blocks.append(
+            Actions(
+                block_id="enikk.prompt.revert",
+                elements=(
+                    Button(
+                        text=Text(
+                            type="plain_text", text=f"v{result.production_version} 로 되돌리기"
+                        ),
+                        action_id=REVERT_PROMPT_ACTION,
+                        value=promotion_id,
+                        style="danger",
+                        confirm=Confirm(
+                            title=Text(type="plain_text", text="프롬프트 되돌리기"),
+                            text=Text(
+                                type="plain_text",
+                                text=f"{result.prompt} 의 production 을 "
+                                f"v{result.production_version} 로 되돌립니다.",
+                            ),
+                            confirm=Text(type="plain_text", text="되돌리기"),
+                            deny=Text(type="plain_text", text="취소"),
+                        ),
+                    ),
+                ),
+            )
+        )
+    return blocks
+
+
+def _version(version: int | None) -> str:
+    return "없음" if version is None else f"v{version}"
 
 
 def _what(commit: str, pull: PullLink | None) -> str:

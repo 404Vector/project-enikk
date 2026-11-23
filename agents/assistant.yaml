@@ -7,6 +7,8 @@ prompt:
 tools:
   mcp: []
   builtin: []
+  # Create prompt candidates through core; only the owner promotes them (ADR-0032, I-36).
+  platform: [prompt-candidates]
 # Change requests for the platform go to the developer agent (ADR-0022). This adds
 # only the in-process delegate tool; the assistant itself has no git or shell (I-17).
 delegates: [developer]

@@ -24,6 +24,12 @@ if TYPE_CHECKING:
     from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
     from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
+    from enikk_contracts.prompts import (
+        PromotionDecision,
+        PromotionLinked,
+        PromotionPosted,
+        PromotionResult,
+    )
     from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 
 
@@ -43,6 +49,14 @@ class CoreApi(Protocol):
     async def request_revert(self, request: RevertRequest) -> RevertResult: ...
 
     async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked: ...
+
+    async def decide_promotion(
+        self, promotion_id: uuid.UUID, decision: PromotionDecision
+    ) -> PromotionResult: ...
+
+    async def promotion_posted(
+        self, promotion_id: uuid.UUID, posted: PromotionPosted
+    ) -> PromotionLinked: ...
 
 
 class SlackDeliveryError(EnikkError):

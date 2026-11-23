@@ -14,6 +14,7 @@ from enikk_persistence_sql.repositories import (
     SqlJobQueue,
     SqlNoticeRepository,
     SqlOutboxRepository,
+    SqlPromptPromotionRepository,
     SqlReviewMessageRepository,
     SqlSessionRepository,
     SqlTaskRepository,
@@ -40,6 +41,7 @@ class SqlUnitOfWork:
         self.deployment_watch = SqlDeploymentWatchRepository(self._db)
         self.vault = SqlVaultIndexRepository(self._db)
         self.review_messages = SqlReviewMessageRepository(self._db)
+        self.prompt_promotions = SqlPromptPromotionRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

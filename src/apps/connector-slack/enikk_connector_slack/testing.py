@@ -16,6 +16,7 @@ from enikk_contracts.approvals import (
 from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
+from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromotionStatus
 from enikk_contracts.threads import ReviewThreadLinked
 from enikk_core_client import CoreNotFoundError
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxPoll
+    from enikk_contracts.prompts import PromotionDecision, PromotionPosted
     from enikk_contracts.threads import ReviewThreadOpened
 
 OWNER = "U0OWNER"
@@ -53,6 +55,16 @@ class FakeCore:
         self.reviews: list[ReviewThreadOpened] = []
         self.review_linked = ReviewThreadLinked()
         self.review_fails: Exception | None = None
+        self.promotion_decisions: list[tuple[uuid.UUID, PromotionDecision]] = []
+        self.promotion_result = PromotionResult(
+            status=PromotionStatus.PROMOTED,
+            changed=True,
+            prompt="assistant",
+            production_version=3,
+            candidate_version=5,
+            detail="반영: assistant 역할은 최대 60초 안에",
+        )
+        self.promotions_posted: list[tuple[uuid.UUID, PromotionPosted]] = []
 
     async def submit_event(self, event: InboundEvent) -> EventAccepted:
         if self.fail_with is not None:
@@ -101,6 +113,20 @@ class FakeCore:
             raise self.review_fails
         self.reviews.append(review)
         return self.review_linked
+
+    async def decide_promotion(
+        self, promotion_id: uuid.UUID, decision: PromotionDecision
+    ) -> PromotionResult:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.promotion_decisions.append((promotion_id, decision))
+        return self.promotion_result
+
+    async def promotion_posted(
+        self, promotion_id: uuid.UUID, posted: PromotionPosted
+    ) -> PromotionLinked:
+        self.promotions_posted.append((promotion_id, posted))
+        return PromotionLinked(told_origin=True)
 
 
 class FakeSlack:

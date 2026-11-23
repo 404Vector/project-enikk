@@ -35,6 +35,7 @@ from enikk_persistence_sql.tables import (
     DispatchRow,
     NoticeRow,
     OutboxRow,
+    PromptPromotionRow,
     ReviewMessageRow,
     SessionRow,
     TaskRow,
@@ -186,6 +187,7 @@ async def uow_factory(database: DatabaseConfig) -> AsyncIterator[SqlUnitOfWorkFa
         for table in (
             TranscriptEntryRow,
             OutboxRow,
+            PromptPromotionRow,
             DispatchRow,
             ApprovalRow,
             NoticeRow,
