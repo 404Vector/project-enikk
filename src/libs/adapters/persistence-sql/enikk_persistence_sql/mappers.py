@@ -12,11 +12,13 @@ from pydantic import TypeAdapter
 from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+from enikk_contracts.digests import DigestStatus
 from enikk_contracts.memory import NoteKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.deployments import DeploymentWatch
+from enikk_core_domain.digests import ConversationDigest
 from enikk_core_domain.memory import VaultNote
 from enikk_core_domain.model import (
     Approval,
@@ -33,6 +35,7 @@ from enikk_core_domain.model import (
 from enikk_core_domain.prompts import PromptPromotion
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
@@ -284,4 +287,31 @@ def outbox_from_row(row: OutboxRow) -> OutboxMessage:
         status=OutboxStatus(row.status),
         created_at=row.created_at,
         delivered_at=row.delivered_at,
+    )
+
+
+def digest_to_row(
+    digest: ConversationDigest, row: ConversationDigestRow | None = None
+) -> ConversationDigestRow:
+    row = row or ConversationDigestRow(day=digest.day)
+    row.status = digest.status.value
+    row.task_id = digest.task_id
+    row.attempts = digest.attempts
+    row.manual = digest.manual
+    row.started_at = digest.started_at
+    row.detail = digest.detail
+    row.updated_at = digest.updated_at
+    return row
+
+
+def digest_from_row(row: ConversationDigestRow) -> ConversationDigest:
+    return ConversationDigest(
+        day=row.day,
+        status=DigestStatus(row.status),
+        task_id=row.task_id,
+        attempts=row.attempts,
+        manual=row.manual,
+        started_at=row.started_at,
+        detail=row.detail,
+        updated_at=row.updated_at,
     )

@@ -7,17 +7,19 @@ The conformance checks run against every ``UnitOfWork`` implementation
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Self
 
 from enikk_contracts.agents import AgentDefinition, Execution, PromptRef
 from enikk_contracts.approvals import ChecksFailed, PullRequestCard
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+from enikk_contracts.digests import DigestStatus
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
+from enikk_core_domain.digests import ConversationDigest
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
 from enikk_core_domain.memory import VaultNote
 from enikk_core_domain.model import (
@@ -126,6 +128,7 @@ class InMemoryDatabase:
         self.vault: dict[str, VaultNote] = {}
         self.review_messages: dict[tuple[str, int], ReviewMessageRef] = {}
         self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
+        self.digests: dict[date, ConversationDigest] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -145,6 +148,30 @@ class _Staged:
         self.vault = dict(db.vault)
         self.review_messages = dict(db.review_messages)
         self.prompt_promotions = dict(db.prompt_promotions)
+        self.digests = dict(db.digests)
+
+
+class _Digests:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def get_for_update(self, day: date) -> ConversationDigest | None:
+        return self._s.digests.get(day)
+
+    async def add(self, digest: ConversationDigest) -> None:
+        if digest.day in self._s.digests:
+            raise ConcurrentUpdateError(f"the summary of {digest.day} already exists")
+        self._s.digests[digest.day] = digest
+
+    async def update(self, digest: ConversationDigest) -> None:
+        self._s.digests[digest.day] = digest
+
+    async def in_status(self, status: DigestStatus) -> Sequence[ConversationDigest]:
+        return sorted((d for d in self._s.digests.values() if d.status is status), key=_by_day)
+
+
+def _by_day(digest: ConversationDigest) -> date:
+    return digest.day
 
 
 class _ReviewMessages:
@@ -324,6 +351,10 @@ class _Tasks:
         found = [t for t in self._s.tasks.values() if t.session_id == session_id]
         return max(found, key=lambda t: (t.created_at, t.id), default=None)
 
+    async def created_between(self, start: datetime, end: datetime, limit: int) -> Sequence[Task]:
+        found = [t for t in self._s.tasks.values() if start <= t.created_at < end]
+        return sorted(found, key=lambda t: (t.created_at, t.id))[:limit]
+
     async def add(self, task: Task) -> None:
         self._s.tasks[task.id] = task
 
@@ -357,6 +388,12 @@ class _Outbox:
             for m in self._s.outbox.values()
             if m.status is OutboxStatus.PENDING and m.conversation.connector is connector
         ]
+        return sorted(found, key=lambda m: (m.created_at, m.id))[:limit]
+
+    async def created_between(
+        self, start: datetime, end: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        found = [m for m in self._s.outbox.values() if start <= m.created_at < end]
         return sorted(found, key=lambda m: (m.created_at, m.id))[:limit]
 
     async def get_many(
@@ -496,6 +533,7 @@ class InMemoryUnitOfWork:
         self.vault = _Vault(self._staged)
         self.review_messages = _ReviewMessages(self._staged)
         self.prompt_promotions = _PromptPromotions(self._staged)
+        self.digests = _Digests(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -524,6 +562,7 @@ class InMemoryUnitOfWork:
         self._db.vault = dict(self._staged.vault)
         self._db.review_messages = dict(self._staged.review_messages)
         self._db.prompt_promotions = dict(self._staged.prompt_promotions)
+        self._db.digests = dict(self._staged.digests)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -1069,6 +1108,43 @@ async def check_prompt_promotions(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.prompt_promotions.get_for_update(uuid.uuid4()) is None, "missing")
 
 
+async def check_digests_and_day_ranges(new_uow: UnitOfWorkFactory) -> None:
+    owner = session(thread="digest")
+    before = task(owner, event="ev-before", now=T0 - timedelta(seconds=1))
+    inside = task(owner, event="ev-inside", now=T0)
+    after = task(owner, event="ev-after", now=T0 + timedelta(days=1))
+    posted = outbox_message(owner, inside, now=T0 + timedelta(hours=1))
+    late = outbox_message(owner, inside, now=T0 + timedelta(days=1))
+    day = date(2026, 1, 1)
+    first = ConversationDigest.first(day, task_id=inside.id, now=T0, manual=False)
+    empty = ConversationDigest.first(date(2025, 12, 31), task_id=None, now=T0, manual=False)
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        for t in (before, inside, after):
+            await uow.tasks.add(t)
+        await uow.outbox.add(posted)
+        await uow.outbox.add(late)
+        await uow.digests.add(first)
+        await uow.digests.add(empty)
+        await uow.commit()
+    end = T0 + timedelta(days=1)
+    async with new_uow() as uow:
+        found = await uow.tasks.created_between(T0, end, 10)
+        _expect([t.id for t in found] == [inside.id], "tasks in [start, end)")
+        messages = await uow.outbox.created_between(T0, end, 10)
+        _expect([m.id for m in messages] == [posted.id], "messages in [start, end)")
+        _expect(await uow.digests.get_for_update(day) == first, "digest round trip")
+        running = await uow.digests.in_status(DigestStatus.RUNNING)
+        _expect(list(running) == [first], "digests by status")
+        await uow.digests.update(first.written(T0 + timedelta(hours=1)))
+        await uow.commit()
+    async with new_uow() as uow:
+        stored = await uow.digests.get_for_update(day)
+        _expect(stored is not None and stored.status is DigestStatus.WRITTEN, "digest update")
+        _expect(not await uow.digests.in_status(DigestStatus.RUNNING), "none running")
+        _expect(await uow.digests.get_for_update(date(2020, 1, 1)) is None, "missing day")
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -1089,4 +1165,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_review_messages,
     check_prompt_promotions,
     check_held_tasks,
+    check_digests_and_day_ranges,
 )

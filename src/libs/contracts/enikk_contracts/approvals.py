@@ -14,6 +14,7 @@ from pydantic import Field, StringConstraints
 from enikk_contracts.base import Contract
 from enikk_contracts.common import Identifier
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
+from enikk_contracts.digests import DigestFailed
 from enikk_contracts.prompts import PromotionRequested
 from enikk_contracts.tasks import WaitSeconds
 
@@ -122,7 +123,8 @@ OwnerNoticeBody = Annotated[
     | ApprovalResolved
     | DeploymentFinished
     | BuildFailed
-    | PromotionRequested,
+    | PromotionRequested
+    | DigestFailed,
     Field(discriminator="kind"),
 ]
 

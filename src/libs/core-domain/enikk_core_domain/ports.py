@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, Self
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import date, datetime
     from types import TracebackType
 
     from pydantic import SecretStr
@@ -15,10 +15,12 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.credentials import CredentialName
+    from enikk_contracts.digests import DigestStatus
     from enikk_contracts.tasks import TaskStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.deployments import AppObservation, DeploymentWatch
+    from enikk_core_domain.digests import ConversationDigest
     from enikk_core_domain.memory import VaultNote
     from enikk_core_domain.model import (
         Approval,
@@ -60,6 +62,10 @@ class TaskRepository(Protocol):
         """The most recently created task of the session, without locking it."""
         ...
 
+    async def created_between(self, start: datetime, end: datetime, limit: int) -> Sequence[Task]:
+        """Tasks created in ``[start, end)``, oldest first, at most ``limit`` (ADR-0035)."""
+        ...
+
     async def add(self, task: Task) -> None: ...
     async def update(self, task: Task) -> None: ...
 
@@ -77,6 +83,12 @@ class OutboxRepository(Protocol):
 
     async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
         """Oldest undelivered messages for ``connector``."""
+        ...
+
+    async def created_between(
+        self, start: datetime, end: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        """Messages created in ``[start, end)``, oldest first, at most ``limit`` (ADR-0035)."""
         ...
 
     async def get_many(
@@ -227,6 +239,21 @@ class PromptPromotionRepository(Protocol):
         ...
 
 
+class DigestRepository(Protocol):
+    """The state of each day's conversation summary (ADR-0035)."""
+
+    async def get_for_update(self, day: date) -> ConversationDigest | None:
+        """Load a day's summary and lock it until the unit of work ends."""
+        ...
+
+    async def add(self, digest: ConversationDigest) -> None: ...
+    async def update(self, digest: ConversationDigest) -> None: ...
+
+    async def in_status(self, status: DigestStatus) -> Sequence[ConversationDigest]:
+        """Every day in ``status``, oldest first."""
+        ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -242,6 +269,8 @@ class UnitOfWork(Protocol):
     def review_messages(self) -> ReviewMessageRepository: ...
     @property
     def prompt_promotions(self) -> PromptPromotionRepository: ...
+    @property
+    def digests(self) -> DigestRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...

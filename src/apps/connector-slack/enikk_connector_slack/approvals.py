@@ -24,6 +24,7 @@ from enikk_contracts.approvals import (
     NoticePoll,
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
+from enikk_contracts.digests import DigestFailed
 from enikk_contracts.prompts import (
     PromotionAction,
     PromotionDecision,
@@ -100,6 +101,9 @@ class NoticeRelay:
         body = notice.body
         if isinstance(body, PromotionRequested):
             await self._deliver_promotion(notice, body)
+            return
+        if isinstance(body, DigestFailed):
+            await self._deliver_to_owner(notice, blocks.digest_failed(body))
             return
         if isinstance(body, ApprovalOutdated):
             message = blocks.outdated(body)
@@ -181,6 +185,14 @@ class NoticeRelay:
             await self._core.promotion_posted(body.promotion_id, PromotionPosted(link=link))
         except (CoreApiError, CoreUnavailableError) as exc:
             _log.warning("could not tell the asking thread about %s: %s", body.prompt, exc)
+
+    async def _deliver_to_owner(self, notice: OwnerNotice, message: blocks.Message) -> None:
+        try:
+            await self._slack.post_message(self._owner, message)
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
 
     async def _reply(self, posted: PostedMessage, text: str) -> None:
         try:

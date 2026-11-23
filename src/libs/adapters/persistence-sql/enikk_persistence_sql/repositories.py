@@ -21,6 +21,7 @@ from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
@@ -36,14 +37,16 @@ from enikk_persistence_sql.tables import (
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import date, datetime
 
     from sqlalchemy import ColumnElement
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+    from enikk_contracts.digests import DigestStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.deployments import DeploymentWatch
+    from enikk_core_domain.digests import ConversationDigest
     from enikk_core_domain.memory import VaultNote
     from enikk_core_domain.model import (
         Approval,
@@ -136,6 +139,15 @@ class SqlTaskRepository:
         )
         return mappers.task_from_row(row) if row else None
 
+    async def created_between(self, start: datetime, end: datetime, limit: int) -> Sequence[Task]:
+        rows = await self._db.scalars(
+            select(TaskRow)
+            .where(TaskRow.created_at >= start, TaskRow.created_at < end)
+            .order_by(TaskRow.created_at, TaskRow.id)
+            .limit(limit)
+        )
+        return [mappers.task_from_row(row) for row in rows]
+
     async def add(self, task: Task) -> None:
         self._db.add(mappers.task_to_row(task))
         await _flush(self._db, f"task {task.id}")
@@ -181,6 +193,17 @@ class SqlOutboxRepository:
                 OutboxRow.connector == connector.value,
                 OutboxRow.status == OutboxStatus.PENDING.value,
             )
+            .order_by(OutboxRow.created_at, OutboxRow.id)
+            .limit(limit)
+        )
+        return [mappers.outbox_from_row(row) for row in rows]
+
+    async def created_between(
+        self, start: datetime, end: datetime, limit: int
+    ) -> Sequence[OutboxMessage]:
+        rows = await self._db.scalars(
+            select(OutboxRow)
+            .where(OutboxRow.created_at >= start, OutboxRow.created_at < end)
             .order_by(OutboxRow.created_at, OutboxRow.id)
             .limit(limit)
         )
@@ -422,6 +445,39 @@ class SqlPromptPromotionRepository:
             .execution_options(populate_existing=True)
         )
         return mappers.prompt_promotion_from_row(row) if row else None
+
+
+class SqlDigestRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_for_update(self, day: date) -> ConversationDigest | None:
+        row = await self._db.scalar(
+            select(ConversationDigestRow)
+            .where(ConversationDigestRow.day == day)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.digest_from_row(row) if row else None
+
+    async def add(self, digest: ConversationDigest) -> None:
+        self._db.add(mappers.digest_to_row(digest))
+        await _flush(self._db, f"summary of {digest.day}")
+
+    async def update(self, digest: ConversationDigest) -> None:
+        row = await self._db.get(ConversationDigestRow, digest.day)
+        if row is None:
+            raise NotFoundError(f"summary of {digest.day} does not exist")
+        mappers.digest_to_row(digest, row)
+        await _flush(self._db, f"summary of {digest.day}")
+
+    async def in_status(self, status: DigestStatus) -> Sequence[ConversationDigest]:
+        rows = await self._db.scalars(
+            select(ConversationDigestRow)
+            .where(ConversationDigestRow.status == status.value)
+            .order_by(ConversationDigestRow.day)
+        )
+        return [mappers.digest_from_row(row) for row in rows]
 
 
 class SqlVaultIndexRepository:

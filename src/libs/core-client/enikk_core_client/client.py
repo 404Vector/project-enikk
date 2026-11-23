@@ -12,6 +12,7 @@ from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.deployments import RevertResult
 from enikk_contracts.diagnostics import Deployments, LogLines, Pulls, RecentTasks, TaskDetail
+from enikk_contracts.digests import DigestAccepted
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth, GitHubToken
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
         RecentTasksQuery,
         TaskDetailQuery,
     )
+    from enikk_contracts.digests import DigestRequest
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.memory import (
@@ -219,6 +221,10 @@ class CoreClient:
         """The promotion request is in the owner's DM. Slack connector only."""
         path = routes.PROMOTION_POSTED.format(promotion_id=promotion_id)
         return _parse(PromotionLinked, await self._post(path, posted))
+
+    async def request_digest(self, task_id: uuid.UUID, request: DigestRequest) -> DigestAccepted:
+        path = routes.DIGESTS.format(task_id=task_id)
+        return _parse(DigestAccepted, await self._post(path, request, 30))
 
     async def remember(self, task_id: uuid.UUID, request: RememberRequest) -> MemoryWritten:
         """Keep a note in enikk's memory, the owner's vault (ADR-0028)."""

@@ -67,12 +67,17 @@ class PlatformTool(StrEnum):
 
     PROMPT_CANDIDATES = "prompt-candidates"
     """Create a candidate version of a role's prompt and ask the owner to promote it."""
+    CONVERSATION_DIGEST = "conversation-digest"
+    """Ask core to make (or remake) one day's conversation summary (ADR-0035)."""
 
 
 class ToolPolicy(Contract):
     mcp: tuple[McpToolGrant, ...] = ()
     builtin: tuple[ToolName, ...] = ()
     platform: tuple[PlatformTool, ...] = ()
+    platform_defaults: bool = True
+    """Whether the role gets the platform tools every role gets by default (memory and
+    diagnostics). False gives a role none of them (the summarizer, ADR-0035)."""
 
     @model_validator(mode="after")
     def _unique_servers(self) -> Self:

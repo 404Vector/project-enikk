@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         TaskDetail,
         TaskDetailQuery,
     )
+    from enikk_contracts.digests import DigestAccepted, DigestRequest
     from enikk_contracts.memory import (
         ForgetRequest,
         MemoryMatches,
@@ -89,6 +90,15 @@ class PromptProposer(Protocol):
     async def read_prompt(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
         """Read-only: one version of a role's prompt (ADR-0032 §8)."""
         ...
+
+
+class DigestRequester(Protocol):
+    """The owner's request for one day's conversation summary (ADR-0035).
+    ``CoreClient`` implements it."""
+
+    async def request_digest(
+        self, task_id: uuid.UUID, request: DigestRequest
+    ) -> DigestAccepted: ...
 
 
 class Diagnostician(Protocol):
