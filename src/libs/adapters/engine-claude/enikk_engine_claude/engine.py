@@ -46,7 +46,7 @@ from enikk_engine_claude.audit import audit_hooks
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
 from enikk_engine_claude.platform_tools import granted_platform_tools, platform_server
-from enikk_engine_claude.resume import with_history
+from enikk_engine_claude.resume import PROMPT_CHANGED_HEADER, prompt_changed, with_history
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.errors import EngineError
@@ -164,6 +164,20 @@ class ClaudeEngine:
         return model.startswith("claude-")
 
     async def run(self, job: EngineJob) -> EngineResult:
+        if job.engine_session_id is not None:
+            history = await self._history(job)
+            if prompt_changed(history, job.prompt.text):
+                # Resuming would keep the session's old system prompt (ADR-0032 §7).
+                _log.info(
+                    "task %s: prompt %s v%d differs from the one session %s started with; "
+                    "starting a new session",
+                    job.task_id,
+                    job.prompt.name,
+                    job.prompt.version,
+                    job.engine_session_id,
+                )
+                text = with_history(job.input, history, PROMPT_CHANGED_HEADER)
+                return await self._attempt(job, None, text)
         try:
             return await self._attempt(job, job.engine_session_id, job.input)
         except _ResumeRefusedError as refused:
