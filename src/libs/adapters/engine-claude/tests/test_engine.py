@@ -26,6 +26,7 @@ from enikk_contracts.transcripts import (
     TranscriptQuery,
     TranscriptSubpaths,
 )
+from enikk_engine_claude import sandbox
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_runtime.errors import EngineError
@@ -179,7 +180,8 @@ async def test_runs_without_tools_and_returns_the_answer(tmp_path: Path) -> None
     assert options.resume == "claude-session-0"
     assert options.max_turns == 20
     assert isinstance(options.session_store, CoreSessionStore)
-    assert options.env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat-test"
+    assert options.env[sandbox.ENV_TOKEN] == "sk-ant-oat-test"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in options.env
     assert options.env["ANTHROPIC_API_KEY"] == ""
     assert options.env["CLAUDE_CONFIG_DIR"].startswith(str(tmp_path / "scratch"))
     assert script.prompt == "hello"
@@ -234,7 +236,8 @@ async def test_tool_env_reaches_the_cli_but_cannot_replace_the_token(tmp_path: P
     await engine.run(_job())
     assert script.options is not None
     assert script.options.env["GIT_CONFIG_GLOBAL"] == "/workspace/gitconfig"
-    assert script.options.env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat-test"
+    assert script.options.env[sandbox.ENV_TOKEN] == "sk-ant-oat-test"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in script.options.env
 
 
 async def test_transcript_mirror_failure_is_retryable(tmp_path: Path) -> None:

@@ -128,3 +128,17 @@ def test_assignment_requires_aware_datetime() -> None:
         engine_session_id=None,
         input="hi",
     )
+
+
+def test_shared_roles_may_have_builtin_tools_but_only_known_ones() -> None:
+    def role(tools: str) -> AgentDefinition:
+        return AgentDefinition.model_validate_json(
+            '{"name": "assistant", "description": "d", "engine": "claude",'
+            ' "prompt": {"name": "assistant", "label": "production"},'
+            f' "tools": {{"builtin": {tools}}}}}'
+        )
+
+    assert role('["Bash", "WebFetch"]').tools.builtin == ("Bash", "WebFetch")
+    for unknown in ("CronCreate", "Skill", "mcp__claude-in-chrome__navigate", "bash"):
+        with pytest.raises(ValidationError, match="not ones a role may have"):
+            role(f'["{unknown}"]')

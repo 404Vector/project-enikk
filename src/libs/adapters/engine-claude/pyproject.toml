@@ -11,6 +11,12 @@ dependencies = [
     "claude-agent-sdk>=0.2.186",
 ]
 
+[project.scripts]
+# The SDK's cli_path and the CLI's shell prefix (ADR-0033). Both restrict themselves
+# with Landlock before running anything the model asked for.
+enikk-claude-launch = "enikk_engine_claude.sandbox:launch"
+enikk-sandbox-shell = "enikk_engine_claude.sandbox:shell"
+
 [tool.uv.sources]
 enikk-kernel = { workspace = true }
 enikk-contracts = { workspace = true }
