@@ -13,7 +13,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0004](0004-agentgateway-mcp-only.md) | agentgateway 를 MCP 통로에만 배치 | 승인 | 2026-11-21 |
 | [0005](0005-agent-definition-format.md) | 역할 정의 공통 형식 | 승인 | 2026-11-21 |
 | [0006](0006-prompts-managed-in-langfuse.md) | 프롬프트의 원본은 Langfuse 이며 git 에 두지 않는다 | 승인 | 2026-11-21 |
-| [0007](0007-self-improvement-workflow.md) | 에닉의 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 | 2026-11-21 |
+| [0007](0007-self-improvement-workflow.md) | 에닉의 자기 개선 구조 (제안 → 승인 → 자동 반영) | 승인 (프롬프트 후보를 만드는 곳은 ADR-0032 로 부분 대체) | 2026-11-21 |
 | [0008](0008-cicd-github-ghcr-gitops.md) | CI/CD — GitHub Actions 빌드, GHCR, GitOps 배포 | 승인 | 2026-11-21 |
 | [0009](0009-split-slack-bot-and-agent-runtime.md) | Slack 봇과 런타임을 별도 프로세스로 분리 | 대체됨(ADR-0010) | 2026-11-21 |
 | [0010](0010-enikk-core-control-plane.md) | enikk-core 를 제어 경로 전용 중앙 서비스로 두고 엔진별 런타임을 분리 | 승인 | 2026-11-21 |
@@ -38,6 +38,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 승인 | 2026-11-23 |
 | [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 | 2026-11-23 |
+| [0032](0032-prompt-candidates-and-promotion-in-slack.md) | Slack 에서 프롬프트 후보를 만들고, 소유자가 승격한다 | 승인 | 2026-11-23 |
 
 ## 상태 정의
 
