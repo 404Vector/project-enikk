@@ -12,7 +12,7 @@ from enikk_contracts.credentials import CredentialName, CredentialRequest
 from enikk_core_client import CoreClient
 from enikk_core_client.credentials import wait_for_credentials
 from enikk_core_client.tokens import FileTokenSource
-from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig, SandboxConfig
+from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.errors import ConfigurationError
 from enikk_langfuse.config import LangfuseConfig
@@ -54,12 +54,7 @@ class RuntimeClaudeApp:
             prompts = LangfusePromptStore.connect(langfuse, clock)
             tracing = LangfuseTracing.connect(langfuse, service_name=SERVICE_NAME)
             engine = ClaudeEngine(
-                config=ClaudeEngineConfig(
-                    workdir=s.workdir,
-                    scratch_dir=s.scratch_dir,
-                    # The core token must stay out of the model's reach (ADR-0033).
-                    sandbox=SandboxConfig(secrets=(s.token_file, s.token_file.parent)),
-                ),
+                config=ClaudeEngineConfig(workdir=s.workdir, scratch_dir=s.scratch_dir),
                 oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
                 transcripts=core,
                 delegator=core,

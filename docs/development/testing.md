@@ -45,9 +45,3 @@ ENIKK_TEST_POSTGRES_DSN=postgresql://enikk@127.0.0.1:5432/postgres uv run pytest
 
 `src/apps/ops-cli/tests/test_secrets.py` 는 비밀 파일이 정확히 0600, 그 디렉터리의 권한 비트가 0700 인지 확인한다.
 디렉터리는 권한 비트(`rwx`)만 비교한다. Kubernetes 의 `fsGroup` 볼륨처럼 setgid 가 켜진 디렉터리 아래에서는 새 디렉터리가 setgid 비트(02000)를 물려받는데, 이 비트는 접근 권한을 주지 않는다.
-
-## 도구 샌드박스 테스트
-
-`src/libs/adapters/engine-claude/tests/test_sandbox.py` 는 역할의 기본 도구를 가두는 Landlock 샌드박스(ADR-0033)를 실제 커널과 실제 Claude Code CLI(SDK 에 들어 있는 것)로 확인한다.
-CLI 는 테스트가 localhost 에 띄운 가짜 Anthropic API 와 통신하므로 자격증명이 필요 없고 외부로 나가지 않는다.
-Landlock 이 없는 커널에서는 이 테스트들이 그 이유와 함께 건너뛰어진다. Docker Desktop(WSL2)과 개발 Pod, GitHub 호스팅 runner 의 커널에는 Landlock 이 있다(GitHub runner 는 CI 결과로 확인한다).

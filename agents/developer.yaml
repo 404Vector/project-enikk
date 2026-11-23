@@ -8,11 +8,8 @@ prompt:
   label: production
 tools:
   mcp: []
-  # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
-  # web returns is untrusted input. No browser automation. Sensitive path (I-20).
-  builtin:
-    [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
-     WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
+  # The only agent with shell and file tools (I-14). Protected path (I-20).
+  builtin: [Bash, Read, Write, Edit, Glob, Grep]
 delegates: []
 limits:
   max_turns: 100

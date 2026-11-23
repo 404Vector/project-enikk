@@ -28,7 +28,7 @@
 |---|---|---|
 | enikk-core | 제어 경로 중앙 서비스: 작업 상태, 스레드-세션 연결, 카탈로그, 승인 흐름, 엔진 간 위임 중계, 프롬프트 후보 생성과 승격(Langfuse 에 쓰는 유일한 곳) | ADR-0010, ADR-0032 |
 | Slack 커넥터 | Socket Mode 수신, 소유자 확인, core 에 이벤트 전달, 결과 게시 | ADR-0010, I-01 |
-| Claude 런타임 | Claude Agent SDK 로 작업 실행 (구독 토큰). 역할의 기본 도구(명령·파일·웹)는 Landlock 샌드박스 안에서 비밀값 없이 실행하고, 명령·웹 사용을 로그에 남긴다 | ADR-0002, ADR-0003, ADR-0033 |
+| Claude 런타임 | Claude Agent SDK 로 작업 실행 (구독 토큰) | ADR-0002, ADR-0003 |
 | Gemini 런타임 | Google ADK 로 작업 실행 (AI Studio API 키) | ADR-0003 |
 | 개발 역할(developer) | 격리 Pod 에서 정의·코드 변경을 만들어 PR 로 제안 | ADR-0007 |
 | 자체 MCP 서버들 | 프로젝트 전용 도구 | ADR-0004 |

@@ -6,15 +6,11 @@ prompt:
   label: production
 tools:
   mcp: []
-  # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
-  # web returns is untrusted input. No browser automation.
-  builtin:
-    [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
-     WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
+  builtin: []
   # Create prompt candidates through core; only the owner promotes them (ADR-0032, I-36).
   platform: [prompt-candidates]
-# Change requests for the platform go to the developer role (ADR-0022). The assistant
-# has a shell but no git credentials or cluster access; it delegates changes (I-17).
+# Change requests for the platform go to the developer agent (ADR-0022). This adds
+# only the in-process delegate tool; the assistant itself has no git or shell (I-17).
 delegates: [developer]
 limits:
   max_turns: 20

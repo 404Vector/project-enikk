@@ -26,39 +26,7 @@ def test_repository_agent_definitions_are_valid() -> None:
     assistant = catalog.get("assistant")
     assert assistant is not None
     assert assistant.engine is Engine.CLAUDE
-
-
-# The owner's decision (ADR-0033): every role has the SDK's file, search, command,
-# web and work-tracking tools, under the names Claude Code 2.1.330 uses.
-EVERY_ROLE_HAS: frozenset[str] = frozenset(
-    {
-        "Read",
-        "Write",
-        "Edit",
-        "NotebookEdit",
-        "Glob",
-        "Grep",
-        "Bash",
-        "Monitor",
-        "TaskStop",
-        "WebSearch",
-        "WebFetch",
-        "TaskCreate",
-        "TaskGet",
-        "TaskList",
-        "TaskUpdate",
-        "Task",
-    }
-)
-
-
-def test_every_role_is_granted_the_sdk_tools() -> None:
-    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    assert set(catalog.names()) >= {"assistant", "developer"}
-    for name in catalog.names():
-        definition = catalog.get(name)
-        assert definition is not None
-        assert set(definition.tools.builtin) == EVERY_ROLE_HAS, name
+    assert assistant.tools.builtin == ()
 
 
 def test_catalog_reports_every_problem(tmp_path: Path) -> None:
