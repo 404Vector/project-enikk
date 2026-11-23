@@ -55,7 +55,7 @@ project-enikk/
 
 ### 요구 사항
 
-- WSL2 (Ubuntu) 또는 Linux
+- WSL2 (Ubuntu), Linux 또는 macOS — 이미지는 amd64·arm64 를 모두 제공한다([ADR-0038](docs/adr/0038-multi-platform-images.md))
 - Docker Desktop (Kubernetes 활성화)
 - [uv](https://docs.astral.sh/uv/), [Helm](https://helm.sh/) 3, kubectl
 

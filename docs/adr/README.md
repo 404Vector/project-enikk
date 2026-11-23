@@ -44,6 +44,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0035](0035-daily-conversation-summaries.md) | 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다 | 승인 | 2026-11-23 |
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 | 2026-11-23 |
 | [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1단계 구현) | 2026-11-23 |
+| [0038](0038-multi-platform-images.md) | 이미지를 amd64 와 arm64 로 함께 빌드한다 | 승인 | 2026-11-24 |
 
 ## 상태 정의
 
