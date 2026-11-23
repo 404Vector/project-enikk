@@ -186,7 +186,8 @@ class PromptService:
         )
 
     async def posted(self, promotion_id: uuid.UUID, posted: PromotionPosted) -> PromotionLinked:
-        """The request is in the owner's DM: tell the asking thread, with its link."""
+        """The request is posted (approval channel, or the owner's DM if that failed,
+        ADR-0036): tell the asking thread, with its link."""
         async with self._uow() as uow:
             promotion = await uow.prompt_promotions.get_for_update(promotion_id)
             if promotion is None:
@@ -196,7 +197,7 @@ class PromptService:
                 uow,
                 promotion,
                 f"프롬프트 `{promotion.prompt}` 후보 v{promotion.candidate_version} 의 "
-                f"승격 요청을 소유자 DM 으로 보냈습니다{where}",
+                f"승격 요청을 보냈습니다{where}",
             )
             await uow.commit()
         return PromotionLinked(told_origin=told)

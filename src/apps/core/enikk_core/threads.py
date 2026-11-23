@@ -1,8 +1,10 @@
-"""Notes about an agent's pull request in the Slack thread that asked for it (ADR-0025).
+"""An agent's pull request in the Slack thread that asked for it (ADR-0025, ADR-0036).
 
 The developer works on ``agent/<developer session ID>``; that session replies into
 the thread that delegated to it. So the branch name alone leads back to the thread.
 Older branches were ``agent/<task ID>``; their task leads to the session.
+
+The PR's progress is one status card in that thread, updated in place.
 """
 
 from __future__ import annotations
@@ -12,10 +14,13 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Final
 
+from pydantic import ValidationError
+
+from enikk_contracts.approvals import PullStage, PullStatusCard
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.threads import ReviewThreadLinked
-from enikk_core_domain.model import OutboxMessage, ReviewMessageRef
+from enikk_core_domain.model import Notice, OutboxMessage, ReviewMessageRef
 
 if TYPE_CHECKING:
     from enikk_contracts.threads import ReviewThreadOpened
@@ -66,6 +71,44 @@ class ThreadNotes:
         )
         return True
 
+    async def card(
+        self,
+        uow: UnitOfWork,
+        branch: str,
+        *,
+        repository: str,
+        number: int,
+        url: str,
+        title: str,
+        stage: PullStage,
+        commit: str | None = None,
+        detail: str = "",
+    ) -> bool:
+        """Queue the PR's status card for the thread behind ``branch``, posted once and
+        then updated. False if there is no such thread."""
+        found = await self.origin(uow, branch)
+        if found is None:
+            return False
+        session, _ = found
+        if session.reply_to is None:
+            return False
+        try:
+            body = PullStatusCard(
+                repository=repository,
+                number=number,
+                url=url[:500],
+                title=title[:300],
+                origin=session.reply_to,
+                stage=stage,
+                commit=commit,
+                detail=detail[:MAX_NOTE],
+            )
+        except ValidationError as exc:
+            _log.warning("no status card for %s#%d: %s", repository, number, exc)
+            return False
+        await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=self._clock.now()))
+        return True
+
     async def origin(self, uow: UnitOfWork, branch: str) -> tuple[Session, Task] | None:
         """The delegated session behind ``branch`` and its most recent task."""
         session = await self._session(uow, branch)
@@ -88,10 +131,11 @@ class ThreadNotes:
 
 
 class ReviewLinks:
-    """Links the owner's review thread of an agent PR with the thread that asked for it.
+    """Links the approval message of an agent PR with the thread that asked for it.
 
-    The asking thread gets the review thread's link; the review thread gets back where
-    the request came from and the agent's report, which stays out of the asking thread.
+    The asking thread's status card links to the approval message (core hands the card
+    out with that message, ADR-0036); the approval thread gets back where the request
+    came from and the agent's report, which stays out of the asking thread.
     """
 
     def __init__(self, uow: UnitOfWorkFactory, notes: ThreadNotes) -> None:
@@ -116,10 +160,6 @@ class ReviewLinks:
             session, latest = found
             if review.updated:
                 return ReviewThreadLinked(origin=session.reply_to)
-            if review.review_link is not None:
-                note = f"PR #{review.number} 검토 스레드(소유자 DM): {review.review_link}"
-                await self._notes.post(uow, review.branch, note)
-                await uow.commit()
         _log.info("linked the review thread of %s#%d", review.repository, review.number)
         report = latest.output if latest.status is TaskStatus.SUCCEEDED else None
         return ReviewThreadLinked(origin=session.reply_to, report=report)
@@ -136,5 +176,6 @@ def delegated_status(agent: str, output: str) -> str:
         return output
     return (
         f"에닉의 {agent} 역할이 작업을 마쳤습니다. PR: {' '.join(links)}\n"
-        "검사가 끝나면 소유자 DM 에 검토 스레드가 열립니다. 바뀐 내용과 상세는 그곳에 있습니다."
+        "검사가 끝나면 승인 채널에 승인 요청이 올라가고, 이 스레드에는 PR 상태 카드가 생깁니다. "
+        "바뀐 내용과 상세는 승인 채널의 스레드에 있습니다."
     )

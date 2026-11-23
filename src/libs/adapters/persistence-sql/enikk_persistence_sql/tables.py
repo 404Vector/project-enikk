@@ -160,6 +160,17 @@ class ReviewMessageRow(Base):
     ts: Mapped[str] = mapped_column(String(255))
 
 
+class StatusCardRow(Base):
+    """The status card of an agent PR in the thread that asked for it (ADR-0036)."""
+
+    __tablename__ = "status_cards"
+
+    repository: Mapped[str] = mapped_column(String(200), primary_key=True)
+    number: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(255))
+    ts: Mapped[str] = mapped_column(String(255))
+
+
 class PromptPromotionRow(Base):
     """The owner's promotion request of a prompt candidate (ADR-0032)."""
 

@@ -13,3 +13,9 @@ routes:
 # a member. If posting there fails, the notice goes to the owner's DM instead.
 # ENIKK_CONNECTOR_DEPLOY_NOTIFY_CHANNEL overrides it.
 deploy_notify_channel: C0CKT1ZNZ43  # #release
+
+# Approval channel: pull request approval requests and prompt promotion requests, with
+# their buttons (ADR-0036). Only the owner's presses are acted on. The bot must be a
+# member (a private channel needs /invite). If posting there fails, the request goes
+# to the owner's DM instead. ENIKK_CONNECTOR_APPROVAL_CHANNEL overrides it.
+approval_channel: C0CL7HZ5UQ1  # approval channel

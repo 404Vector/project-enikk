@@ -441,7 +441,7 @@ async def test_posting_the_dm_tells_the_asking_thread_its_link(
         )
     assert linked.told_origin
     [note] = await _outbox(harness)
-    assert "승격 요청을 소유자 DM 으로 보냈습니다: https://slack.test/archives/D1/p1" in note
+    assert "승격 요청을 보냈습니다: https://slack.test/archives/D1/p1" in note
 
 
 async def test_developer_prompt_takes_effect_from_the_next_task(

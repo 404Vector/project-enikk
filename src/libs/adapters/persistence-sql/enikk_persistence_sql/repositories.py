@@ -29,6 +29,7 @@ from enikk_persistence_sql.tables import (
     PromptPromotionRow,
     ReviewMessageRow,
     SessionRow,
+    StatusCardRow,
     TaskRow,
     TranscriptEntryRow,
     VaultNoteRow,
@@ -420,6 +421,28 @@ class SqlReviewMessageRepository:
         row.channel = ref.channel
         row.ts = ref.ts
         await _flush(self._db, f"review message of {ref.repository}#{ref.number}")
+
+
+class SqlStatusCardRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None:
+        row = await self._db.get(StatusCardRow, (repository, number))
+        if row is None:
+            return None
+        return ReviewMessageRef(
+            repository=row.repository, number=row.number, channel=row.channel, ts=row.ts
+        )
+
+    async def put(self, ref: ReviewMessageRef) -> None:
+        row = await self._db.get(StatusCardRow, (ref.repository, ref.number))
+        if row is None:
+            row = StatusCardRow(repository=ref.repository, number=ref.number)
+            self._db.add(row)
+        row.channel = ref.channel
+        row.ts = ref.ts
+        await _flush(self._db, f"status card of {ref.repository}#{ref.number}")
 
 
 class SqlPromptPromotionRepository:

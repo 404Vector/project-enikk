@@ -1,7 +1,8 @@
 """Watches pull requests, asks the owner, and acts on the owner's decision (ADR-0020).
 
-- When every check of a PR's head commit has finished, the owner gets a DM: a request
-  with buttons if the checks passed, a notice if they failed. Once per commit.
+- When every check of a PR's head commit has finished, the approval channel (or the
+  owner's DM, ADR-0036) gets a request with buttons if the checks passed, a notice if
+  they failed. Once per commit. An agent PR's asking thread gets one status card.
 - Approving records ``enikk/owner-approval`` on exactly that commit and squash-merges
   it, only if the PR still points at that commit (I-33). Rejecting closes the PR.
 - Only this module records approvals; it is called for the owner's Slack actions alone.
@@ -26,16 +27,18 @@ from enikk_contracts.approvals import (
     NoticeBatch,
     OwnerNotice,
     PullRequestCard,
+    PullStage,
+    PullStatusCard,
     ResolutionOutcome,
     ReviewMessage,
 )
 from enikk_core_domain.errors import DependencyUnavailableError, NotFoundError
-from enikk_core_domain.model import Approval, ApprovalState, Notice
+from enikk_core_domain.model import Approval, ApprovalState, Notice, ReviewMessageRef
 from enikk_github.permissions import TokenPurpose
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from enikk_contracts.approvals import (
         DecisionRequest,
@@ -63,12 +66,10 @@ _log = logging.getLogger(__name__)
 
 PASSING: Final = frozenset({"success", "neutral", "skipped"})
 
-_DECISION_NOTES: Final = {
-    ApprovalState.MERGED: (
-        "PR #{number} 이 승인되어 머지됐습니다. 배포가 있으면 결과도 여기에 알립니다."
-    ),
-    ApprovalState.REJECTED: "PR #{number} 이 반려되어 닫혔습니다.",
-    ApprovalState.BLOCKED: "PR #{number} 이 승인됐지만 GitHub 가 머지를 거부했습니다. {detail}",
+_STAGE_OF_DECISION: Final = {
+    ApprovalState.MERGED: PullStage.MERGED,
+    ApprovalState.REJECTED: PullStage.REJECTED,
+    ApprovalState.BLOCKED: PullStage.BLOCKED,
 }
 
 _OUTCOME_OF_STATE: Final = {
@@ -147,7 +148,7 @@ class ApprovalService:
                 continue
             if await self._brought_up_to_date(token, pull):
                 continue
-            card = await self._card(token, full_name, pull, runs)
+            card = await self._pull_card(token, full_name, pull, runs)
             await self._record(full_name, pull, card, failed=any(r.failed for r in runs))
 
     async def _brought_up_to_date(self, token: InstallationToken, pull: PullInfo) -> bool:
@@ -195,6 +196,16 @@ class ApprovalService:
                 return
             for approval in older:
                 await self._resolve(uow, approval, ApprovalState.SUPERSEDED, "", notify=False)
+            await self._card(
+                uow,
+                full_name,
+                pull.number,
+                pull.url,
+                pull.title,
+                pull.branch,
+                PullStage.CHECKING,
+                commit=pull.head_sha,
+            )
             now = self._clock.now()
             await uow.notices.add(
                 Notice(
@@ -252,19 +263,18 @@ class ApprovalService:
                 else ApprovalRequested(approval_id=approval.id, pull=card, replaces=replaces)
             )
             await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=now))
-            if failed:
-                names = ", ".join(c.name for c in card.checks if c.conclusion not in PASSING)
-                note = (
-                    f"PR #{pull.number} 검사가 실패했습니다: {names or '알 수 없음'}. "
-                    "이 스레드에서 고쳐 달라고 하면 같은 PR 에서 고칩니다. "
-                    f"{pull.url}"
-                )
-            else:
-                note = (
-                    f"PR #{pull.number} 이 검사를 통과해 소유자에게 승인 요청을 보냈습니다. "
-                    f"{pull.url}"
-                )
-            await self._note(uow, pull.branch, note)
+            names = ", ".join(c.name for c in card.checks if c.conclusion not in PASSING)
+            await self._card(
+                uow,
+                full_name,
+                pull.number,
+                pull.url,
+                pull.title,
+                pull.branch,
+                PullStage.CHECKS_FAILED if failed else PullStage.AWAITING_APPROVAL,
+                commit=pull.head_sha,
+                detail=f"실패한 검사: {names or '알 수 없음'}" if failed else "",
+            )
             await uow.commit()
         _log.info(
             "%s#%d %s: %s",
@@ -274,7 +284,7 @@ class ApprovalService:
             "checks failed" if failed else "approval requested",
         )
 
-    async def _card(
+    async def _pull_card(
         self, token: InstallationToken, full_name: str, pull: PullInfo, runs: list[CheckRun]
     ) -> PullRequestCard:
         files = await self._pulls.files(token, pull.number)
@@ -330,10 +340,19 @@ class ApprovalService:
                 await self._app.revoke(token)
             resolved = approval.resolve(state, self._clock.now(), by=request.decided_by)
             await uow.approvals.update(resolved)
-            note = _DECISION_NOTES.get(state)
-            if note is not None:
-                text = note.format(number=approval.number, detail=detail or "")
-                await self._note(uow, approval.branch, text.strip())
+            stage = _STAGE_OF_DECISION.get(state)
+            if stage is not None:
+                await self._card(
+                    uow,
+                    approval.repository,
+                    approval.number,
+                    approval.url,
+                    approval.title,
+                    approval.branch,
+                    stage,
+                    commit=approval.head_sha,
+                    detail=detail,
+                )
             await uow.commit()
         _log.info(
             "%s#%d: %s by the owner -> %s",
@@ -366,9 +385,31 @@ class ApprovalService:
             return ApprovalState.MERGED, ""
         return ApprovalState.BLOCKED, merged.detail
 
-    async def _note(self, uow: UnitOfWork, branch: str, text: str) -> None:
+    async def _card(
+        self,
+        uow: UnitOfWork,
+        repository: str,
+        number: int,
+        url: str,
+        title: str,
+        branch: str,
+        stage: PullStage,
+        *,
+        commit: str | None = None,
+        detail: str = "",
+    ) -> None:
         if self._threads is not None:
-            await self._threads.post(uow, branch, text)
+            await self._threads.card(
+                uow,
+                branch,
+                repository=repository,
+                number=number,
+                url=url,
+                title=title,
+                stage=stage,
+                commit=commit,
+                detail=detail,
+            )
 
     async def _resolve(
         self,
@@ -381,10 +422,19 @@ class ApprovalService:
     ) -> None:
         now = self._clock.now()
         if state is ApprovalState.CLOSED:
-            await self._note(uow, approval.branch, f"PR #{approval.number} 이 닫혔습니다.")
+            await self._card(
+                uow,
+                approval.repository,
+                approval.number,
+                approval.url,
+                approval.title,
+                approval.branch,
+                PullStage.CLOSED,
+            )
         await uow.approvals.update(approval.resolve(state, now))
         if not notify:
             return
+        ref = await uow.review_messages.get(approval.repository, approval.number)
         await uow.notices.add(
             Notice(
                 id=self._ids.new(),
@@ -396,26 +446,35 @@ class ApprovalService:
                     title=approval.title,
                     outcome=_OUTCOME_OF_STATE[state],
                     detail=detail,
+                    replaces=None if ref is None else ReviewMessage(channel=ref.channel, ts=ref.ts),
                 ),
                 created_at=now,
             )
         )
 
-    # ------------------------------------------------------------ the owner's DM queue
+    # ------------------------------------------------------------ the notice queue
 
     async def poll_notices(self, poll: NoticePoll) -> NoticeBatch:
         deadline = self._clock.now() + timedelta(seconds=poll.wait_seconds)
         while True:
             async with self._uow() as uow:
                 pending = await uow.notices.pending(poll.limit)
-            if pending or self._clock.now() >= deadline:
-                return NoticeBatch(
-                    notices=tuple(OwnerNotice(notice_id=n.id, body=n.body) for n in pending)
-                )
+                handed = await _hand_out(uow, pending)
+            if handed or self._clock.now() >= deadline:
+                return NoticeBatch(notices=tuple(handed))
             await self._sleep(POLL_INTERVAL.total_seconds())
 
     async def ack_notices(self, ack: NoticeAck) -> NoticeAcked:
         async with self._uow() as uow:
+            for card in ack.cards:
+                await uow.status_cards.put(
+                    ReviewMessageRef(
+                        repository=card.repository,
+                        number=card.number,
+                        channel=card.channel,
+                        ts=card.ts,
+                    )
+                )
             changed = 0
             for notice in await uow.notices.get_many(ack.notice_ids):
                 delivered = notice.mark_delivered()
@@ -424,3 +483,49 @@ class ApprovalService:
                     changed += 1
             await uow.commit()
         return NoticeAcked(acknowledged=changed)
+
+
+def _pull_of(body: OwnerNoticeBody) -> tuple[str, int] | None:
+    """The pull request a notice is about, if any."""
+    if isinstance(body, ApprovalRequested | ChecksFailed):
+        return body.pull.repository, body.pull.number
+    if isinstance(body, ApprovalOutdated | ApprovalResolved | PullStatusCard):
+        return body.repository, body.number
+    return None
+
+
+async def _hand_out(uow: UnitOfWork, pending: Sequence[Notice]) -> list[OwnerNotice]:
+    """The notices to hand out now, status cards with where they already are (ADR-0036).
+
+    A status card waits while another notice of the same PR is pending in this batch:
+    the approval message must exist before the card links to it, and a card posted in
+    this batch is known only once the connector acknowledges it.
+    """
+    others: set[tuple[str, int]] = set()
+    for notice in pending:
+        key = _pull_of(notice.body)
+        if key is not None and not isinstance(notice.body, PullStatusCard):
+            others.add(key)
+    carded: set[tuple[str, int]] = set()
+    handed: list[OwnerNotice] = []
+    for notice in pending:
+        body = notice.body
+        if isinstance(body, PullStatusCard):
+            key = (body.repository, body.number)
+            if key in others or key in carded:
+                continue
+            carded.add(key)
+            card = await uow.status_cards.get(*key)
+            review = await uow.review_messages.get(*key)
+            body = body.model_copy(
+                update={
+                    "card": None
+                    if card is None
+                    else ReviewMessage(channel=card.channel, ts=card.ts),
+                    "review": None
+                    if review is None
+                    else ReviewMessage(channel=review.channel, ts=review.ts),
+                }
+            )
+        handed.append(OwnerNotice(notice_id=notice.id, body=body))
+    return handed

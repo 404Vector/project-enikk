@@ -36,6 +36,7 @@ from enikk_core_client import CoreConflictError, CoreUnavailableError
 pytestmark = pytest.mark.anyio
 
 POLICY = RelayPolicy(wait_seconds=0, batch=10, backoff_max_seconds=1)
+APPROVALS = CONFIG.approval_channel
 APPROVAL = uuid.UUID("12345678-1234-5678-1234-567812345678")
 CARD = PullRequestCard(
     repository="404Vector/project-enikk",
@@ -56,7 +57,7 @@ def _relay(core: FakeCore, slack: FakeSlack) -> NoticeRelay:
     return NoticeRelay(core, slack, CONFIG, POLICY)
 
 
-async def test_request_goes_to_the_owner_dm_with_buttons_and_diff() -> None:
+async def test_request_goes_to_the_approval_channel_with_buttons_and_diff() -> None:
     core, slack = FakeCore(), FakeSlack()
     notice = OwnerNotice(
         notice_id=uuid.uuid4(), body=ApprovalRequested(approval_id=APPROVAL, pull=CARD)
@@ -65,7 +66,7 @@ async def test_request_goes_to_the_owner_dm_with_buttons_and_diff() -> None:
     assert await _relay(core, slack).relay_once() == 1
 
     [(channel, message)] = slack.messages
-    assert channel == OWNER
+    assert channel == APPROVALS == "C0CL7HZ5UQ1"
     [actions] = [b for b in message.blocks if isinstance(b, Actions)]
     assert [e.action_id for e in actions.elements] == [APPROVE_ACTION, REJECT_ACTION]
     assert all(e.value == str(APPROVAL) for e in actions.elements)
@@ -74,7 +75,7 @@ async def test_request_goes_to_the_owner_dm_with_buttons_and_diff() -> None:
     assert "원래 요청: README 에 한 줄" in rendered
     assert CARD.url in rendered
     [(upload_channel, thread, filename, content)] = slack.uploads
-    assert (upload_channel, thread) == ("D0OWNER", "1.0")
+    assert (upload_channel, thread) == (APPROVALS, "1.0")
     assert filename == "pr-7-1111111.diff"
     assert content == "+one line\n"
     assert core.notices_acked == [notice.notice_id]
@@ -93,7 +94,7 @@ async def test_request_keeps_details_out_of_the_parent_and_in_its_thread() -> No
     assert "README.md" not in parent
     assert "agent/abc" not in parent
     [(channel, thread, reply)] = slack.replies
-    assert (channel, thread) == ("D0OWNER", "1.0")
+    assert (channel, thread) == (APPROVALS, "1.0")
     detail = str(reply.payload())
     assert "README.md" in detail
     assert "agent/abc" in detail
@@ -153,17 +154,18 @@ async def test_review_thread_and_asking_thread_link_each_other(failed: bool) -> 
 
     [review] = core.reviews
     assert (review.repository, review.number, review.branch) == (CARD.repository, 7, "agent/abc")
-    assert review.review_link == "https://slack.test/archives/D0OWNER/p10"
+    assert review.review_link == f"https://slack.test/archives/{APPROVALS}/p10"
+    assert (review.channel, review.ts) == (APPROVALS, "1.0")
     [origin_link, report] = slack.posts
     assert origin_link == (
-        "D0OWNER",
+        APPROVALS,
         "1.0",
         "원래 요청 스레드: https://slack.test/archives/C0ASK/p17001",
     )
-    assert report[:2] == ("D0OWNER", "1.0")
+    assert report[:2] == (APPROVALS, "1.0")
     assert "상세 보고: src/a.py 수정" in report[2]
     assert report[2].startswith("*개발 역할 보고*")
-    assert all(channel == "D0OWNER" for channel, _, _ in slack.posts)
+    assert all(channel == APPROVALS for channel, _, _ in slack.posts)
 
 
 async def test_links_are_skipped_without_permalinks_and_core_failures_do_not_stop_the_dm(

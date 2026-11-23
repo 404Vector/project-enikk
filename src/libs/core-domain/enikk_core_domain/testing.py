@@ -127,6 +127,7 @@ class InMemoryDatabase:
         self.deployment_watch: DeploymentWatch | None = None
         self.vault: dict[str, VaultNote] = {}
         self.review_messages: dict[tuple[str, int], ReviewMessageRef] = {}
+        self.status_cards: dict[tuple[str, int], ReviewMessageRef] = {}
         self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
         self.digests: dict[date, ConversationDigest] = {}
         self.locks: dict[uuid.UUID, object] = {}
@@ -147,6 +148,7 @@ class _Staged:
         self.deployment_watch = db.deployment_watch
         self.vault = dict(db.vault)
         self.review_messages = dict(db.review_messages)
+        self.status_cards = dict(db.status_cards)
         self.prompt_promotions = dict(db.prompt_promotions)
         self.digests = dict(db.digests)
 
@@ -183,6 +185,17 @@ class _ReviewMessages:
 
     async def put(self, ref: ReviewMessageRef) -> None:
         self._s.review_messages[(ref.repository, ref.number)] = ref
+
+
+class _StatusCards:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None:
+        return self._s.status_cards.get((repository, number))
+
+    async def put(self, ref: ReviewMessageRef) -> None:
+        self._s.status_cards[(ref.repository, ref.number)] = ref
 
 
 class _PromptPromotions:
@@ -532,6 +545,7 @@ class InMemoryUnitOfWork:
         self.deployment_watch = _DeploymentWatch(self._staged)
         self.vault = _Vault(self._staged)
         self.review_messages = _ReviewMessages(self._staged)
+        self.status_cards = _StatusCards(self._staged)
         self.prompt_promotions = _PromptPromotions(self._staged)
         self.digests = _Digests(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
@@ -561,6 +575,7 @@ class InMemoryUnitOfWork:
         self._db.deployment_watch = self._staged.deployment_watch
         self._db.vault = dict(self._staged.vault)
         self._db.review_messages = dict(self._staged.review_messages)
+        self._db.status_cards = dict(self._staged.status_cards)
         self._db.prompt_promotions = dict(self._staged.prompt_promotions)
         self._db.digests = dict(self._staged.digests)
         self.commits += 1
@@ -1057,6 +1072,22 @@ async def check_review_messages(new_uow: UnitOfWorkFactory) -> None:
         _expect(found is not None and found.ts == "2.0", "replaced")
 
 
+async def check_status_cards(new_uow: UnitOfWorkFactory) -> None:
+    first = ReviewMessageRef(repository="404Vector/project-enikk", number=7, channel="C1", ts="1.5")
+    async with new_uow() as uow:
+        _expect(await uow.status_cards.get(first.repository, 7) is None, "no card yet")
+        await uow.status_cards.put(first)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.status_cards.get(first.repository, 7) == first, "card round trip")
+        _expect(await uow.review_messages.get(first.repository, 7) is None, "kept apart")
+        await uow.status_cards.put(first.model_copy(update={"ts": "2.5"}))
+        await uow.commit()
+    async with new_uow() as uow:
+        found = await uow.status_cards.get(first.repository, 7)
+        _expect(found is not None and found.ts == "2.5", "card replaced")
+
+
 async def check_held_tasks(new_uow: UnitOfWorkFactory) -> None:
     held_session = session(thread="held")
     normal_session = session(thread="normal")
@@ -1163,6 +1194,7 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_deployment_watch,
     check_vault_index,
     check_review_messages,
+    check_status_cards,
     check_prompt_promotions,
     check_held_tasks,
     check_digests_and_day_ranges,

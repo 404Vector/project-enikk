@@ -136,9 +136,9 @@ async def test_the_asking_thread_sees_status_and_the_review_thread_the_report(
         )
         assert linked.origin == THREAD
         assert linked.report == REPORT
-        [note] = (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
-    assert note.conversation == THREAD
-    assert note.text == "PR #7 검토 스레드(소유자 DM): https://slack.test/archives/D1/p1"
+        # The asking thread links to the approval message through its status card
+        # (ADR-0036), not with a separate message.
+        assert not (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
 
 
 async def test_review_threads_of_other_branches_link_nothing(harness: Harness) -> None:

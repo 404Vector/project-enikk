@@ -45,6 +45,7 @@ class FakeCore:
         self.sessions: set[str] = set()
         self.notices: list[OwnerNotice] = []
         self.notices_acked: list[uuid.UUID] = []
+        self.acks: list[NoticeAck] = []
         self.decisions: list[tuple[uuid.UUID, DecisionRequest]] = []
         self.decision_result = DecisionResult(outcome=ResolutionOutcome.MERGED)
         self.reverts: list[RevertRequest] = []
@@ -92,6 +93,7 @@ class FakeCore:
         return NoticeBatch(notices=tuple(self.notices[: poll.limit]))
 
     async def ack_notices(self, ack: NoticeAck) -> NoticeAcked:
+        self.acks.append(ack)
         self.notices_acked.extend(ack.notice_ids)
         self.notices = [n for n in self.notices if n.notice_id not in ack.notice_ids]
         return NoticeAcked(acknowledged=len(ack.notice_ids))

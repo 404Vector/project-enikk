@@ -228,6 +228,15 @@ class ReviewMessageRepository(Protocol):
         ...
 
 
+class StatusCardRepository(Protocol):
+    """The status card of each agent PR in the thread that asked for it (ADR-0036)."""
+
+    async def get(self, repository: str, number: int) -> ReviewMessageRef | None: ...
+    async def put(self, ref: ReviewMessageRef) -> None:
+        """Create or replace the card of that pull request."""
+        ...
+
+
 class PromptPromotionRepository(Protocol):
     """The owner's promotion requests of prompt candidates (ADR-0032)."""
 
@@ -267,6 +276,8 @@ class UnitOfWork(Protocol):
     def vault(self) -> VaultIndexRepository: ...
     @property
     def review_messages(self) -> ReviewMessageRepository: ...
+    @property
+    def status_cards(self) -> StatusCardRepository: ...
     @property
     def prompt_promotions(self) -> PromptPromotionRepository: ...
     @property

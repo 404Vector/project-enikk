@@ -18,6 +18,7 @@ from enikk_persistence_sql.repositories import (
     SqlPromptPromotionRepository,
     SqlReviewMessageRepository,
     SqlSessionRepository,
+    SqlStatusCardRepository,
     SqlTaskRepository,
     SqlTranscriptRepository,
     SqlVaultIndexRepository,
@@ -42,6 +43,7 @@ class SqlUnitOfWork:
         self.deployment_watch = SqlDeploymentWatchRepository(self._db)
         self.vault = SqlVaultIndexRepository(self._db)
         self.review_messages = SqlReviewMessageRepository(self._db)
+        self.status_cards = SqlStatusCardRepository(self._db)
         self.prompt_promotions = SqlPromptPromotionRepository(self._db)
         self.digests = SqlDigestRepository(self._db)
         self.queue = SqlJobQueue(self._db)

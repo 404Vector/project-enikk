@@ -28,3 +28,5 @@ class ConnectorSlackSettings(ServiceSettings, env_prefix="ENIKK_CONNECTOR_"):
     outbox: OutboxSettings = OutboxSettings()
     deploy_notify_channel: str | None = None
     """Overrides ``deploy_notify_channel`` of the Slack config (ADR-0026)."""
+    approval_channel: str | None = None
+    """Overrides ``approval_channel`` of the Slack config (ADR-0036)."""
