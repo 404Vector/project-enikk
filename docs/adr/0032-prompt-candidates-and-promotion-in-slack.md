@@ -2,7 +2,7 @@
 
 - 상태: 승인
 - 날짜: 2026-11-23
-- 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0013, ADR-0016, ADR-0020, ADR-0023, ADR-0026, ADR-0031, I-01, I-13, I-14, I-16, I-17, I-19, I-24, I-27, I-28
+- 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0013, ADR-0016, ADR-0020, ADR-0023, ADR-0026, ADR-0031, ADR-0036, I-01, I-13, I-14, I-16, I-17, I-19, I-24, I-27, I-28
 
 ## 배경
 ADR-0007 은 프롬프트 변경 경로를 "새 버전 작성(`candidate` 라벨) → 평가 → Slack 승인 → `production` 라벨로 승격"으로 정했다. 그 경로는 아직 없다. 지금 소유자는 Langfuse 화면에서 프롬프트를 직접 고친다(README "프롬프트 수정 방법").
@@ -33,6 +33,7 @@ ADR-0007 은 프롬프트 변경 경로를 "새 버전 작성(`candidate` 라벨
    - 런타임은 core 의 `POST /v1/tasks/{task_id}/prompts/candidates` 를 부른다.
    - core 가 검증하고, 통과하면 Langfuse 에 후보 버전을 만들고, 승격 요청을 DB(`prompt_promotions`)에 기록하고, 소유자 DM 알림(`notices`)을 큐에 넣는다. 도구 결과로 후보 버전 번호를 돌려준다.
 2. **승격 요청 DM** (core → connector-slack)
+   > ADR-0036 으로 부분 대체: 승격 요청은 소유자 DM 이 아니라 승인 채널(설정값 `approval_channel`)에 올라가고, 실패하면 소유자 DM 으로 간다. [승격] [거절] [되돌리기] 는 채널에서도 소유자만 실행한다(커넥터와 core 가 모두 확인).
    - 본문: 프롬프트 이름, 그 프롬프트를 쓰는 역할, `production vN → 후보 vM`, 변경 이유 한두 줄, [승격] [거절] 버튼.
    - 스레드 댓글: 원래 요청 스레드 링크, 본문 diff, Config diff. 길면 여러 댓글로 나눈다(ADR-0020 의 PR 승인 DM 과 같은 방식).
    - 커넥터는 DM 을 올린 뒤 그 링크를 core(`POST /v1/prompt-promotions/{id}/posted`)에 알리고, core 는 원래 요청 스레드에 상태와 DM 링크만 올린다(ADR-0026).
