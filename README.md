@@ -117,7 +117,20 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
 ### 프롬프트 수정 방법
 
 역할마다의 시스템 프롬프트(대화 방식, 말투)는 git 이 아니라 Langfuse 에만 있습니다([ADR-0006](docs/adr/0006-prompts-managed-in-langfuse.md)).
-코드 배포 없이 Langfuse 화면에서 바로 고칩니다.
+코드 배포 없이 Slack 에서 바꾸거나, Langfuse 화면에서 직접 고칩니다.
+
+**Slack 에서 바꾸기** ([ADR-0032](docs/adr/0032-prompt-candidates-and-promotion-in-slack.md))
+
+1. 에닉에게 DM 이나 멘션으로 "assistant 프롬프트를 이렇게 바꿔 줘"라고 말합니다. 모델이나 effort 를 바꾸려면 함께 말합니다.
+2. assistant 역할이 새 본문을 만들어 core 에 후보를 요청합니다. core 가 검사(text 형식, Config 의 `model`, 바뀐 것이 있는지, 비밀값처럼 보이는 문자열이 없는지)를 통과한 경우에만 Langfuse 에 `candidate` label 만 단 새 버전을 만듭니다. 이때 `production` 은 바뀌지 않습니다.
+3. 소유자 DM 에 승격 요청이 옵니다: 프롬프트 이름, `production vN → 후보 vM`, 변경 이유, [승격] [거절] 버튼. 스레드 댓글에 원래 요청 스레드 링크와 본문·Config diff 가 있습니다. 원래 대화 스레드에는 상태와 DM 링크만 올라옵니다.
+4. [승격] 을 누르면, 요청 뒤 `production` 이 그대로일 때만 `production` label 이 후보로 옮겨집니다. 그 사이 바뀌었으면 승격하지 않고 다시 요청하라고 알립니다. [거절] 은 Langfuse 를 바꾸지 않고 후보 버전을 남겨 둡니다.
+5. 승격 결과 메시지의 [vN 로 되돌리기] 를 누르면 `production` 이 승격 전 버전으로 돌아갑니다(그 사이 다른 버전이 승격됐으면 되돌리지 않습니다). 프롬프트가 잘못돼 assistant 가 답하지 못해도 이 버튼은 동작합니다.
+
+- 버튼은 소유자만 누를 수 있습니다. 같은 버튼을 여러 번 눌러도 한 번만 처리됩니다.
+- core 가 자기에게 있는 `langfuse.public-key`, `langfuse.secret-key` 로 Langfuse 에 씁니다. 키가 없으면 "core 에 Langfuse 키가 없다"는 오류로 답합니다.
+
+**Langfuse 화면에서 직접 고치기**
 
 **어디를 고치나**
 

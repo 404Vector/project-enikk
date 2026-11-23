@@ -21,6 +21,7 @@ from enikk_core.github import (
     load_sensitive_paths,
 )
 from enikk_core.memory import MemoryPolicy, MemoryService
+from enikk_core.prompts import PromptService, load_owner
 from enikk_core.security import Gatekeeper
 from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
@@ -38,6 +39,8 @@ from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
 from enikk_k8s_jobs.logs import KubeLogReader, LogConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
+from enikk_langfuse.config import LangfuseConfig
+from enikk_langfuse.registry import LangfusePromptRegistry
 from enikk_persistence_sql.engine import create_engine, create_session_factory
 from enikk_persistence_sql.uow import SqlUnitOfWorkFactory
 
@@ -54,9 +57,10 @@ def build_services(settings: CoreSettings) -> CoreServices:
     uow = SqlUnitOfWorkFactory(create_session_factory(engine))
     store = DirectoryCredentialStore(settings.credentials_dir)
     memory = _memory(settings, store, clock, uow, ids)
+    catalog = YamlAgentCatalog.load(settings.agents_dir)
     usecases = CoreUseCases(
         uow=uow,
-        catalog=YamlAgentCatalog.load(settings.agents_dir),
+        catalog=catalog,
         clock=clock,
         ids=ids,
         policy=settings.tasks,
@@ -102,6 +106,36 @@ def build_services(settings: CoreSettings) -> CoreServices:
         memory=memory,
         memory_interval_seconds=settings.memory.interval_seconds,
         diagnostics=_diagnostics(settings, store, clock, uow),
+        prompts=_prompts(settings, store, catalog, clock, uow, ids),
+    )
+
+
+def _prompts(
+    settings: CoreSettings,
+    store: DirectoryCredentialStore,
+    catalog: YamlAgentCatalog,
+    clock: SystemClock,
+    uow: SqlUnitOfWorkFactory,
+    ids: RandomIdGenerator,
+) -> PromptService | None:
+    p = settings.prompts
+    if not p.enabled:
+        return None
+
+    def langfuse() -> LangfuseConfig | None:
+        public = store.get(CredentialName.LANGFUSE_PUBLIC_KEY)
+        secret = store.get(CredentialName.LANGFUSE_SECRET_KEY)
+        if public is None or secret is None:
+            return None
+        return LangfuseConfig(base_url=p.langfuse_url, public_key=public, secret_key=secret)
+
+    return PromptService(
+        uow=uow,
+        catalog=catalog,
+        registry=LangfusePromptRegistry(langfuse),
+        owner=load_owner(p.slack_config_file),
+        clock=clock,
+        ids=ids,
     )
 
 

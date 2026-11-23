@@ -1,4 +1,5 @@
-"""The owner's DM: approval requests out, button presses in (ADR-0020)."""
+"""The owner's DM: approval and prompt promotion requests out, button presses in
+(ADR-0020, ADR-0032)."""
 
 from __future__ import annotations
 
@@ -23,6 +24,12 @@ from enikk_contracts.approvals import (
     NoticePoll,
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
+from enikk_contracts.prompts import (
+    PromotionAction,
+    PromotionDecision,
+    PromotionPosted,
+    PromotionRequested,
+)
 from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 from enikk_core_client import CoreApiError, CoreUnavailableError
 
@@ -37,6 +44,11 @@ if TYPE_CHECKING:
     Sleep = Callable[[float], Awaitable[None]]
 
 DECISIONS: Final = {blocks.APPROVE_ACTION: Decision.APPROVE, blocks.REJECT_ACTION: Decision.REJECT}
+PROMOTIONS: Final = {
+    blocks.PROMOTE_PROMPT_ACTION: PromotionAction.PROMOTE,
+    blocks.REJECT_PROMPT_ACTION: PromotionAction.REJECT,
+    blocks.REVERT_PROMPT_ACTION: PromotionAction.REVERT,
+}
 
 _log = logging.getLogger(__name__)
 
@@ -86,6 +98,9 @@ class NoticeRelay:
 
     async def _deliver(self, notice: OwnerNotice) -> None:
         body = notice.body
+        if isinstance(body, PromotionRequested):
+            await self._deliver_promotion(notice, body)
+            return
         if isinstance(body, ApprovalOutdated):
             message = blocks.outdated(body)
             await self._slack.update_message(
@@ -140,6 +155,38 @@ class NoticeRelay:
             await self._slack.upload_text(
                 posted.channel, posted.ts, name, card.diff, f"#{card.number} diff{note}"
             )
+
+    async def _deliver_promotion(self, notice: OwnerNotice, body: PromotionRequested) -> None:
+        """The request in the owner's DM, the diff in its thread, then the asking thread
+        hears where it is (ADR-0032)."""
+        try:
+            posted = await self._slack.post_message(self._owner, blocks.promotion_request(body))
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped prompt promotion notice %s: %s", notice.notice_id, exc)
+            return
+        if body.origin is not None:
+            origin = await self._slack.permalink(body.origin.channel, body.origin.thread)
+            if origin is not None:
+                await self._reply(posted, f"원래 요청 스레드: {origin}")
+        for reply in blocks.promotion_details(body):
+            try:
+                await self._slack.post_message(posted.channel, reply, thread=posted.ts)
+            except SlackDeliveryError as exc:
+                _log.warning("could not post the diff of %s: %s", body.prompt, exc)
+                break
+        link = await self._slack.permalink(posted.channel, posted.ts)
+        try:
+            await self._core.promotion_posted(body.promotion_id, PromotionPosted(link=link))
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("could not tell the asking thread about %s: %s", body.prompt, exc)
+
+    async def _reply(self, posted: PostedMessage, text: str) -> None:
+        try:
+            await self._slack.post_reply(posted.channel, posted.ts, text)
+        except SlackDeliveryError as exc:
+            _log.warning("could not reply in %s: %s", posted.channel, exc)
 
     async def _deliver_deployment(self, notice: OwnerNotice, message: blocks.Message) -> None:
         """Post in the deployment channel, or in the owner's DM if that fails (ADR-0026)."""
@@ -226,6 +273,10 @@ class ApprovalActions:
             if action.action_id == blocks.REVERT_ACTION:
                 await self._revert(actions, action.value)
                 continue
+            promotion = PROMOTIONS.get(action.action_id)
+            if promotion is not None:
+                await self._promote(actions, action.value, promotion)
+                continue
             decision = DECISIONS.get(action.action_id)
             if decision is None:
                 continue
@@ -256,6 +307,32 @@ class ApprovalActions:
             actions.message_ts,
             actions.message_text,
             [*kept, footer.model_dump()],
+        )
+
+    async def _promote(self, actions: BlockActions, value: str, action: PromotionAction) -> None:
+        try:
+            promotion_id = uuid.UUID(value)
+        except ValueError:
+            return
+        decision = PromotionDecision(action=action, decided_by=actions.user.id)
+        try:
+            result = await self._core.decide_promotion(promotion_id, decision)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("prompt %s on %s failed: %s", action, promotion_id, exc)
+            await self._slack.post_reply(
+                actions.channel_id,
+                actions.message_ts,
+                f":warning: 처리하지 못했습니다. 아무것도 바뀌지 않았습니다. "
+                f"잠시 뒤 다시 눌러 주세요. ({exc})",
+            )
+            return
+        kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
+        footer = blocks.promotion_decided(str(promotion_id), result, actions.user.id)
+        await self._slack.update_message(
+            actions.channel_id,
+            actions.message_ts,
+            actions.message_text,
+            [*kept, *(b.model_dump(mode="json", exclude_none=True) for b in footer)],
         )
 
     async def _revert(self, actions: BlockActions, commit: str) -> None:

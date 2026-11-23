@@ -50,6 +50,14 @@ from enikk_contracts.memory import (
     UpdateMemoryRequest,
 )
 from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
+from enikk_contracts.prompts import (
+    PromotionDecision,
+    PromotionLinked,
+    PromotionPosted,
+    PromotionResult,
+    PromptCandidateCreated,
+    PromptCandidateRequest,
+)
 from enikk_contracts.tasks import (
     ClaimRequest,
     DelegateRequest,
@@ -95,6 +103,7 @@ if TYPE_CHECKING:
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.memory import MemoryService
+    from enikk_core.prompts import PromptService
     from enikk_core.security import Gatekeeper
     from enikk_core.threads import ReviewLinks
     from enikk_core.usecases import CoreUseCases
@@ -140,6 +149,7 @@ class CoreServices:
         memory: MemoryService | None = None,
         memory_interval_seconds: float = 60.0,
         diagnostics: DiagnosticsService | None = None,
+        prompts: PromptService | None = None,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -158,6 +168,7 @@ class CoreServices:
         self.memory = memory
         self.memory_interval_seconds = memory_interval_seconds
         self.diagnostics = diagnostics
+        self.prompts = prompts
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -302,6 +313,28 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, MemorySearch)
         await usecases.verify_lease(scope, task_id, body.lease_id)
         return _json(await _memory(services).search(body))
+
+    @app.post(routes.PROMPT_CANDIDATES, responses={200: {"model": PromptCandidateCreated}})
+    @requires("runtime")
+    async def propose_prompt(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        body = await _parse(request, PromptCandidateRequest)
+        await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
+        return _json(await _prompts(services).propose(task_id, body))
+
+    @app.post(routes.PROMOTION_DECISION, responses={200: {"model": PromotionResult}})
+    @requires("connector")
+    async def decide_promotion(promotion_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, PromotionDecision)
+        return _json(await _prompts(services).decide(promotion_id, body))
+
+    @app.post(routes.PROMOTION_POSTED, responses={200: {"model": PromotionLinked}})
+    @requires("connector")
+    async def promotion_posted(promotion_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, PromotionPosted)
+        return _json(await _prompts(services).posted(promotion_id, body))
 
     @app.post(routes.TASK_DELEGATE, responses={200: {"model": DelegationAccepted}})
     @requires("runtime", "dev-agent")
@@ -477,6 +510,12 @@ def _memory(services: CoreServices) -> MemoryService:
     if services.memory is None:
         raise DependencyUnavailableError("enikk's memory is not enabled")
     return services.memory
+
+
+def _prompts(services: CoreServices) -> PromptService:
+    if services.prompts is None:
+        raise DependencyUnavailableError("prompt candidates are not enabled in core")
+    return services.prompts
 
 
 def _deployments(services: CoreServices) -> DeploymentService:

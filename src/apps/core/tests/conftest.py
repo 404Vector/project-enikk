@@ -142,6 +142,7 @@ class Harness:
     github: FakeGitHubApp
     launcher: FakeLauncher
     dispatcher: DevJobDispatcher
+    services: CoreServices
 
     def client(self, token: str) -> CoreClient:
         return CoreClient.connect(
@@ -227,6 +228,7 @@ def harness() -> Harness:
         github=github,
         launcher=launcher,
         dispatcher=dispatcher,
+        services=services,
     )
 
 

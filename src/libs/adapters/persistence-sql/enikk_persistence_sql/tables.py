@@ -159,6 +159,23 @@ class ReviewMessageRow(Base):
     ts: Mapped[str] = mapped_column(String(255))
 
 
+class PromptPromotionRow(Base):
+    """The owner's promotion request of a prompt candidate (ADR-0032)."""
+
+    __tablename__ = "prompt_promotions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    prompt: Mapped[str] = mapped_column(String(200))
+    production_version: Mapped[int | None] = mapped_column(Integer)
+    candidate_version: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(500))
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))
+    status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime]
+    decided_at: Mapped[datetime | None]
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+
+
 class OutboxRow(Base):
     __tablename__ = "outbox"
     __table_args__ = (Index("ix_outbox_pending", "connector", "status", "created_at"),)

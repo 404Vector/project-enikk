@@ -1,8 +1,9 @@
 """Platform tools served in-process to the Claude CLI (ADR-0022).
 
 They call core only, never an external MCP server, so they do not go through
-agentgateway (I-05): ``delegate`` (ADR-0022) and enikk's memory, ``remember``,
-``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028).
+agentgateway (I-05): ``delegate`` (ADR-0022), enikk's memory, ``remember``,
+``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028), diagnostics (ADR-0029)
+and ``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 from claude_agent_sdk import create_sdk_mcp_server, tool
 from pydantic import BaseModel, ValidationError
 
+from enikk_contracts.agents import PlatformTool
 from enikk_contracts.diagnostics import (
     DeploymentsQuery,
     LogsQuery,
@@ -29,6 +31,7 @@ from enikk_contracts.memory import (
     RememberRequest,
     UpdateMemoryRequest,
 )
+from enikk_contracts.prompts import PromptCandidateRequest, PromptConfigChange
 from enikk_contracts.tasks import DelegateRequest, TaskStatus
 from enikk_core_client.errors import CoreApiError, CoreUnavailableError
 
@@ -39,7 +42,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.memory import MemoryWritten
     from enikk_runtime.model import EngineJob
-    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper
+    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper, PromptProposer
 
 SERVER: Final = "enikk"
 DELEGATE_TOOL: Final = f"mcp__{SERVER}__delegate"
@@ -52,6 +55,7 @@ DIAGNOSTIC_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}"
     for name in ("recent_tasks", "task_detail", "deployments", "service_logs", "pull_requests")
 )
+PROPOSE_PROMPT_TOOL: Final = f"mcp__{SERVER}__propose_prompt"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
 )
@@ -93,14 +97,36 @@ RECALL_DESCRIPTION: Final = (
 )
 
 
+PROPOSE_PROMPT_DESCRIPTION: Final = (
+    "Change the system prompt of one of enikk's roles: create a candidate version in "
+    "Langfuse and ask the owner, in a Slack DM with the diff, to promote it. Nothing "
+    "changes until the owner presses [승격]; this tool can never change the production "
+    "prompt. Use it only when the owner asked to change a prompt. prompt: the prompt "
+    "name of a role (e.g. assistant, developer). text: the complete new prompt, not a "
+    "fragment. reason: one or two lines on why. config: only to change the model or "
+    "effort; the rest of the current config is kept. If it is refused, tell the owner "
+    "why instead of retrying with the same input."
+)
+
+
+def _grants_prompts(job: EngineJob) -> bool:
+    return PlatformTool.PROMPT_CANDIDATES in job.definition.tools.platform
+
+
 def granted_platform_tools(
-    job: EngineJob, *, delegator: bool = True, memory: bool = False, diagnostics: bool = False
+    job: EngineJob,
+    *,
+    delegator: bool = True,
+    memory: bool = False,
+    diagnostics: bool = False,
+    prompts: bool = False,
 ) -> list[str]:
     granted = [DELEGATE_TOOL] if delegator and job.definition.delegates else []
     return [
         *granted,
         *(MEMORY_TOOLS if memory else ()),
         *(DIAGNOSTIC_TOOLS if diagnostics else ()),
+        *([PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
     ]
 
 
@@ -109,6 +135,7 @@ def platform_server(
     delegator: Delegator | None,
     memory: MemoryKeeper | None = None,
     diagnostics: Diagnostician | None = None,
+    prompts: PromptProposer | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
     if delegator is not None and job.definition.delegates:
@@ -117,7 +144,67 @@ def platform_server(
         tools.extend(memory_tools(job, memory))
     if diagnostics is not None:
         tools.extend(diagnostic_tools(job, diagnostics))
+    if prompts is not None and _grants_prompts(job):
+        tools.append(propose_prompt_tool(job, prompts))
     return create_sdk_mcp_server(SERVER, tools=tools) if tools else None
+
+
+def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "Prompt name of a role."},
+            "text": {"type": "string", "description": "The complete new prompt text."},
+            "reason": {"type": "string", "description": "Why, in one or two lines."},
+            "config": {
+                "type": "object",
+                "description": "Optional. Only the values to change.",
+                "properties": {"model": {"type": "string"}, "effort": {"type": "string"}},
+            },
+        },
+        "required": ["prompt", "text", "reason"],
+    }
+
+    @tool("propose_prompt", PROPOSE_PROMPT_DESCRIPTION, schema)
+    async def propose_prompt(args: dict[str, Any]) -> dict[str, Any]:
+        raw = args.get("config")
+        try:
+            config = (
+                PromptConfigChange(
+                    model=str(raw["model"]) if raw.get("model") else None,
+                    effort=str(raw["effort"]) if raw.get("effort") else None,
+                )
+                if isinstance(raw, dict)
+                else None
+            )
+            request = PromptCandidateRequest(
+                lease_id=job.lease_id,
+                prompt=str(args.get("prompt", "")),
+                text=str(args.get("text", "")),
+                reason=str(args.get("reason", "")),
+                config=config,
+            )
+        except ValidationError:
+            return _result(
+                "prompt, text and reason are required (text 100000, reason 500 characters "
+                "at most; config may hold only model and effort).",
+                True,
+            )
+        try:
+            created = await prompts.propose_prompt(job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now; tell the owner.", True)
+        except CoreApiError as exc:
+            return _result(f"No candidate was created: {exc}", True)
+        before = f"v{created.production_version}" if created.production_version else "no production"
+        return _result(
+            f"Candidate v{created.candidate_version} of '{created.prompt}' created "
+            f"(production is {before}). The owner was asked in a DM to promote it; "
+            "nothing changes until they do.",
+            False,
+        )
+
+    return propose_prompt
 
 
 DIAGNOSTICS_NOTE: Final = (

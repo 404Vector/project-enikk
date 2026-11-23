@@ -18,6 +18,7 @@ from enikk_contracts.github import GitHubHealth, GitHubToken
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.memory import MemoryMatches, MemoryWritten
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
+from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromptCandidateCreated
 from enikk_contracts.tasks import (
     ClaimRequest,
     DelegationAccepted,
@@ -54,6 +55,11 @@ if TYPE_CHECKING:
         UpdateMemoryRequest,
     )
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
+    from enikk_contracts.prompts import (
+        PromotionDecision,
+        PromotionPosted,
+        PromptCandidateRequest,
+    )
     from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
@@ -181,6 +187,27 @@ class CoreClient:
     async def review_thread_opened(self, review: ReviewThreadOpened) -> ReviewThreadLinked:
         """Link a PR's review thread with the thread that asked for it. Slack connector only."""
         return _parse(ReviewThreadLinked, await self._post(routes.REVIEW_THREADS, review))
+
+    async def propose_prompt(
+        self, task_id: uuid.UUID, request: PromptCandidateRequest
+    ) -> PromptCandidateCreated:
+        """Create a prompt candidate and ask the owner to promote it (ADR-0032)."""
+        path = routes.PROMPT_CANDIDATES.format(task_id=task_id)
+        return _parse(PromptCandidateCreated, await self._post(path, request, 60))
+
+    async def decide_promotion(
+        self, promotion_id: uuid.UUID, decision: PromotionDecision
+    ) -> PromotionResult:
+        """The owner's promotion, rejection or revert of a prompt. Slack connector only."""
+        path = routes.PROMOTION_DECISION.format(promotion_id=promotion_id)
+        return _parse(PromotionResult, await self._post(path, decision, 60))
+
+    async def promotion_posted(
+        self, promotion_id: uuid.UUID, posted: PromotionPosted
+    ) -> PromotionLinked:
+        """The promotion request is in the owner's DM. Slack connector only."""
+        path = routes.PROMOTION_POSTED.format(promotion_id=promotion_id)
+        return _parse(PromotionLinked, await self._post(path, posted))
 
     async def remember(self, task_id: uuid.UUID, request: RememberRequest) -> MemoryWritten:
         """Keep a note in enikk's memory, the owner's vault (ADR-0028)."""

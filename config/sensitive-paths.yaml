@@ -16,4 +16,7 @@ paths:
   - deploy/helm/dev-agent/
   - deploy/k8s/identities/
   - src/apps/core/enikk_core/approval/
+  # Prompt promotion: the only code that moves Langfuse's production label (I-36).
+  - src/apps/core/enikk_core/prompts.py
+  - src/libs/adapters/langfuse/enikk_langfuse/registry.py
   - src/libs/adapters/github/

@@ -81,6 +81,12 @@ spec:
               value: {{ .Values.memory.intervalSeconds | quote }}
             - name: ENIKK_CORE_DIAGNOSTICS__ENABLED
               value: {{ .Values.diagnostics.enabled | quote }}
+            - name: ENIKK_CORE_PROMPTS__ENABLED
+              value: {{ .Values.prompts.enabled | quote }}
+            - name: ENIKK_CORE_PROMPTS__LANGFUSE_URL
+              value: {{ .Values.prompts.langfuseUrl | quote }}
+            - name: ENIKK_CORE_PROMPTS__SLACK_CONFIG_FILE
+              value: /app/config/slack.yaml
             - name: ENIKK_CORE_DEV_AGENT__ENABLED
               value: {{ .Values.devAgent.enabled | quote }}
             - name: ENIKK_CORE_DEV_AGENT__NAMESPACE

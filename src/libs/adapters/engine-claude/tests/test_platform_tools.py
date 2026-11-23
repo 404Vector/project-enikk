@@ -7,10 +7,22 @@ import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock
 from pydantic import SecretStr
 
+from enikk_contracts.agents import PlatformTool, ToolPolicy
+from enikk_contracts.prompts import (
+    PromptCandidateCreated,
+    PromptCandidateRequest,
+    PromptConfigChange,
+)
 from enikk_contracts.tasks import DelegateRequest, DelegationAccepted
 from enikk_core_client.errors import CoreConflictError, CoreUnavailableError
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
-from enikk_engine_claude.platform_tools import DELEGATE_TOOL, delegate_tool
+from enikk_engine_claude.platform_tools import (
+    DELEGATE_TOOL,
+    PROPOSE_PROMPT_TOOL,
+    delegate_tool,
+    granted_platform_tools,
+    propose_prompt_tool,
+)
 from enikk_runtime.model import EngineJob, ResolvedPrompt
 from enikk_runtime.testing import definition
 
@@ -153,3 +165,82 @@ async def test_the_delegate_tool_is_refused_without_a_delegator(tmp_path: Path) 
     script = _Script([DELEGATE_TOOL])
     with pytest.raises(Exception, match="delegate"):
         await _engine(script, tmp_path, None).run(_job())
+
+
+# ---------------------------------------------------------------- propose_prompt (ADR-0032)
+
+
+class _Proposer:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[tuple[uuid.UUID, PromptCandidateRequest]] = []
+        self._error = error
+
+    async def propose_prompt(
+        self, task_id: uuid.UUID, request: PromptCandidateRequest
+    ) -> PromptCandidateCreated:
+        self.calls.append((task_id, request))
+        if self._error is not None:
+            raise self._error
+        return PromptCandidateCreated(
+            promotion_id=uuid.uuid4(),
+            prompt=request.prompt,
+            candidate_version=5,
+            production_version=3,
+        )
+
+
+def _granted_job(*, grant: bool = True) -> EngineJob:
+    job = _job()
+    tools = ToolPolicy(platform=(PlatformTool.PROMPT_CANDIDATES,) if grant else ())
+    return job.model_copy(update={"definition": job.definition.model_copy(update={"tools": tools})})
+
+
+def test_propose_prompt_goes_only_to_granted_roles() -> None:
+    assert PROPOSE_PROMPT_TOOL in granted_platform_tools(_granted_job(), prompts=True)
+    assert PROPOSE_PROMPT_TOOL not in granted_platform_tools(
+        _granted_job(grant=False), prompts=True
+    )
+    assert PROPOSE_PROMPT_TOOL not in granted_platform_tools(_granted_job(), prompts=False)
+
+
+async def test_propose_prompt_sends_the_candidate_under_the_lease() -> None:
+    job = _granted_job()
+    proposer = _Proposer()
+    result = await propose_prompt_tool(job, proposer).handler(
+        {
+            "prompt": "assistant",
+            "text": "You are enikk.",
+            "reason": "shorter",
+            "config": {"model": "claude-b"},
+        }
+    )
+    assert not result["is_error"]
+    assert "Candidate v5" in result["content"][0]["text"]
+    assert "nothing changes until they do" in result["content"][0]["text"]
+    [(task_id, request)] = proposer.calls
+    assert task_id == job.task_id
+    assert request == PromptCandidateRequest(
+        lease_id=job.lease_id,
+        prompt="assistant",
+        text="You are enikk.",
+        reason="shorter",
+        config=PromptConfigChange(model="claude-b"),
+    )
+
+
+async def test_propose_prompt_refuses_bad_input_before_core() -> None:
+    proposer = _Proposer()
+    result = await propose_prompt_tool(_granted_job(), proposer).handler(
+        {"prompt": "assistant", "text": "", "reason": "x"}
+    )
+    assert result["is_error"]
+    assert proposer.calls == []
+
+
+async def test_propose_prompt_reports_core_refusals() -> None:
+    error = CoreConflictError('the config of the candidate has no "model"', status=422)
+    result = await propose_prompt_tool(_granted_job(), _Proposer(error)).handler(
+        {"prompt": "assistant", "text": "x", "reason": "y"}
+    )
+    assert result["is_error"]
+    assert "No candidate was created" in result["content"][0]["text"]

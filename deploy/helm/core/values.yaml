@@ -56,6 +56,13 @@ memory:
 diagnostics:
   enabled: true
 
+# Prompt candidates and their promotion in Slack (ADR-0032). core writes to Langfuse
+# with its own langfuse.public-key / langfuse.secret-key; the owner's Slack ID comes
+# from config/slack.yaml. Without the keys the feature answers with an error.
+prompts:
+  enabled: true
+  langfuseUrl: https://jp.cloud.langfuse.com
+
 devAgent:
   enabled: true
   namespace: enikk-dev

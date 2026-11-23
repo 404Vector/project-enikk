@@ -31,6 +31,9 @@ DIAG_DEPLOYMENTS: Final = "/v1/tasks/{task_id}/diagnostics/deployments"
 DIAG_LOGS: Final = "/v1/tasks/{task_id}/diagnostics/logs"
 DIAG_PULLS: Final = "/v1/tasks/{task_id}/diagnostics/pulls"
 REVIEW_THREADS: Final = "/v1/review-threads"
+PROMPT_CANDIDATES: Final = "/v1/tasks/{task_id}/prompts/candidates"
+PROMOTION_DECISION: Final = "/v1/prompt-promotions/{promotion_id}/decision"
+PROMOTION_POSTED: Final = "/v1/prompt-promotions/{promotion_id}/posted"
 GITHUB_HEALTH: Final = "/v1/github/health"
 GITHUB_TOKEN: Final = "/v1/github/token"  # noqa: S105 - URL path
 

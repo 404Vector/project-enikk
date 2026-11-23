@@ -696,6 +696,7 @@ dependencies = [
     { name = "enikk-k8s-auth" },
     { name = "enikk-k8s-jobs" },
     { name = "enikk-kernel" },
+    { name = "enikk-langfuse" },
     { name = "enikk-persistence-sql" },
     { name = "fastapi" },
     { name = "pyyaml" },
@@ -712,6 +713,7 @@ requires-dist = [
     { name = "enikk-k8s-auth", editable = "src/libs/adapters/k8s-auth" },
     { name = "enikk-k8s-jobs", editable = "src/libs/adapters/k8s-jobs" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "enikk-langfuse", editable = "src/libs/adapters/langfuse" },
     { name = "enikk-persistence-sql", editable = "src/libs/adapters/persistence-sql" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "pyyaml", specifier = ">=6.0.2" },
@@ -875,6 +877,7 @@ version = "0.1.0"
 source = { editable = "src/libs/adapters/langfuse" }
 dependencies = [
     { name = "enikk-contracts" },
+    { name = "enikk-core-domain" },
     { name = "enikk-kernel" },
     { name = "enikk-runtime" },
     { name = "httpx" },
@@ -885,6 +888,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-domain", editable = "src/libs/core-domain" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-runtime", editable = "src/libs/runtime" },
     { name = "httpx", specifier = ">=0.28" },

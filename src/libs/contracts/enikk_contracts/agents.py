@@ -33,9 +33,17 @@ class McpToolGrant(Contract):
     allow: Annotated[tuple[ToolName, ...], Field(min_length=1)]
 
 
+class PlatformTool(StrEnum):
+    """Platform tools a role must be granted by name (ADR-0032). Others go to every role."""
+
+    PROMPT_CANDIDATES = "prompt-candidates"
+    """Create a candidate version of a role's prompt and ask the owner to promote it."""
+
+
 class ToolPolicy(Contract):
     mcp: tuple[McpToolGrant, ...] = ()
     builtin: tuple[ToolName, ...] = ()
+    platform: tuple[PlatformTool, ...] = ()
 
     @model_validator(mode="after")
     def _unique_servers(self) -> Self:

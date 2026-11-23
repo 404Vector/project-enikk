@@ -169,6 +169,17 @@ class DiagnosticsSettings(SettingsModel):
     api_url: str = "https://kubernetes.default.svc"
 
 
+class PromptSettings(SettingsModel):
+    """Prompt candidates and their promotion in Slack (ADR-0032). Uses core's Langfuse keys."""
+
+    enabled: bool = False
+    langfuse_url: str = Field(
+        default="https://jp.cloud.langfuse.com", pattern=r"^https?://[^/\s]+$"
+    )
+    slack_config_file: Path = Path("config/slack.yaml")
+    """The owner's Slack user ID is read from here; only they decide (I-01)."""
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -185,5 +196,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     deployments: DeploymentSettings = DeploymentSettings()
     memory: MemorySettings = MemorySettings()
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
+    prompts: PromptSettings = PromptSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

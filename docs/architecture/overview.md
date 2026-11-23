@@ -26,11 +26,11 @@
 
 | 구성요소 | 역할 | 근거 |
 |---|---|---|
-| enikk-core | 제어 경로 중앙 서비스: 작업 상태, 스레드-세션 연결, 카탈로그, 승인 흐름, 엔진 간 위임 중계 | ADR-0010 |
+| enikk-core | 제어 경로 중앙 서비스: 작업 상태, 스레드-세션 연결, 카탈로그, 승인 흐름, 엔진 간 위임 중계, 프롬프트 후보 생성과 승격(Langfuse 에 쓰는 유일한 곳) | ADR-0010, ADR-0032 |
 | Slack 커넥터 | Socket Mode 수신, 소유자 확인, core 에 이벤트 전달, 결과 게시 | ADR-0010, I-01 |
 | Claude 런타임 | Claude Agent SDK 로 작업 실행 (구독 토큰) | ADR-0002, ADR-0003 |
 | Gemini 런타임 | Google ADK 로 작업 실행 (AI Studio API 키) | ADR-0003 |
-| 개발 역할(developer) | 격리 Pod 에서 프롬프트·정의·코드 변경을 만들어 후보 프롬프트 / PR 로 제안 | ADR-0007 |
+| 개발 역할(developer) | 격리 Pod 에서 정의·코드 변경을 만들어 PR 로 제안 | ADR-0007 |
 | 자체 MCP 서버들 | 프로젝트 전용 도구 | ADR-0004 |
 | 운영 CLI | 부트스트랩(Argo CD 설치 등), 로컬 개발용 빌드·접속 | ADR-0008 |
 
@@ -70,8 +70,10 @@
 ## 변경·배포 흐름
 
 ```
+ Slack 프롬프트 변경 요청 ─► assistant 역할 ─► enikk-core ─► Langfuse 후보 버전(candidate)
+                                                   └─ 소유자 DM [승격] ─► core 가 production 라벨 이동 (ADR-0032)
+
  Slack 개선 요청 ─► enikk-core ─► 개발 역할 (격리 Pod)
-                                     ├─ 프롬프트: Langfuse 후보 버전 → 평가 → 소유자 승인 → production 라벨
                                      └─ 정의·코드: 브랜치 → PR → 소유자 승인 → 머지
                                                                          │
                      GitHub Actions 빌드 → GHCR ─► Argo CD Image Updater ─┤
@@ -89,6 +91,7 @@
 - 두 스레드의 연결: 커넥터가 DM 을 올린 뒤 그 permalink(`chat.getPermalink`)와 PR 브랜치를 core(`/v1/review-threads`)에 알린다. core 는 브랜치(`agent/<세션 ID>`)로 위임 세션의 `reply_to` 를 찾아 원래 스레드에 링크를 올리고, 원래 스레드 위치와 보고를 돌려준다. permalink 를 얻지 못하거나 core 호출이 실패하면 링크 없이 나머지를 계속 올린다.
 - 배포 성공·실패, 이미지 빌드 실패, 롤백 결과 알림(ADR-0023)은 #release 채널(`config/slack.yaml` 의 `deploy_notify_channel`, 기본 `C0CKT1ZNZ43`)로 간다. 봇이 채널 구성원이어야 하며, 채널에 올리지 못하면 로그를 남기고 소유자 DM 으로 보낸다. [되돌리기] 는 채널에서도 소유자만 실행하고, 다른 사람이 누르면 그 사람에게만 거절 안내가 간다.
 - 승인 요청·검사 실패·승인 결과(ADR-0020)는 소유자 DM 으로 간다.
+- 프롬프트 승격 요청(ADR-0032)도 소유자 DM 으로 간다. 본문에는 프롬프트 이름, `production vN → 후보 vM`, 변경 이유, [승격] [거절] 버튼만 두고, 원래 요청 스레드 링크와 본문·Config diff 는 그 메시지의 스레드 댓글로 올린다. 원래 요청 스레드에는 상태와 DM 링크만 올린다. 승격 결과 메시지에는 [되돌리기] 가 붙는다.
 
 ## 미결정 사항
 

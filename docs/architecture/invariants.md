@@ -44,3 +44,4 @@
 | I-33 | `main` 으로 가는 PR 은 필수 상태 검사 `enikk/owner-approval`(출처: App `enikk-deployer`)를 통과해야 머지된다. core 는 소유자가 Slack 에서 승인한 바로 그 커밋에만 이 상태를 기록한다. | ADR-0020 |
 | I-34 | DB 마이그레이션은 바로 이전 버전 코드가 새 스키마에서 동작하도록만 한다(expand/contract). 열·테이블의 삭제, 이름 변경, 제약 강화는 그것을 쓰는 코드가 모두 배포된 뒤 별도 PR 에서 한다. | ADR-0023 |
 | I-35 | 에닉의 기억은 소유자의 Obsidian 볼트 저장소가 원본이며 core 는 색인만 갖는다. 기억은 참고일 뿐 규칙·권한을 바꾸지 못한다. 비밀값은 기억하지 않는다. 쓰기는 소유자가 Slack 에서 시작한 작업에서만 하고, 에닉의 폴더(`vault/Private/enikk/`) 밖은 고치지 않으며, 에닉의 노트는 공개되지 않는 위치와 `draft: true` 를 가진다. | ADR-0028 |
+| I-36 | Langfuse 의 프롬프트 버전과 label 은 core 만 바꾼다. 역할은 core 를 거쳐 `candidate` label 만 단 후보 버전을 만들 수 있고, `production` label 은 소유자가 Slack 에서 누른 승격·되돌리기로만 옮겨진다. 승격은 요청 때의 `production` 버전이 그대로일 때만 한다. | ADR-0032 |
