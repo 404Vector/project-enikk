@@ -1,7 +1,7 @@
 # 코드 구조
 
 - 상태: 승인
-- 최종 갱신: 2026-11-21
+- 최종 갱신: 2026-11-23
 - 근거: ADR-0003, ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, P-01, P-02, P-13, P-14
 
 ## 1. 전제
@@ -57,7 +57,8 @@ src/
       ├─ k8s-jobs/        enikk_k8s_jobs         격리 작업 Job 실행기 (core 전용, ADR-0021)
       ├─ engine-claude/   enikk_engine_claude    ModelEngine 구현: Claude Agent SDK
       ├─ engine-gemini/   enikk_engine_gemini    ModelEngine 구현: Google ADK
-      ├─ langfuse/        enikk_langfuse         PromptStore·FeedbackSink 구현, OTel 내보내기 설정
+      ├─ langfuse/        enikk_langfuse         PromptStore·FeedbackSink 구현, OTel 내보내기 설정,
+      │                                          core 용 PromptRegistry(후보 생성·production 이동, ADR-0032)
       └─ platform/        enikk_platform         Docker·Helm·kubectl (ops-cli 용)
 ```
 

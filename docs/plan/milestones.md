@@ -122,6 +122,7 @@ M0 기반 정비 ─► M1 배포 플랫폼 ─► M2 core 골격 ─► M3 첫 
 - Slack 반응(👍/👎 등) → Langfuse 점수 (FeedbackSink)
 - `eval-runner`: Langfuse 데이터셋 기반 평가
 - 프롬프트 후보(`candidate`) → 평가 → Slack 승인 → `production` 승격 흐름 (core 승인 기능)
+  - (2026-11-23, ADR-0032) Slack 에서 후보 생성 → 소유자 DM [승격]/[거절] → `production` 이동, 승격 뒤 [되돌리기] 를 구현했다. 평가 단계는 아직 없다.
 
 **완료 조건**: 프롬프트 후보를 평가 결과와 함께 Slack 에서 승인·롤백할 수 있다.
 
