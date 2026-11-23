@@ -19,9 +19,11 @@ from enikk_contracts.tasks import (
     Succeeded,
     TaskStatus,
 )
-from enikk_core.dispatcher import DispatchOutcome
+from enikk_core.dispatcher import DevJobDispatcher, DispatchOutcome
+from enikk_core.settings import DevAgentSettings
 from enikk_core_client import CoreConflictError, CoreForbiddenError, CoreNotFoundError
 from enikk_github.permissions import TokenPurpose
+from enikk_kernel.ids import RandomIdGenerator
 
 if TYPE_CHECKING:
     from conftest import Harness
@@ -211,3 +213,41 @@ async def test_task_without_a_reporting_worker_is_abandoned(harness: Harness) ->
     assert [m.kind for m in batch.messages] == [OutboundKind.FAILURE]
     assert batch.messages[0].task_id == accepted.task_id
     assert await dispatcher.dispatch_once() is DispatchOutcome.IDLE
+
+
+async def test_without_a_daily_limit_jobs_keep_starting(harness: Harness) -> None:
+    dispatcher = DevJobDispatcher(
+        uow=harness.db.unit_of_work,
+        launcher=harness.launcher,
+        clock=harness.clock,
+        ids=RandomIdGenerator(),
+        policy=DevAgentSettings(enabled=True, max_concurrent=10),
+    )
+    async with harness.client("slack") as slack, harness.client("dev") as dev:
+        for n in range(12):
+            accepted = await slack.submit_event(_event(f"Dev{n}"))
+            assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
+            harness.launcher.finish_all()
+            lease = (await dev.claim_task(accepted.task_id)).assignment
+            assert lease is not None
+            await dev.report_result(
+                lease.task_id,
+                ResultReport(lease_id=lease.lease_id, outcome=Succeeded(text="done")),
+            )
+    assert len(harness.launcher.launched) == 12
+
+
+async def test_concurrency_limit_allows_several_jobs_at_once(harness: Harness) -> None:
+    dispatcher = DevJobDispatcher(
+        uow=harness.db.unit_of_work,
+        launcher=harness.launcher,
+        clock=harness.clock,
+        ids=RandomIdGenerator(),
+        policy=DevAgentSettings(enabled=True, max_concurrent=2),
+    )
+    async with harness.client("slack") as slack:
+        for n in range(3):
+            await slack.submit_event(_event(f"Dev{n}"))
+    assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
+    assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
+    assert await dispatcher.dispatch_once() is DispatchOutcome.BUSY
