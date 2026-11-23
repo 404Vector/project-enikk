@@ -1,7 +1,7 @@
 # 테스트 실행
 
 - 상태: 작성 중
-- 최종 갱신: 2026-11-22
+- 최종 갱신: 2026-11-23
 
 저장소의 검사 목록은 루트 `AGENTS.md` 에 있다. 이 문서는 그중 `uv run pytest` 를 어디서 어떻게 돌리는지 적는다.
 
@@ -36,10 +36,10 @@ ENIKK_TEST_POSTGRES_BIN=/usr/lib/postgresql/18/bin uv run pytest
 ENIKK_TEST_POSTGRES_DSN=postgresql://enikk@127.0.0.1:5432/postgres uv run pytest
 ```
 
-### 개발 Pod 에서 (개발 에이전트)
+### 개발 Pod 에서 (에닉의 개발 역할)
 
 개발 이미지(`deploy/docker/dev-agent.Dockerfile`)에 Postgres 18 서버가 들어 있고 `ENIKK_TEST_POSTGRES_BIN` 이 설정돼 있다.
-에이전트는 PC 와 같은 명령(`uv run pytest`)만 실행하면 된다. Docker 는 필요 없다.
+개발 역할은 PC 와 같은 명령(`uv run pytest`)만 실행하면 된다. Docker 는 필요 없다.
 
 ## 비밀 파일 권한 테스트
 
