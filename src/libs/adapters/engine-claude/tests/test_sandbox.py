@@ -45,6 +45,10 @@ LANDLOCK = sandbox.available()
 needs_landlock = pytest.mark.skipif(not LANDLOCK, reason="this kernel has no Landlock")
 BIN = Path(sys.executable).parent
 TOKEN = "sk-ant-oat01-" + "t" * 40
+WEB_SEARCH_REFUSED = (
+    b'{"type": "error", "error": {"type": "invalid_request_error",'
+    b' "message": "web search is not available for this account"}}'
+)
 CORE_TOKEN = "eyJhbGciOiJSUzI1NiJ9.core-token-for-tests.signature"
 
 
@@ -59,6 +63,8 @@ class FakeApi:
         self.tool: dict[str, Any] = {}
         self.results: list[str] = []
         self.url = ""
+        self.web_searches = 0
+        """Requests that carried the server web search tool; each is refused."""
 
     def answer(self, body: dict[str, Any]) -> list[dict[str, Any]]:
         results = [
@@ -132,6 +138,13 @@ def api() -> Iterator[FakeApi]:
                 self.end_headers()
                 self.wfile.write(b'{"input_tokens": 1}')
                 return
+            if any(str(t.get("type", "")).startswith("web_search") for t in body.get("tools", [])):
+                fake.web_searches += 1
+                self.send_response(400)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(WEB_SEARCH_REFUSED)
+                return
             events = fake.answer(body)
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -179,7 +192,9 @@ def _job(execution: Execution = Execution.SHARED) -> EngineJob:
     )
 
 
-def _engine(tmp_path: Path, api: FakeApi, secret: Path) -> ClaudeEngine:
+def _engine(
+    tmp_path: Path, api: FakeApi, secret: Path, transcripts: Transcripts | None = None
+) -> ClaudeEngine:
     (tmp_path / "work").mkdir(exist_ok=True)
     return ClaudeEngine(
         config=ClaudeEngineConfig(
@@ -192,7 +207,7 @@ def _engine(tmp_path: Path, api: FakeApi, secret: Path) -> ClaudeEngine:
             sandbox=SandboxConfig(secrets=(secret, secret.parent)),
         ),
         oauth_token=SecretStr(TOKEN),
-        transcripts=Transcripts(),
+        transcripts=transcripts or Transcripts(),
     )
 
 
@@ -428,3 +443,66 @@ def test_internal_addresses() -> None:
     assert not internal_url("https://8.8.8.8/")
     assert described("WebSearch", {"query": "uv workspaces"}) == "uv workspaces"
     assert described("Bash", {"command": "ls", "description": "x"}) == "ls"
+
+
+# ---------------------------------------------------------------- resume and web search (ADR-0034)
+
+
+class KeptTranscripts(Transcripts):
+    """Keeps what the CLI mirrors, so the next task can resume it."""
+
+    def __init__(self) -> None:
+        self.stored: dict[tuple[str, str | None], list[Any]] = {}
+
+    async def append_transcript(
+        self, task_id: uuid.UUID, request: TranscriptAppend
+    ) -> TranscriptAppended:
+        key = (request.key.engine_session_id, request.key.subpath)
+        self.stored.setdefault(key, []).extend(request.entries)
+        return TranscriptAppended(stored=len(request.entries))
+
+    async def load_transcript(self, task_id: uuid.UUID, query: TranscriptQuery) -> TranscriptLoaded:
+        key = (query.key.engine_session_id, query.key.subpath)
+        return TranscriptLoaded(entries=tuple(self.stored.get(key, ())))
+
+
+@needs_landlock
+@pytest.mark.anyio
+async def test_a_later_task_resumes_the_session_inside_the_sandbox(
+    tmp_path: Path, api: FakeApi, secret: Path
+) -> None:
+    api.tool = {"name": "Bash", "input": {"command": "echo first", "description": "x"}}
+    kept = KeptTranscripts()
+    engine = _engine(tmp_path, api, secret, kept)
+    first = await engine.run(_job())
+    assert kept.stored
+    # The SDK writes the stored session to a temporary directory the sandboxed CLI must
+    # read; before ADR-0034 that was /tmp, and the CLI found no conversation.
+    job = _job().model_copy(update={"engine_session_id": first.engine_session_id})
+    second = await engine.run(job)
+    assert second.text == "done"
+    assert second.engine_session_id == first.engine_session_id
+
+
+@needs_landlock
+@pytest.mark.anyio
+async def test_a_failing_web_search_is_a_tool_error_not_a_failed_task(
+    tmp_path: Path, api: FakeApi, secret: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="enikk_engine_claude.audit")
+    api.tool = {"name": "WebSearch", "input": {"query": "enikk weather"}}
+    job = _job().model_copy(
+        update={
+            "definition": _job().definition.model_copy(
+                update={"tools": ToolPolicy(builtin=("WebSearch",))}
+            )
+        }
+    )
+    result = await _engine(tmp_path, api, secret).run(job)
+    assert result.text == "done"
+    # The CLI's search request was refused; the model got that as the tool's result.
+    assert api.web_searches >= 1
+    [output] = api.results
+    assert "web search is not available" in output
+    logged = [r.getMessage() for r in caplog.records]
+    assert f"tool WebSearch role assistant task {job.task_id}: enikk weather" in logged

@@ -5,10 +5,15 @@ Every role may be granted built-in tools (ADR-0033). They run in a Landlock sand
 read the paths that hold the service's secrets, and runs each shell command in a
 nested sandbox without secrets. Without Landlock, shared roles lose their built-in
 tools; isolated roles keep them, as before ADR-0033.
+
+A failed run is logged in detail (``failures``). A resumed session that fails before
+the model answers, in a way a retry would not fix, is replaced by a new session that
+gets the end of the old conversation as text (``resume``, ADR-0034).
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -24,8 +29,11 @@ from claude_agent_sdk import (
     EffortLevel,
     MirrorErrorMessage,
     ResultMessage,
+    ServerToolUseBlock,
     SystemMessage,
     TextBlock,
+    ToolUseBlock,
+    project_key_for_directory,
     query,
 )
 from pydantic import Field, SecretStr
@@ -35,18 +43,21 @@ from enikk_contracts.agents import Execution
 from enikk_contracts.common import Engine
 from enikk_engine_claude import sandbox
 from enikk_engine_claude.audit import audit_hooks
+from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
 from enikk_engine_claude.platform_tools import granted_platform_tools, platform_server
+from enikk_engine_claude.resume import with_history
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.errors import EngineError
 from enikk_runtime.model import EngineResult, TokenUsage
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable, Iterator
 
-    from claude_agent_sdk import Message
+    from claude_agent_sdk import Message, SessionKey
 
+    from enikk_engine_claude.failures import Failure
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
     from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper, PromptProposer
@@ -55,8 +66,6 @@ if TYPE_CHECKING:
 
 MAX_ANSWER_CHARS: Final = 40_000
 TRUNCATION_NOTE: Final = "\n\n…(truncated)"
-NOT_RETRYABLE_RESULTS: Final = frozenset({"error_max_turns", "error_max_budget_usd"})
-NOT_RETRYABLE_STATUS: Final = frozenset({400, 401, 403, 404})
 
 SANDBOX_READ: Final = (
     "/usr",
@@ -155,23 +164,69 @@ class ClaudeEngine:
         return model.startswith("claude-")
 
     async def run(self, job: EngineJob) -> EngineResult:
+        try:
+            return await self._attempt(job, job.engine_session_id, job.input)
+        except _ResumeRefusedError as refused:
+            _log.warning(
+                "task %s: could not resume session %s (%s); starting a new session",
+                job.task_id,
+                job.engine_session_id,
+                refused.failure.reason,
+            )
+        history = await self._history(job)
+        return await self._attempt(job, None, with_history(job.input, history))
+
+    async def _attempt(self, job: EngineJob, resume: str | None, prompt: str) -> EngineResult:
         store = CoreSessionStore(self._transcripts, job.task_id, job.lease_id)
         self._config.scratch_dir.mkdir(parents=True, exist_ok=True)
+        trace = RunTrace()
         with tempfile.TemporaryDirectory(prefix="claude-", dir=self._config.scratch_dir) as home:
             (Path(home) / "tmp").mkdir()
-            options = self._options(job, store, Path(home))
+            options = self._options(job, store, Path(home), resume, trace)
             try:
-                return await self._consume(job, self._query(prompt=job.input, options=options))
+                with _temp_root(Path(home)):
+                    await self._consume(job, self._query(prompt=prompt, options=options), trace)
             except ClaudeSDKError as exc:
-                _log.warning("task %s: Claude Code failed: %s", job.task_id, type(exc).__name__)
-                raise EngineError(
-                    f"Claude Code process failed ({type(exc).__name__})", retryable=True
-                ) from exc
+                failure = failure_of_exception(exc, trace)
+                cause: BaseException | None = exc
+            else:
+                result = trace.result
+                if result is not None and not result.is_error and result.subtype == "success":
+                    return _finish(job, result, trace)
+                failure = failure_of_result(result, trace)
+                cause = None
             finally:
                 if job.definition.execution is Execution.SHARED and options.tools:
                     _clear(self._config.workdir)
+        _log.warning("task %s: Claude Code failed: %s", job.task_id, failure.detail)
+        if resume is not None and not trace.answered and not failure.retryable:
+            raise _ResumeRefusedError(failure) from cause
+        raise EngineError(failure.reason, retryable=failure.retryable) from cause
 
-    def _options(self, job: EngineJob, store: CoreSessionStore, home: Path) -> ClaudeAgentOptions:
+    async def _history(self, job: EngineJob) -> list[dict[str, Any]]:
+        """The saved transcript of the session that could not be resumed, if core has it."""
+        if job.engine_session_id is None:
+            return []
+        store = CoreSessionStore(self._transcripts, job.task_id, job.lease_id)
+        key: SessionKey = {
+            "project_key": project_key_for_directory(str(self._config.workdir)),
+            "session_id": job.engine_session_id,
+        }
+        try:
+            entries = await store.load(key)
+        except Exception as exc:
+            _log.warning("task %s: could not load the old transcript: %s", job.task_id, exc)
+            return []
+        return [dict(e) for e in entries or []]
+
+    def _options(
+        self,
+        job: EngineJob,
+        store: CoreSessionStore,
+        home: Path,
+        resume: str | None,
+        trace: RunTrace,
+    ) -> ClaudeAgentOptions:
         effort = job.prompt.parameters.get("effort")
         unknown = sorted(set(job.prompt.parameters) - {"effort"})
         if unknown:
@@ -193,7 +248,7 @@ class ClaudeEngine:
             model=job.prompt.model,
             effort=_effort(effort),
             max_turns=job.definition.limits.max_turns,
-            resume=job.engine_session_id,
+            resume=resume,
             cwd=str(self._config.workdir),
             session_store=store.as_sdk_store(),
             client_app=self._config.client_app,
@@ -208,7 +263,7 @@ class ClaudeEngine:
                 "HOME": str(home),
                 "TMPDIR": str(home / "tmp"),
             },
-            stderr=lambda line: _log.debug("claude: %s", line),
+            stderr=lambda line: _stderr(trace, line),
         )
 
     def _builtin(self, job: EngineJob) -> list[str]:
@@ -262,26 +317,60 @@ class ClaudeEngine:
             prompts=self._prompts is not None,
         )
 
-    async def _consume(self, job: EngineJob, stream: AsyncIterator[Message]) -> EngineResult:
-        texts: list[str] = []
-        model: str | None = None
-        result: ResultMessage | None = None
+    async def _consume(
+        self, job: EngineJob, stream: AsyncIterator[Message], trace: RunTrace
+    ) -> None:
         try:
             async for message in stream:
                 if isinstance(message, MirrorErrorMessage):
                     raise EngineError("the conversation could not be saved to core", retryable=True)
                 if isinstance(message, SystemMessage) and message.subtype == "init":
                     _require_only_granted_tools(message.data, self._granted(job))
-                elif isinstance(message, AssistantMessage) and message.parent_tool_use_id is None:
-                    model = message.model or model
-                    texts.extend(b.text for b in message.content if isinstance(b, TextBlock))
+                elif isinstance(message, AssistantMessage):
+                    _observe(trace, message)
                 elif isinstance(message, ResultMessage):
-                    result = message
+                    trace.result = message
         finally:
             closer = getattr(stream, "aclose", None)
             if closer is not None:
                 await closer()
-        return _finish(job, result, texts, model)
+
+
+class _ResumeRefusedError(Exception):
+    """A resumed run failed before the model answered, and retrying would not help."""
+
+    def __init__(self, failure: Failure) -> None:
+        super().__init__(failure.reason)
+        self.failure = failure
+
+
+def _observe(trace: RunTrace, message: AssistantMessage) -> None:
+    for block in message.content:
+        if isinstance(block, ToolUseBlock | ServerToolUseBlock):
+            trace.last_tool = block.name
+    if message.parent_tool_use_id is not None:
+        return
+    if message.error is None:
+        trace.answered = True
+    trace.model = message.model or trace.model
+    trace.texts.extend(b.text for b in message.content if isinstance(b, TextBlock))
+
+
+def _stderr(trace: RunTrace, line: str) -> None:
+    trace.stderr_line(line)
+    _log.debug("claude: %s", line)
+
+
+@contextlib.contextmanager
+def _temp_root(path: Path) -> Iterator[None]:
+    """Make ``path`` the process's temporary directory while the SDK runs: the SDK
+    writes a resumed session there, and the sandboxed CLI must reach it."""
+    previous = tempfile.tempdir
+    tempfile.tempdir = str(path)
+    try:
+        yield
+    finally:
+        tempfile.tempdir = previous
 
 
 def _clear(workdir: Path) -> None:
@@ -314,19 +403,8 @@ def _require_only_granted_tools(init: dict[str, Any], granted: tuple[str, ...]) 
         )
 
 
-def _finish(
-    job: EngineJob, result: ResultMessage | None, texts: list[str], model: str | None
-) -> EngineResult:
-    if result is None:
-        raise EngineError("Claude Code ended without a result", retryable=True)
-    if result.is_error or result.subtype != "success":
-        status = result.api_error_status
-        retryable = (
-            result.subtype not in NOT_RETRYABLE_RESULTS and status not in NOT_RETRYABLE_STATUS
-        )
-        detail = f", API status {status}" if status is not None else ""
-        raise EngineError(f"Claude stopped: {result.subtype}{detail}", retryable=retryable)
-    answer = (result.result or "\n\n".join(texts)).strip()
+def _finish(job: EngineJob, result: ResultMessage, trace: RunTrace) -> EngineResult:
+    answer = (result.result or "\n\n".join(trace.texts)).strip()
     if not answer:
         raise EngineError("Claude returned an empty answer", retryable=False)
     if len(answer) > MAX_ANSWER_CHARS:
@@ -340,7 +418,7 @@ def _finish(
     return EngineResult(
         text=answer,
         engine_session_id=result.session_id,
-        model=model or job.prompt.model,
+        model=trace.model or job.prompt.model,
         usage=_usage(result.usage),
     )
 
