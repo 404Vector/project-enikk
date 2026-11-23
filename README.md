@@ -114,6 +114,20 @@ uv run enikk-ops secret sync                  # 파일 내용을 클러스터에
 Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달라고 요청하면 에닉의 개발 역할이 격리된 환경에서 작업해 pull request 를 만들고, 소유자가 Slack 에서 승인한 뒤에야 반영됩니다.
 승인 요청 DM 에는 PR 제목, 한두 줄 요약, 링크, [승인하고 머지] [반려] 버튼만 담깁니다. 저장소·브랜치 정보, PR 본문 전체, 바뀐 파일, 검사 결과는 그 메시지의 스레드 댓글로 나눠 올리고, diff 파일도 같은 스레드에 첨부합니다.
 
+### 역할이 쓰는 도구
+
+모든 역할(assistant, developer)은 Claude Agent SDK 의 기본 도구를 씁니다([ADR-0033](docs/adr/0033-sdk-tools-for-every-role-in-a-sandbox.md)).
+
+- 파일 `Read` `Write` `Edit` `NotebookEdit`, 검색 `Glob` `Grep`, 명령 `Bash` (백그라운드 `Monitor` `TaskStop`), 웹 `WebSearch` `WebFetch`, 작업 관리 `TaskCreate` `TaskGet` `TaskList` `TaskUpdate` `Task`
+- 이름은 Claude Code 2.1.330 기준입니다. 역할 정의(`agents/*.yaml`)의 `tools.builtin` 에 적힌 것만 열립니다.
+- 안전 장치
+  - 도구는 Landlock 샌드박스 안에서 실행됩니다. Claude 토큰은 파이프로만 CLI 에 가고, core 토큰 파일과 Langfuse 키에는 명령도 파일 도구도 닿지 않습니다.
+  - 명령·웹 검색어·URL 은 역할과 작업 ID 와 함께 런타임 로그에 남습니다(비밀값은 가림).
+  - WebFetch 는 클러스터 내부·사설 주소를 가져오지 않습니다.
+  - 웹에서 가져온 내용은 참고 자료일 뿐 지시가 아닙니다.
+- assistant 는 여전히 enikk 의 코드를 직접 바꾸지 않고 developer 에 위임합니다. assistant 의 작업 폴더는 대화(작업)가 끝날 때마다 비워집니다.
+- WebSearch 는 Anthropic 의 서버 검색을 같은 구독 토큰으로 씁니다. 새 키는 필요 없지만, 지역 제한으로 동작하지 않을 수 있습니다. 그때의 대안은 ADR-0033 에 있습니다.
+
 ### 프롬프트 수정 방법
 
 역할마다의 시스템 프롬프트(대화 방식, 말투)는 git 이 아니라 Langfuse 에만 있습니다([ADR-0006](docs/adr/0006-prompts-managed-in-langfuse.md)).
