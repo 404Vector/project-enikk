@@ -87,10 +87,8 @@ spec:
               value: {{ .Values.devAgent.namespace | quote }}
             - name: ENIKK_CORE_DEV_AGENT__MAX_CONCURRENT
               value: {{ .Values.devAgent.maxConcurrent | quote }}
-            {{- with .Values.devAgent.dailyLimit }}
             - name: ENIKK_CORE_DEV_AGENT__DAILY_LIMIT
-              value: {{ . | quote }}
-            {{- end }}
+              value: {{ .Values.devAgent.dailyLimit | quote }}
             {{- include "enikk-core.databaseEnv" . | nindent 12 }}
           volumeMounts:
             - name: credentials

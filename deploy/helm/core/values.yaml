@@ -59,11 +59,8 @@ diagnostics:
 devAgent:
   enabled: true
   namespace: enikk-dev
-  # Developer Jobs running at once (owner decision 2026-11-23). Each Job
-  # requests 512Mi; ten fit the node, but their 3Gi limits overcommit memory.
-  maxConcurrent: 10
-  # Job starts allowed in any 24 hours. Unset means no limit.
-  dailyLimit: null
+  maxConcurrent: 1
+  dailyLimit: 10
 
 # ServiceAccounts allowed to call core, their roles (ADR-0011 §5) and the
 # credentials each may fetch (ADR-0013). Any other ServiceAccount is rejected.
