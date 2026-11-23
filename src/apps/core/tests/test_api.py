@@ -275,3 +275,29 @@ def test_endpoints_without_declared_role_fail_app_creation(harness: Harness) -> 
 
     with pytest.raises(ConfigurationError, match="/v1/rogue"):
         verify_declared_roles(rogue)
+
+
+async def test_held_tasks_go_only_to_a_lease_that_names_them(
+    harness: Harness, slack: CoreClient, claude: CoreClient
+) -> None:
+    held = InboundEvent(
+        event_id="held:smoke-1",
+        conversation=ConversationRef(connector=ConnectorKind.SMOKE, channel="s", thread="1"),
+        user="enikk-smoke",
+        text="smoke test",
+        agent="assistant",
+    )
+    with pytest.raises(CoreForbiddenError, match="only the smoke check"):
+        await slack.submit_event(held.model_copy(update={"conversation": _event().conversation}))
+    async with harness.client("smoke") as smoke:
+        smoke_task = await smoke.submit_event(held)
+    real = await slack.submit_event(_event("Ev-real"))
+    # The runtime's normal lease takes the real task, never the held one.
+    assignment = await _lease(claude)
+    assert assignment.task_id == real.task_id
+    assert (await claude.lease_task(NOW)).assignment is None
+    # A lease that names a real task gets nothing; naming the held task takes it.
+    assert (await claude.lease_task(LeaseRequest(task_id=real.task_id))).assignment is None
+    targeted = await claude.lease_task(LeaseRequest(wait_seconds=0, task_id=smoke_task.task_id))
+    assert targeted.assignment is not None
+    assert targeted.assignment.task_id == smoke_task.task_id

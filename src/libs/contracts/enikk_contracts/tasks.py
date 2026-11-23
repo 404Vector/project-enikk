@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import AwareDatetime, Field, StringConstraints
 
@@ -28,10 +28,20 @@ class TaskStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+HELD_EVENT_PREFIX: Final = "held:"
+"""Events whose ID starts with this make *held* tasks: the queue never hands them out,
+only a lease that names the task takes one. ``enikk-ops smoke core`` uses them, so the
+smoke check and the real runtime never take each other's tasks. Only the smoke
+connector may submit them."""
+
+
 class LeaseRequest(Contract):
-    """Wait up to ``wait_seconds`` for a task of the caller's engine."""
+    """Wait up to ``wait_seconds`` for a task of the caller's engine.
+
+    ``task_id`` names one held task to take instead (see ``HELD_EVENT_PREFIX``)."""
 
     wait_seconds: WaitSeconds = 20
+    task_id: uuid.UUID | None = None
 
 
 class TaskAssignment(Contract):

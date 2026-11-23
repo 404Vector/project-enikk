@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from enikk_contracts.agents import Execution
-from enikk_contracts.tasks import TaskStatus
+from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import (
     ApprovalState,
@@ -520,7 +520,9 @@ class SqlJobQueue:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def claim_next(self, engine: Engine) -> Task | None:
+    async def claim_next(self, engine: Engine, held: uuid.UUID | None = None) -> Task | None:
+        is_held = TaskRow.source_event_id.startswith(HELD_EVENT_PREFIX, autoescape=True)
+        which = and_(TaskRow.id == held, is_held) if held is not None else ~is_held
         row = await self._db.scalar(
             select(TaskRow)
             .join(SessionRow, SessionRow.id == TaskRow.session_id)
@@ -528,6 +530,7 @@ class SqlJobQueue:
                 TaskRow.engine == engine.value,
                 TaskRow.execution == Execution.SHARED.value,
                 TaskRow.status == TaskStatus.QUEUED.value,
+                which,
                 _session_free(),
             )
             .order_by(TaskRow.created_at, TaskRow.id)

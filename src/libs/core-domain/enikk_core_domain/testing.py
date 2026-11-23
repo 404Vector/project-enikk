@@ -15,7 +15,7 @@ from enikk_contracts.approvals import ChecksFailed, PullRequestCard
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
-from enikk_contracts.tasks import TaskStatus
+from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
@@ -435,10 +435,13 @@ class _Queue:
     def _ordered(self) -> list[Task]:
         return sorted(self._s.tasks.values(), key=lambda t: (t.created_at, t.id))
 
-    async def claim_next(self, engine: Engine) -> Task | None:
+    async def claim_next(self, engine: Engine, held: uuid.UUID | None = None) -> Task | None:
         tasks = self._ordered()
         for candidate in tasks:
             if candidate.engine is not engine or candidate.execution is not Execution.SHARED:
+                continue
+            is_held = candidate.source_event_id.startswith(HELD_EVENT_PREFIX)
+            if is_held != (held is not None) or (held is not None and candidate.id != held):
                 continue
             if self._eligible(candidate, tasks):
                 self._lock(candidate.id, candidate.session_id)
@@ -1015,6 +1018,30 @@ async def check_review_messages(new_uow: UnitOfWorkFactory) -> None:
         _expect(found is not None and found.ts == "2.0", "replaced")
 
 
+async def check_held_tasks(new_uow: UnitOfWorkFactory) -> None:
+    held_session = session(thread="held")
+    normal_session = session(thread="normal")
+    held = task(held_session, event=f"{HELD_EVENT_PREFIX}smoke-1")
+    normal = task(normal_session, event="ev-normal", now=T0 + timedelta(seconds=1))
+    async with new_uow() as uow:
+        for s in (held_session, normal_session):
+            await uow.sessions.add(s)
+        await uow.tasks.add(held)
+        await uow.tasks.add(normal)
+        await uow.commit()
+    async with new_uow() as uow:
+        claimed = await uow.queue.claim_next(Engine.CLAUDE)
+        _expect(claimed is not None and claimed.id == normal.id, "the queue skips held tasks")
+        _expect(
+            await uow.queue.claim_next(Engine.CLAUDE, normal.id) is None,
+            "a targeted lease takes only held tasks",
+        )
+    async with new_uow() as uow:
+        claimed = await uow.queue.claim_next(Engine.CLAUDE, held.id)
+        _expect(claimed is not None and claimed.id == held.id, "a targeted lease takes it")
+        _expect(await uow.queue.claim_next(Engine.GEMINI, held.id) is None, "same engine only")
+
+
 async def check_prompt_promotions(new_uow: UnitOfWorkFactory) -> None:
     owner = session()
     work = task(owner)
@@ -1061,4 +1088,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_vault_index,
     check_review_messages,
     check_prompt_promotions,
+    check_held_tasks,
 )
