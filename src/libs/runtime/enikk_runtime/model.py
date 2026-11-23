@@ -11,6 +11,7 @@ from pydantic import Field, JsonValue, StringConstraints
 
 from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.common import Identifier, NonEmptyText
+from enikk_contracts.skills import Capability, SkillName, SkillSummary
 from enikk_kernel.models import FrozenModel
 
 ModelId = Annotated[str, StringConstraints(min_length=1, max_length=200)]
@@ -56,6 +57,23 @@ class SessionWorkspace(FrozenModel):
         return (*worktree, self.tmp_dir)
 
 
+class LoadedSkill(FrozenModel):
+    """The production version of a skill prompt (ADR-0037 §2)."""
+
+    name: SkillName
+    version: Annotated[int, Field(ge=1)]
+    text: Annotated[str, StringConstraints(min_length=1)]
+    description: Annotated[str, StringConstraints(min_length=1)]
+    requires: tuple[Capability, ...] = ()
+
+
+class SkillUse(FrozenModel):
+    """A skill a run loaded, for its trace."""
+
+    name: SkillName
+    version: Annotated[int, Field(ge=1)]
+
+
 class EngineJob(FrozenModel):
     """Everything an engine needs to run one task."""
 
@@ -68,6 +86,8 @@ class EngineJob(FrozenModel):
     prompt: ResolvedPrompt
     input: NonEmptyText
     workspace: SessionWorkspace | None = None
+    skills: tuple[SkillSummary, ...] | None = None
+    """The skills the session may load; ``None`` when it gets no ``load_skill``."""
 
 
 TokenCount = Annotated[int, Field(ge=0)]
@@ -86,3 +106,5 @@ class EngineResult(FrozenModel):
     model: ModelId | None = None
     """The model that actually answered, when the engine reports it."""
     usage: TokenUsage | None = None
+    skills: tuple[SkillUse, ...] = ()
+    """Skills the run loaded, in order."""

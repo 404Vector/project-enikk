@@ -30,6 +30,7 @@ from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptRead,
 )
+from enikk_contracts.skills import is_skill
 from enikk_core_domain.errors import (
     InvalidRequestError,
     NotFoundError,
@@ -121,16 +122,17 @@ class PromptService:
         self, task_id: uuid.UUID, prompt: str
     ) -> tuple[Task, Session, tuple[str, ...]]:
         """The task, its session and the roles using ``prompt``; refuse unless the task's
-        role may handle prompts and ``prompt`` is a role's prompt."""
+        role may handle prompts and ``prompt`` is a role's prompt or a skill (ADR-0037 §2)."""
         task, session = await self._origin(task_id)
         definition = self._catalog.get(task.agent)
         if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
             raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
         roles = roles_using(prompt, self._definitions())
-        if not roles:
+        if not roles and not is_skill(prompt):
             known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
             raise InvalidRequestError(
-                f"'{prompt}' is not the prompt of any role; roles use: {known}"
+                f"'{prompt}' is not the prompt of any role nor a skill (skill-*); "
+                f"roles use: {known}"
             )
         return task, session, roles
 
@@ -165,6 +167,7 @@ class PromptService:
             reason=promotion.reason,
             text_diff=_fit(candidate.text_diff, MAX_DIFF_CHARS),
             config_diff=_fit(candidate.config_diff, 20_000),
+            requires_added=candidate.requires_added,
             origin=session.outbox_conversation,
         )
         async with self._uow() as uow:

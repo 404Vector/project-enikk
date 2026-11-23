@@ -66,6 +66,7 @@ class RuntimeClaudeApp:
             )
             prompts = LangfusePromptStore.connect(langfuse, clock)
             tracing = LangfuseTracing.connect(langfuse, service_name=SERVICE_NAME)
+            skills = prompts.skills() if s.skills.enabled else None
             secrets = (s.token_file, s.token_file.parent)
             config = ClaudeEngineConfig(
                 workdir=s.workdir,
@@ -82,6 +83,7 @@ class RuntimeClaudeApp:
                 diagnostics=core,
                 prompts=core,
                 digests=core,
+                skills=skills,
             )
             worker = TaskWorker(
                 core=core,
@@ -91,12 +93,19 @@ class RuntimeClaudeApp:
                 policy=s.worker.to_policy(),
                 observer=tracing.observer() if s.tracing else None,
                 workspaces=self._workspaces(config, clock),
+                skills=skills,
             )
             loop = asyncio.get_running_loop()
             for stop_signal in (signal.SIGTERM, signal.SIGINT):
                 with contextlib.suppress(NotImplementedError):
                     loop.add_signal_handler(stop_signal, worker.stop)
-            _log.info("%s ready: core %s, prompts %s", SERVICE_NAME, s.core_url, s.langfuse_url)
+            _log.info(
+                "%s ready: core %s, prompts %s, skills %s",
+                SERVICE_NAME,
+                s.core_url,
+                s.langfuse_url,
+                "on" if skills is not None else "off",
+            )
             try:
                 await worker.run_forever()
             finally:

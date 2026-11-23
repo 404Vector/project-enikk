@@ -17,15 +17,24 @@ from enikk_runtime.errors import IncompatibleModelError, TaskFailedError
 from enikk_runtime.memory import with_memories
 from enikk_runtime.model import EngineJob
 from enikk_runtime.observing import NullObserver
+from enikk_runtime.skills import uses_skills, with_skills
 from enikk_runtime.workspace import with_workspace
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from enikk_contracts.skills import SkillSummary
     from enikk_contracts.tasks import TaskAssignment
     from enikk_kernel.clock import Clock
     from enikk_runtime.model import EngineResult, SessionWorkspace
-    from enikk_runtime.ports import ModelEngine, PromptStore, RunObserver, TaskSource, Workspaces
+    from enikk_runtime.ports import (
+        ModelEngine,
+        PromptStore,
+        RunObserver,
+        SkillLibrary,
+        TaskSource,
+        Workspaces,
+    )
 
     Sleep = Callable[[float], Awaitable[None]]
 
@@ -58,6 +67,7 @@ class TaskWorker:
         policy: WorkerPolicy,
         observer: RunObserver | None = None,
         workspaces: Workspaces | None = None,
+        skills: SkillLibrary | None = None,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self._core = core
@@ -65,6 +75,7 @@ class TaskWorker:
         self._engine = engine
         self._observer: RunObserver = observer or NullObserver()
         self._workspaces = workspaces
+        self._skills = skills
         self._clock = clock
         self._policy = policy
         self._sleep = sleep
@@ -190,6 +201,8 @@ class TaskWorker:
             prompt.model,
         )
         workspace = await self._workspace(assignment)
+        skills = await self._skill_list(assignment)
+        text = with_workspace(with_memories(assignment.input, assignment.memories), workspace)
         job = EngineJob(
             task_id=assignment.task_id,
             lease_id=assignment.lease_id,
@@ -198,8 +211,9 @@ class TaskWorker:
             engine_session_id=assignment.engine_session_id,
             definition=definition,
             prompt=prompt,
-            input=with_workspace(with_memories(assignment.input, assignment.memories), workspace),
+            input=with_skills(text, skills),
             workspace=workspace,
+            skills=skills,
         )
         async with self._observer.observe(job) as observation:
             try:
@@ -228,6 +242,17 @@ class TaskWorker:
         except Exception:
             _log.exception("task %s: shared volume unavailable", assignment.task_id)
             return None
+
+    async def _skill_list(self, assignment: TaskAssignment) -> tuple[SkillSummary, ...] | None:
+        """The skills the session may load (ADR-0037 §3); ``None`` for a role without
+        them. An empty list when the store cannot list them: ``load_skill`` still works."""
+        if self._skills is None or not uses_skills(assignment.definition):
+            return None
+        try:
+            return await self._skills.catalog()
+        except Exception:
+            _log.exception("task %s: could not list the skills", assignment.task_id)
+            return ()
 
     # ------------------------------------------------------------ reporting
 

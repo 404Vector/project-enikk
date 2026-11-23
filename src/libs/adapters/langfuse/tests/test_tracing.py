@@ -71,3 +71,17 @@ async def test_failure_marks_both_spans_as_errors() -> None:
         assert attributes["langfuse.observation.level"] == "ERROR"
         assert attributes["langfuse.observation.status_message"] == "rate limited"
         assert not span.status.is_ok
+
+
+async def test_loaded_skills_are_in_the_trace_metadata() -> None:
+    from enikk_runtime.model import SkillUse
+
+    tracing, exporter = _tracing()
+    async with tracing.observer().observe(_job()) as observation:
+        observation.succeeded(
+            EngineResult(text="hi", skills=(SkillUse(name="skill-developer", version=4),))
+        )
+    generation, task = exporter.get_finished_spans()
+    expected = '[{"name":"skill-developer","version":4}]'
+    assert dict(task.attributes or {})["langfuse.trace.metadata.skills"] == expected
+    assert dict(generation.attributes or {})["langfuse.observation.metadata.skills"] == expected

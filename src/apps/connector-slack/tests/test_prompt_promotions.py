@@ -198,3 +198,23 @@ async def test_a_bad_button_value_is_ignored() -> None:
         _press(OWNER, PROMOTE_PROMPT_ACTION, value="not-a-uuid")
     )
     assert core.promotion_decisions == []
+
+
+def test_a_skill_that_asks_for_more_actions_shows_a_warning() -> None:
+    from enikk_connector_slack.blocks import promotion_request
+    from enikk_contracts.skills import Capability
+
+    plain = promotion_request(REQUEST)
+    assert "권한 확장" not in _all_text(plain.payload())
+
+    widened = REQUEST.model_copy(
+        update={"prompt": "skill-developer", "roles": (), "requires_added": (Capability.PR_WRITE,)}
+    )
+    message = promotion_request(widened)
+    shown = _all_text(message.payload())
+    assert "(스킬)" in shown
+    assert ":warning: *권한 확장*" in shown
+    assert "`pr.write`" in shown
+    assert "권한 확장" in message.text
+    [buttons] = [b for b in _plain(message.payload()) if b["type"] == "actions"]
+    assert "pr.write" in buttons["elements"][0]["confirm"]["text"]["text"]

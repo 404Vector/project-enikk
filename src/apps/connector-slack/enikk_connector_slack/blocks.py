@@ -31,6 +31,7 @@ from enikk_contracts.prompts import (
     PromotionResult,
     PromotionStatus,
 )
+from enikk_contracts.skills import is_skill
 
 if TYPE_CHECKING:
     from enikk_contracts.digests import DigestFailed
@@ -497,17 +498,35 @@ def promotion_request(notice: PromotionRequested) -> Message:
     The diff follows in the thread (``promotion_details``)."""
     promotion = str(notice.promotion_id)
     roles = ", ".join(notice.roles)
-    used = f" ({_escape(roles)} 역할)" if roles else ""
+    used = f" ({_escape(roles)} 역할)" if roles else (" (스킬)" if is_skill(notice.prompt) else "")
     change = f"production {_version(notice.production_version)} → 후보 v{notice.candidate_version}"
     reason = "\n".join(
         f"> {line}" for line in _escape(notice.reason).splitlines()[:SUMMARY_LINES] if line
     )
+    added = ", ".join(f"`{c.value}`" for c in notice.requires_added)
+    warning = (
+        (
+            _section(
+                f":warning: *권한 확장*: 이 후보는 {added} 를 새로 요구합니다. 승격하면 이 "
+                "스킬을 불러온 세션이 core 에 그 동작을 요청할 수 있습니다(ADR-0037 §6)."
+            ),
+        )
+        if notice.requires_added
+        else ()
+    )
+    confirm = f"{notice.prompt} 의 production 을 v{notice.candidate_version} 로 옮깁니다." + (
+        f" 새로 요구하는 권한: {', '.join(c.value for c in notice.requires_added)}."
+        if notice.requires_added
+        else ""
+    )
     return Message(
-        text=f"프롬프트 승격 요청: {notice.prompt} v{notice.candidate_version}",
+        text=f"프롬프트 승격 요청: {notice.prompt} v{notice.candidate_version}"
+        + (" (권한 확장)" if notice.requires_added else ""),
         blocks=(
             _section(
                 f":memo: *프롬프트 승격 요청* `{_escape(notice.prompt)}`{used}\n{change}\n{reason}"
             ),
+            *warning,
             Context(
                 elements=(Text(text="본문과 Config 의 차이는 이 메시지의 스레드에 있습니다."),)
             ),
@@ -521,11 +540,7 @@ def promotion_request(notice: PromotionRequested) -> Message:
                         style="primary",
                         confirm=Confirm(
                             title=Text(type="plain_text", text="프롬프트 승격"),
-                            text=Text(
-                                type="plain_text",
-                                text=f"{notice.prompt} 의 production 을 "
-                                f"v{notice.candidate_version} 로 옮깁니다.",
-                            ),
+                            text=Text(type="plain_text", text=confirm),
                             confirm=Text(type="plain_text", text="승격"),
                             deny=Text(type="plain_text", text="취소"),
                         ),

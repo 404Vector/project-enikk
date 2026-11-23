@@ -11,6 +11,7 @@ import httpx
 from pydantic import AwareDatetime, Field, JsonValue, ValidationError
 
 from enikk_kernel.models import FrozenModel
+from enikk_langfuse.skills import LangfuseSkillLibrary
 from enikk_runtime.errors import PromptInvalidError, PromptUnavailableError
 from enikk_runtime.model import ResolvedPrompt
 
@@ -75,6 +76,10 @@ class LangfusePromptStore:
 
     async def aclose(self) -> None:
         await self._http.aclose()
+
+    def skills(self) -> LangfuseSkillLibrary:
+        """Skills (``skill-*``) over the same connection (ADR-0037 §3)."""
+        return LangfuseSkillLibrary(self._http, self._clock, self._cache_policy)
 
     async def get(self, ref: PromptRef) -> ResolvedPrompt:
         key = (ref.name, ref.label, ref.version)

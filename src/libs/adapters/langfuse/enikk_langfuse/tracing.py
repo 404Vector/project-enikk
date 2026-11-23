@@ -42,6 +42,8 @@ OBSERVATION_PARAMETERS: Final = "langfuse.observation.model.parameters"
 OBSERVATION_USAGE: Final = "langfuse.observation.usage_details"
 OBSERVATION_LEVEL: Final = "langfuse.observation.level"
 OBSERVATION_STATUS: Final = "langfuse.observation.status_message"
+TRACE_SKILLS: Final = "langfuse.trace.metadata.skills"
+OBSERVATION_SKILLS: Final = "langfuse.observation.metadata.skills"
 
 
 class LangfuseTracing:
@@ -90,6 +92,11 @@ class _Generation:
             }
             self._generation.set_attribute(OBSERVATION_USAGE, _json(usage))
         self._task.set_attribute(TRACE_OUTPUT, result.text)
+        if result.skills:
+            # Skills the run loaded with load_skill (ADR-0037 §3).
+            skills = _json([s.model_dump() for s in result.skills])
+            self._task.set_attribute(TRACE_SKILLS, skills)
+            self._generation.set_attribute(OBSERVATION_SKILLS, skills)
 
     def failed(self, reason: str) -> None:
         for span in (self._generation, self._task):

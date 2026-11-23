@@ -531,3 +531,81 @@ async def test_read_prompt_needs_the_grant_and_the_lease(
         await claude.read_prompt(
             lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant")
         )
+
+
+# ---------------------------------------------------------------- skills (ADR-0037 §2)
+
+SKILL_TEXT = "코드를 바꿀 때는 docs/ 를 먼저 읽는다."
+
+
+def _skill(lease: uuid.UUID, **config: object) -> PromptCandidateRequest:
+    return _request(
+        lease,
+        prompt="skill-developer",
+        text=SKILL_TEXT,
+        config=PromptConfigChange.model_validate_json(pydantic_core.to_json(config)),
+    )
+
+
+async def test_a_new_skill_with_requires_warns_about_them(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _skill(
+        lease.lease_id,
+        model="claude-a",
+        description="코드를 바꾸고 PR 을 만들 때",
+        requires=["pr.write", "repo.push"],
+    )
+    created = await claude.propose_prompt(lease.task_id, request)
+    assert (created.production_version, created.candidate_version) == (None, 1)
+    stored = langfuse.versions["skill-developer"][0]
+    assert stored.config["requires"] == ["pr.write", "repo.push"]
+    assert stored.labels == (CANDIDATE,)
+    [notice] = harness.db.notices.values()
+    assert isinstance(notice.body, PromotionRequested)
+    assert notice.body.roles == ()
+    assert [c.value for c in notice.body.requires_added] == ["repo.push", "pr.write"]
+
+
+async def test_a_skill_change_that_keeps_or_narrows_requires_does_not_warn(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    config: dict[str, JsonValue] = {
+        "model": "claude-a",
+        "description": "PR 을 만들 때",
+        "requires": ["repo.push", "pr.write"],
+    }
+    langfuse.put("skill-developer", "old", config, PRODUCTION)
+    lease = await _leased(harness, claude)
+    await claude.propose_prompt(lease.task_id, _skill(lease.lease_id, requires=["pr.write"]))
+    [notice] = harness.db.notices.values()
+    assert isinstance(notice.body, PromotionRequested)
+    assert notice.body.requires_added == ()
+    assert '-    "repo.push"' in notice.body.config_diff
+
+
+@pytest.mark.parametrize(
+    ("prompt", "config", "message"),
+    [
+        ("skill-developer", {"model": "claude-a"}, "description"),
+        ("skill-Dev", {"model": "claude-a", "description": "d"}, "not a valid skill name"),
+        ("assistant", {"description": "d"}, "only for skill prompts"),
+        ("assistant", {"requires": ["pr.write"]}, "only for skill prompts"),
+    ],
+)
+async def test_invalid_skill_candidates_are_not_created(
+    harness: Harness,
+    prompts: PromptService,
+    langfuse: FakeLangfuse,
+    claude: CoreClient,
+    prompt: str,
+    config: dict[str, object],
+    message: str,
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _skill(lease.lease_id, **config).model_copy(update={"prompt": prompt})
+    with pytest.raises(CoreApiError, match=message):
+        await claude.propose_prompt(lease.task_id, request)
+    assert langfuse.created == []
+    assert harness.db.notices == {}

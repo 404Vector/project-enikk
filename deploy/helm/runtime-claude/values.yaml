@@ -40,3 +40,8 @@ workspace:
   fetchIntervalSeconds: 60
   idleDays: 7
   minFreeMiB: 512
+
+# Skills (ADR-0037 §2, §3): the list of skill-* prompts in Langfuse at the start of a
+# shared role's session (with built-in tools), and the load_skill tool. false turns both off.
+skills:
+  enabled: true
