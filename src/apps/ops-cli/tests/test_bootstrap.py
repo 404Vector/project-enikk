@@ -50,3 +50,11 @@ def test_cli_help_lists_commands() -> None:
     assert result.exit_code == 0
     for command in ("bootstrap", "status", "ui"):
         assert command in result.output
+
+
+def test_ui_tells_how_to_retire_the_initial_admin_secret() -> None:
+    from enikk_ops.cli import initial_password_steps
+
+    steps = initial_password_steps("argocd")
+    assert "get secret argocd-initial-admin-secret" in steps
+    assert "kubectl -n argocd delete secret argocd-initial-admin-secret" in steps

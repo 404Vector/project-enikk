@@ -85,6 +85,15 @@ uv run enikk-ops argocd ui          # Argo CD 화면 (http://localhost:8080)
 
 이후에는 `main` 에 머지된 변경이 Argo CD 를 통해 자동으로 배포됩니다.
 
+Argo CD 화면에 처음 로그인할 때만 초기 관리자 Secret(`argocd-initial-admin-secret`)의 비밀번호를 씁니다. `argocd ui` 가 그 명령을 보여 줍니다.
+로그인한 뒤 화면의 **User Info → Update Password** 에서 비밀번호를 바꾸고, 더는 쓰이지 않는 초기 Secret 을 지웁니다(Argo CD 문서의 권장 절차).
+
+```bash
+kubectl -n argocd delete secret argocd-initial-admin-secret
+```
+
+이 Secret 은 Argo CD 설치 때 생기며 git 이 관리하지 않습니다. 지우는 일은 부트스트랩의 마지막 단계로 보고 소유자가 직접 합니다(I-18 의 부트스트랩 예외). 클러스터를 다시 설치하면 새로 생기므로 그때 다시 지웁니다.
+
 ### 비밀값
 
 비밀값(Slack, Claude, Langfuse 토큰)은 이 PC 의 `~/.config/enikk/secrets.yaml` 에 보관하고,
