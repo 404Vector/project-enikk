@@ -12,6 +12,8 @@ from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptCandidateRequest,
     PromptConfigChange,
+    PromptRead,
+    PromptReadRequest,
 )
 from enikk_contracts.tasks import DelegateRequest, DelegationAccepted
 from enikk_core_client.errors import CoreConflictError, CoreUnavailableError
@@ -19,9 +21,11 @@ from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.platform_tools import (
     DELEGATE_TOOL,
     PROPOSE_PROMPT_TOOL,
+    READ_PROMPT_TOOL,
     delegate_tool,
     granted_platform_tools,
     propose_prompt_tool,
+    read_prompt_tool,
 )
 from enikk_runtime.model import EngineJob, ResolvedPrompt
 from enikk_runtime.testing import definition
@@ -173,6 +177,7 @@ async def test_the_delegate_tool_is_refused_without_a_delegator(tmp_path: Path) 
 class _Proposer:
     def __init__(self, error: Exception | None = None) -> None:
         self.calls: list[tuple[uuid.UUID, PromptCandidateRequest]] = []
+        self.reads: list[PromptReadRequest] = []
         self._error = error
 
     async def propose_prompt(
@@ -186,6 +191,19 @@ class _Proposer:
             prompt=request.prompt,
             candidate_version=5,
             production_version=3,
+        )
+
+    async def read_prompt(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
+        self.reads.append(request)
+        if self._error is not None:
+            raise self._error
+        return PromptRead(
+            prompt=request.prompt,
+            version=6,
+            labels=("production",),
+            type="text",
+            text="You are enikk.",
+            config={"model": "claude-a"},
         )
 
 
@@ -244,3 +262,23 @@ async def test_propose_prompt_reports_core_refusals() -> None:
     )
     assert result["is_error"]
     assert "No candidate was created" in result["content"][0]["text"]
+
+
+def test_read_prompt_goes_with_propose_prompt() -> None:
+    assert READ_PROMPT_TOOL in granted_platform_tools(_granted_job(), prompts=True)
+    assert READ_PROMPT_TOOL not in granted_platform_tools(_granted_job(grant=False), prompts=True)
+
+
+async def test_read_prompt_asks_core_and_shows_the_text() -> None:
+    job = _granted_job()
+    proposer = _Proposer()
+    result = await read_prompt_tool(job, proposer).handler({"prompt": "developer", "version": 4})
+    assert not result["is_error"]
+    assert "You are enikk." in result["content"][0]["text"]
+    [request] = proposer.reads
+    assert request == PromptReadRequest(lease_id=job.lease_id, prompt="developer", version=4)
+    both = await read_prompt_tool(job, proposer).handler(
+        {"prompt": "developer", "label": "candidate", "version": 4}
+    )
+    assert both["is_error"]
+    assert len(proposer.reads) == 1

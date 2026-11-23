@@ -18,7 +18,12 @@ from enikk_contracts.github import GitHubHealth, GitHubToken
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.memory import MemoryMatches, MemoryWritten
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
-from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromptCandidateCreated
+from enikk_contracts.prompts import (
+    PromotionLinked,
+    PromotionResult,
+    PromptCandidateCreated,
+    PromptRead,
+)
 from enikk_contracts.tasks import (
     ClaimRequest,
     DelegationAccepted,
@@ -59,6 +64,7 @@ if TYPE_CHECKING:
         PromotionDecision,
         PromotionPosted,
         PromptCandidateRequest,
+        PromptReadRequest,
     )
     from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
@@ -194,6 +200,11 @@ class CoreClient:
         """Create a prompt candidate and ask the owner to promote it (ADR-0032)."""
         path = routes.PROMPT_CANDIDATES.format(task_id=task_id)
         return _parse(PromptCandidateCreated, await self._post(path, request, 60))
+
+    async def read_prompt(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
+        """One version of a role's prompt, read by core (ADR-0032 §8)."""
+        path = routes.PROMPT_READ.format(task_id=task_id)
+        return _parse(PromptRead, await self._post(path, request, 30))
 
     async def decide_promotion(
         self, promotion_id: uuid.UUID, decision: PromotionDecision

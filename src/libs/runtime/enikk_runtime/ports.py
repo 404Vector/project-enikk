@@ -30,7 +30,12 @@ if TYPE_CHECKING:
         RememberRequest,
         UpdateMemoryRequest,
     )
-    from enikk_contracts.prompts import PromptCandidateCreated, PromptCandidateRequest
+    from enikk_contracts.prompts import (
+        PromptCandidateCreated,
+        PromptCandidateRequest,
+        PromptRead,
+        PromptReadRequest,
+    )
     from enikk_contracts.tasks import (
         DelegateRequest,
         DelegationAccepted,
@@ -80,6 +85,10 @@ class PromptProposer(Protocol):
     async def propose_prompt(
         self, task_id: uuid.UUID, request: PromptCandidateRequest
     ) -> PromptCandidateCreated: ...
+
+    async def read_prompt(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
+        """Read-only: one version of a role's prompt (ADR-0032 §8)."""
+        ...
 
 
 class Diagnostician(Protocol):
