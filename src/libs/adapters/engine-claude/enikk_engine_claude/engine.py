@@ -60,7 +60,13 @@ if TYPE_CHECKING:
     from enikk_engine_claude.failures import Failure
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
-    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper, PromptProposer
+    from enikk_runtime.ports import (
+        Delegator,
+        Diagnostician,
+        DigestRequester,
+        MemoryKeeper,
+        PromptProposer,
+    )
 
     QueryFn = Callable[..., AsyncIterator[Message]]
 
@@ -139,6 +145,7 @@ class ClaudeEngine:
         memory: MemoryKeeper | None = None,
         diagnostics: Diagnostician | None = None,
         prompts: PromptProposer | None = None,
+        digests: DigestRequester | None = None,
         query_fn: QueryFn = query,
         landlock: bool | None = None,
     ) -> None:
@@ -149,6 +156,7 @@ class ClaudeEngine:
         self._memory = memory
         self._diagnostics = diagnostics
         self._prompts = prompts
+        self._digests = digests
         self._query = query_fn
         self._landlock = sandbox.available() if landlock is None else landlock
         if not self._landlock:
@@ -247,7 +255,7 @@ class ClaudeEngine:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = self._builtin(job)
         server = platform_server(
-            job, self._delegator, self._memory, self._diagnostics, self._prompts
+            job, self._delegator, self._memory, self._diagnostics, self._prompts, self._digests
         )
         platform = self._platform(job) if server is not None else []
         return ClaudeAgentOptions(
@@ -329,6 +337,7 @@ class ClaudeEngine:
             memory=self._memory is not None,
             diagnostics=self._diagnostics is not None,
             prompts=self._prompts is not None,
+            digests=self._digests is not None,
         )
 
     async def _consume(

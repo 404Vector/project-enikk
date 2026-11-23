@@ -60,6 +60,7 @@ _HEADING: Final = re.compile(r"^#\s+(.+?)\s*$", re.M)
 _UNSAFE_NAME: Final = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]+')
 FOLDER_OF: Final = {NoteKind.PREFERENCE: "선호", NoteKind.FACT: "사실", NoteKind.WORK: "진행 중"}
 WORK_DAYS: Final = 14
+CONVERSATION_FOLDER: Final = "대화"
 
 
 class VaultApi(Protocol):
@@ -260,6 +261,24 @@ class MemoryService:
             task, session, f"잊었습니다: {current.title} ({self._short(current.path)})"
         )
         return MemoryWritten(action="forgotten", path=current.path)
+
+    async def write_conversations(self, day: date, title: str, body: str, sources: int) -> str:
+        """Create or replace the conversation summary of ``day`` (ADR-0035). Returns its path."""
+        path = f"{self.layout.enikk_dir}{CONVERSATION_FOLDER}/{day.isoformat()}.md"
+        _refuse_secrets(title, body)
+        today = self._clock.now().date()
+        text = note_text(
+            title=title,
+            kind=NoteKind.CONVERSATION,
+            body=body,
+            created=today,
+            updated=today,
+            expires=None,
+            source=f"enikk 대화 기록 ({sources}개 스레드)",
+            by="summarizer",
+        )
+        await self._write(path, text, f"memory: conversations of {day.isoformat()}")
+        return path
 
     async def search(self, request: MemorySearch) -> MemoryMatches:
         words = [w for w in request.query.split() if w][:5]

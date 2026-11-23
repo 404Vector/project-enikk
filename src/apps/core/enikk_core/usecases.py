@@ -201,7 +201,8 @@ class CoreUseCases:
             await uow.tasks.update(leased)
             await uow.commit()
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
-        memories = await self._memories()
+        scheduled = session.conversation.connector is ConnectorKind.SCHEDULE
+        memories = () if scheduled else await self._memories()
         return TaskAssignment(
             task_id=leased.id,
             lease_id=leased.last_lease_id,
@@ -451,6 +452,8 @@ class CoreUseCases:
         else:
             return
         session = await self._session_of(uow, task)
+        if session.conversation.connector is ConnectorKind.SCHEDULE:
+            return  # Core handles the outcome of its own scheduled work (ADR-0035).
         if kind is OutboundKind.REPLY and session.reply_to is not None:
             text = delegated_status(task.agent, text)
         await uow.outbox.add(

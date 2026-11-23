@@ -49,6 +49,7 @@ class SessionRow(Base):
 class TaskRow(Base):
     __tablename__ = "tasks"
     __table_args__ = (
+        Index("ix_tasks_created", "created_at"),
         Index("ix_tasks_queue", "engine", "status", "created_at"),
         Index("ix_tasks_session_status", "session_id", "status"),
         Index("ix_tasks_lease_expiry", "status", "lease_expires_at"),
@@ -176,9 +177,28 @@ class PromptPromotionRow(Base):
     decided_by: Mapped[str | None] = mapped_column(String(255))
 
 
+class ConversationDigestRow(Base):
+    """The state of one day's conversation summary (ADR-0035). The note is in the vault."""
+
+    __tablename__ = "conversation_digests"
+    __table_args__ = (Index("ix_conversation_digests_status", "status", "day"),)
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"))
+    attempts: Mapped[int] = mapped_column(Integer)
+    manual: Mapped[bool]
+    started_at: Mapped[datetime]
+    detail: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime]
+
+
 class OutboxRow(Base):
     __tablename__ = "outbox"
-    __table_args__ = (Index("ix_outbox_pending", "connector", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_outbox_pending", "connector", "status", "created_at"),
+        Index("ix_outbox_created", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))

@@ -66,6 +66,7 @@ class RuntimeClaudeApp:
                 memory=core,
                 diagnostics=core,
                 prompts=core,
+                digests=core,
             )
             worker = TaskWorker(
                 core=core,

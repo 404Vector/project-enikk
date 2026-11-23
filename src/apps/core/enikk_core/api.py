@@ -37,6 +37,7 @@ from enikk_contracts.diagnostics import (
     TaskDetail,
     TaskDetailQuery,
 )
+from enikk_contracts.digests import DigestAccepted, DigestRequest
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
 from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
@@ -102,6 +103,7 @@ if TYPE_CHECKING:
     from enikk_core.credentials import CredentialIssuer
     from enikk_core.deployments import DeploymentService
     from enikk_core.diagnostics import DiagnosticsService
+    from enikk_core.digests import DigestService
     from enikk_core.dispatcher import DevJobDispatcher
     from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
     from enikk_core.memory import MemoryService
@@ -152,6 +154,8 @@ class CoreServices:
         memory_interval_seconds: float = 60.0,
         diagnostics: DiagnosticsService | None = None,
         prompts: PromptService | None = None,
+        digests: DigestService | None = None,
+        digest_interval_seconds: float = 300.0,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -171,6 +175,8 @@ class CoreServices:
         self.memory_interval_seconds = memory_interval_seconds
         self.diagnostics = diagnostics
         self.prompts = prompts
+        self.digests = digests
+        self.digest_interval_seconds = digest_interval_seconds
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -187,6 +193,8 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
                 loops.append(asyncio.create_task(_watch_deployments_forever(services)))
             if services.memory is not None:
                 loops.append(asyncio.create_task(_sync_memory_forever(services)))
+            if services.digests is not None:
+                loops.append(asyncio.create_task(_digest_forever(services)))
         try:
             yield
         finally:
@@ -331,6 +339,14 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PromptReadRequest)
         await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
         return _json(await _prompts(services).read(task_id, body))
+
+    @app.post(routes.DIGESTS, responses={200: {"model": DigestAccepted}})
+    @requires("runtime")
+    async def request_digest(task_id: uuid.UUID, request: Request) -> Response:
+        role = _runtime(await gate.admit(request))
+        body = await _parse(request, DigestRequest)
+        await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
+        return _json(await _digests(services).request(task_id, body))
 
     @app.post(routes.PROMOTION_DECISION, responses={200: {"model": PromotionResult}})
     @requires("connector")
@@ -528,6 +544,12 @@ def _prompts(services: CoreServices) -> PromptService:
     return services.prompts
 
 
+def _digests(services: CoreServices) -> DigestService:
+    if services.digests is None:
+        raise DependencyUnavailableError("conversation summaries are not enabled")
+    return services.digests
+
+
 def _deployments(services: CoreServices) -> DeploymentService:
     if services.deployments is None:
         raise DependencyUnavailableError("deployment notices are not enabled")
@@ -580,6 +602,18 @@ async def _sync_memory_forever(services: CoreServices) -> None:
         except Exception:
             _log.exception("vault sync iteration failed")
         await asyncio.sleep(services.memory_interval_seconds)
+
+
+async def _digest_forever(services: CoreServices) -> None:
+    digests = services.digests
+    if digests is None:
+        return
+    while True:
+        try:
+            await digests.run_once()
+        except Exception:
+            _log.exception("conversation summary iteration failed")
+        await asyncio.sleep(services.digest_interval_seconds)
 
 
 async def _dispatch_forever(services: CoreServices) -> None:

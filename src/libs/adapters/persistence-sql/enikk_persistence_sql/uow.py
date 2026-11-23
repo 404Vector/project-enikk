@@ -10,6 +10,7 @@ from enikk_core_domain.errors import ConcurrentUpdateError, DependencyUnavailabl
 from enikk_persistence_sql.repositories import (
     SqlApprovalRepository,
     SqlDeploymentWatchRepository,
+    SqlDigestRepository,
     SqlDispatchRepository,
     SqlJobQueue,
     SqlNoticeRepository,
@@ -42,6 +43,7 @@ class SqlUnitOfWork:
         self.vault = SqlVaultIndexRepository(self._db)
         self.review_messages = SqlReviewMessageRepository(self._db)
         self.prompt_promotions = SqlPromptPromotionRepository(self._db)
+        self.digests = SqlDigestRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

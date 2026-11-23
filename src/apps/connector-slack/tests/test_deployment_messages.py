@@ -209,3 +209,21 @@ async def test_build_failure_links_the_run() -> None:
     assert channel == RELEASE
     assert message.text == f"이미지 빌드 실패: {SHA[:7]}"
     assert "actions/runs/9" in str(message.payload())
+
+
+async def test_a_failed_conversation_summary_is_one_line_in_the_owners_dm() -> None:
+    from datetime import date
+
+    from enikk_contracts.digests import DigestFailed
+
+    core, slack = FakeCore(), FakeSlack()
+    body = DigestFailed(day=date(2026, 11, 23), reason="prompt <missing>", retry=True)
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
+    assert await NoticeRelay(core, slack, CONFIG, POLICY).relay_once() == 1
+    [(channel, message)] = slack.messages
+    assert channel == OWNER
+    rendered = str(message.payload())
+    assert "2026-11-23 대화 요약을 만들지 못했습니다" in rendered
+    assert "prompt &lt;missing&gt;" in rendered
+    assert "다음 날 실행 때 한 번 더 시도합니다" in rendered
+    assert "\n" not in message.payload()[0]["text"]["text"]  # type: ignore[index]

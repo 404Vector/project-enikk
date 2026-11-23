@@ -52,13 +52,29 @@ EVERY_ROLE_HAS: frozenset[str] = frozenset(
 )
 
 
+# The owner's decision (ADR-0035): the summarizer reads untrusted conversations and has
+# no tools at all.
+WITHOUT_TOOLS: frozenset[str] = frozenset({"summarizer"})
+
+
 def test_every_role_is_granted_the_sdk_tools() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    assert set(catalog.names()) >= {"assistant", "developer"}
-    for name in catalog.names():
+    assert set(catalog.names()) >= {"assistant", "developer", *WITHOUT_TOOLS}
+    for name in set(catalog.names()) - WITHOUT_TOOLS:
         definition = catalog.get(name)
         assert definition is not None
         assert set(definition.tools.builtin) == EVERY_ROLE_HAS, name
+
+
+def test_the_summarizer_has_no_tools() -> None:
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    for name in WITHOUT_TOOLS:
+        definition = catalog.get(name)
+        assert definition is not None
+        tools = definition.tools
+        assert (tools.builtin, tools.mcp, tools.platform) == ((), (), ()), name
+        assert tools.platform_defaults is False, name
+        assert definition.delegates == (), name
 
 
 def test_catalog_reports_every_problem(tmp_path: Path) -> None:

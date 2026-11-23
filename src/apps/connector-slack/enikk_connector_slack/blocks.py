@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,6 +28,9 @@ from enikk_contracts.prompts import (
     PromotionResult,
     PromotionStatus,
 )
+
+if TYPE_CHECKING:
+    from enikk_contracts.digests import DigestFailed
 
 APPROVE_ACTION: Final = "enikk.approve"
 REJECT_ACTION: Final = "enikk.reject"
@@ -282,6 +285,16 @@ def resolved(notice: ApprovalResolved) -> Message:
     if notice.detail:
         line += f"\n> {_escape(notice.detail)}"
     return Message(text=f"PR #{notice.number}: {notice.outcome}", blocks=(_section(line),))
+
+
+def digest_failed(notice: DigestFailed) -> Message:
+    """One line: the day's conversation summary could not be made (ADR-0035)."""
+    then = "다음 날 실행 때 한 번 더 시도합니다." if notice.retry else "다시 시도하지 않습니다."
+    line = (
+        f":warning: {notice.day.isoformat()} 대화 요약을 만들지 못했습니다 — "
+        f"{_escape(notice.reason)} ({then})"
+    )
+    return Message(text=f"{notice.day.isoformat()} 대화 요약 실패", blocks=(_section(line),))
 
 
 def deployment_finished(notice: DeploymentFinished) -> Message:

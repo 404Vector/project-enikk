@@ -125,7 +125,7 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
 
 ### 역할이 쓰는 도구
 
-모든 역할(assistant, developer)은 Claude Agent SDK 의 기본 도구를 씁니다([ADR-0033](docs/adr/0033-sdk-tools-for-every-role-in-a-sandbox.md)).
+assistant 와 developer 역할은 Claude Agent SDK 의 기본 도구를 씁니다([ADR-0033](docs/adr/0033-sdk-tools-for-every-role-in-a-sandbox.md)). 날짜별 대화 요약을 만드는 `summarizer` 역할은 도구가 하나도 없습니다([ADR-0035](docs/adr/0035-daily-conversation-summaries.md)).
 
 - 파일 `Read` `Write` `Edit` `NotebookEdit`, 검색 `Glob` `Grep`, 명령 `Bash` (백그라운드 `Monitor` `TaskStop`), 웹 `WebSearch` `WebFetch`, 작업 관리 `TaskCreate` `TaskGet` `TaskList` `TaskUpdate` `Task`
 - 이름은 Claude Code 2.1.330 기준입니다. 역할 정의(`agents/*.yaml`)의 `tools.builtin` 에 적힌 것만 열립니다.
@@ -168,6 +168,7 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
   |---|---|---|---|
   | `assistant` | Slack DM·멘션에 답하는 에닉의 대화 역할 (`config/slack.yaml`) | `assistant` | `production` |
   | `developer` | 코드 변경 요청을 받아 PR 을 만드는 에닉의 개발 역할 | `developer` | `production` |
+  | `summarizer` | 매일 04:00 Asia/Seoul 에 전날 대화를 요약하는 역할 (도구 없음) | `conversation-summary` | `production` |
 
 - 프로젝트 ID: **저장소에 없습니다.** 런타임은 API 키로 프로젝트를 정하므로 코드와 설정에 프로젝트 ID 를 적지 않습니다.
   Langfuse 에 로그인해 프로젝트를 열면 주소창의 `/project/<프로젝트 ID>/...` 부분, 또는 **Settings → General** 화면에서 확인합니다.
@@ -193,6 +194,25 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
 - `assistant`: 런타임 프로세스가 프롬프트를 **60초** 캐시하므로, label 을 옮기고 최대 60초 뒤의 대화부터 새 버전이 쓰입니다.
 - `developer`: 작업마다 새 Job 으로 실행되므로 다음 작업부터 새 버전이 쓰입니다.
 - Langfuse 에 연결할 수 없을 때만 최대 1시간 된 캐시를 씁니다. 어떤 버전이 쓰였는지는 런타임 로그(`prompt <이름> v<버전>`)에서 확인할 수 있습니다.
+
+### 날짜별 대화 요약
+
+매일 04:00(Asia/Seoul)에 core 가 전날(00:00~24:00) 에닉과 나눈 대화를 모아 `summarizer` 역할에 요약을 맡기고, 결과를 볼트의 `Private/enikk/대화/YYYY-MM-DD.md` 에 남깁니다([ADR-0035](docs/adr/0035-daily-conversation-summaries.md)). 나중에 "지난주 Gemini 이야기" 처럼 물으면 assistant 가 `recall` 로 찾습니다.
+
+- 대화가 없는 날은 파일을 만들지 않습니다. core 가 꺼져 있어 놓친 날은 이틀 전까지 다시 만듭니다.
+- 실패하면 소유자 DM 에 한 줄 알림이 오고, 다음 날 04시 실행 때 한 번 더 시도합니다.
+- 비밀값처럼 보이는 문자열은 요약 전과 후에 `[가림]` 으로 바뀝니다.
+- 설정: `deploy/helm/core/values.yaml` 의 `digests` (`enabled`, `timezone`, `runHour`, `catchupDays`, `intervalSeconds`).
+- 요약 프롬프트 `conversation-summary` 가 Langfuse 에 없으면 요약은 실패로 알림만 옵니다. 처음 한 번 "conversation-summary 프롬프트를 이 본문으로 만들어 줘" 라고 assistant 에게 요청하고 승격합니다(위 [프롬프트 수정 방법](#프롬프트-수정-방법)). 새 프롬프트이므로 Config 의 `model` 도 함께 말합니다.
+
+**수동 실행** (시험, 다시 만들기)
+
+1. 에닉에게 DM 으로 "2026-11-23 대화 요약 만들어 줘" 라고 말합니다. assistant 가 `summarize_day` 도구로 core 에 요청합니다.
+2. 몇 분 뒤 `Private/enikk/대화/2026-11-23.md` 가 볼트에 생깁니다. 같은 날의 노트가 있으면 새 요약으로 바뀝니다(파일은 하나).
+3. "11월 23일 대화에서 뭐 했지?" 처럼 물어 `recall` 로 찾히는지 확인합니다. 볼트 색인은 1분마다 갱신됩니다.
+
+- 날짜는 Asia/Seoul 기준이고 미래 날짜는 거부합니다. 오늘을 지정하면 지금까지의 대화를 요약하고, 다음 날 04시에 하루 전체로 다시 만듭니다.
+- 진행 상태는 "최근 작업 보여 줘"(`recent_tasks`, role `summarizer`)로 확인할 수 있습니다.
 
 ### 배포 확인
 

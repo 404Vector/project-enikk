@@ -1,0 +1,18 @@
+name: summarizer
+description: Summarizes one day's conversations for the owner's vault; core starts it every day
+engine: claude
+prompt:
+  name: conversation-summary
+  label: production
+# No tools at all: no built-in tools, no platform tools, not even memory or diagnostics
+# (ADR-0035, I-38). Its input is the day's conversations, which it must not obey; core
+# writes the result to the vault, masks secrets and keeps it under Private/enikk/대화/.
+tools:
+  mcp: []
+  builtin: []
+  platform: []
+  platform_defaults: false
+delegates: []
+limits:
+  max_turns: 2
+  timeout_seconds: 600

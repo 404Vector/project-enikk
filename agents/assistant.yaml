@@ -12,7 +12,8 @@ tools:
     [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
      WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
   # Create prompt candidates through core; only the owner promotes them (ADR-0032, I-36).
-  platform: [prompt-candidates]
+  # Make one day's conversation summary again when the owner asks (ADR-0035).
+  platform: [prompt-candidates, conversation-digest]
 # Change requests for the platform go to the developer role (ADR-0022). The assistant
 # has a shell but no git credentials or cluster access; it delegates changes (I-17).
 delegates: [developer]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -8,6 +9,7 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, Tex
 from pydantic import SecretStr
 
 from enikk_contracts.agents import PlatformTool, ToolPolicy
+from enikk_contracts.digests import DigestAccepted, DigestRequest, DigestStatus
 from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptCandidateRequest,
@@ -22,10 +24,13 @@ from enikk_engine_claude.platform_tools import (
     DELEGATE_TOOL,
     PROPOSE_PROMPT_TOOL,
     READ_PROMPT_TOOL,
+    SUMMARIZE_DAY_TOOL,
     delegate_tool,
     granted_platform_tools,
+    platform_server,
     propose_prompt_tool,
     read_prompt_tool,
+    summarize_day_tool,
 )
 from enikk_runtime.model import EngineJob, ResolvedPrompt
 from enikk_runtime.testing import definition
@@ -282,3 +287,42 @@ async def test_read_prompt_asks_core_and_shows_the_text() -> None:
     )
     assert both["is_error"]
     assert len(proposer.reads) == 1
+
+
+class _Digests:
+    def __init__(self) -> None:
+        self.calls: list[tuple[uuid.UUID, DigestRequest]] = []
+
+    async def request_digest(self, task_id: uuid.UUID, request: DigestRequest) -> DigestAccepted:
+        self.calls.append((task_id, request))
+        return DigestAccepted(day=request.day, status=DigestStatus.RUNNING, detail="시작")
+
+
+def _with_tools(tools: ToolPolicy, delegates: tuple[str, ...] = ()) -> EngineJob:
+    job = _job(delegates)
+    return job.model_copy(update={"definition": job.definition.model_copy(update={"tools": tools})})
+
+
+def test_a_role_without_platform_defaults_gets_no_platform_tools() -> None:
+    bare = _with_tools(ToolPolicy(platform_defaults=False))
+    every = {"memory": True, "diagnostics": True, "prompts": True, "digests": True}
+    assert granted_platform_tools(bare, **every) == []
+    assert platform_server(bare, _Delegator(), memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
+    usual = _with_tools(ToolPolicy())
+    assert len(granted_platform_tools(usual, **every)) > 0
+    assert SUMMARIZE_DAY_TOOL not in granted_platform_tools(usual, **every)
+
+
+async def test_summarize_day_goes_to_granted_roles_and_asks_core() -> None:
+    job = _with_tools(ToolPolicy(platform=(PlatformTool.CONVERSATION_DIGEST,)))
+    assert SUMMARIZE_DAY_TOOL in granted_platform_tools(job, digests=True)
+    digests = _Digests()
+    result = await summarize_day_tool(job, digests).handler({"day": "2026-11-23"})
+    assert not result["is_error"]
+    assert "2026-11-23: running" in result["content"][0]["text"]
+    assert digests.calls == [
+        (job.task_id, DigestRequest(lease_id=job.lease_id, day=date(2026, 11, 23)))
+    ]
+    bad = await summarize_day_tool(job, digests).handler({"day": "yesterday"})
+    assert bad["is_error"]
+    assert len(digests.calls) == 1

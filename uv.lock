@@ -745,12 +745,14 @@ source = { editable = "src/libs/core-domain" }
 dependencies = [
     { name = "enikk-contracts" },
     { name = "enikk-kernel" },
+    { name = "tzdata" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "tzdata", specifier = ">=2026.6" },
 ]
 
 [[package]]

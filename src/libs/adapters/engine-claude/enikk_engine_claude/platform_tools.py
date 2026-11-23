@@ -3,13 +3,16 @@
 They call core only, never an external MCP server, so they do not go through
 agentgateway (I-05): ``delegate`` (ADR-0022), enikk's memory, ``remember``,
 ``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028), diagnostics (ADR-0029)
-and ``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032).
+``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032) and
+``summarize_day`` for roles granted ``conversation-digest`` (ADR-0035). A role with
+``platform_defaults: false`` gets no memory or diagnostic tools.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import date
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
@@ -24,6 +27,7 @@ from enikk_contracts.diagnostics import (
     Service,
     TaskDetailQuery,
 )
+from enikk_contracts.digests import DigestRequest
 from enikk_contracts.memory import (
     ForgetRequest,
     MemorySearch,
@@ -46,7 +50,13 @@ if TYPE_CHECKING:
 
     from enikk_contracts.memory import MemoryWritten
     from enikk_runtime.model import EngineJob
-    from enikk_runtime.ports import Delegator, Diagnostician, MemoryKeeper, PromptProposer
+    from enikk_runtime.ports import (
+        Delegator,
+        Diagnostician,
+        DigestRequester,
+        MemoryKeeper,
+        PromptProposer,
+    )
 
 SERVER: Final = "enikk"
 DELEGATE_TOOL: Final = f"mcp__{SERVER}__delegate"
@@ -61,6 +71,7 @@ DIAGNOSTIC_TOOLS: Final = tuple(
 )
 PROPOSE_PROMPT_TOOL: Final = f"mcp__{SERVER}__propose_prompt"
 READ_PROMPT_TOOL: Final = f"mcp__{SERVER}__read_prompt"
+SUMMARIZE_DAY_TOOL: Final = f"mcp__{SERVER}__summarize_day"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
 )
@@ -118,6 +129,14 @@ def _grants_prompts(job: EngineJob) -> bool:
     return PlatformTool.PROMPT_CANDIDATES in job.definition.tools.platform
 
 
+def _grants_digests(job: EngineJob) -> bool:
+    return PlatformTool.CONVERSATION_DIGEST in job.definition.tools.platform
+
+
+def _defaults(job: EngineJob) -> bool:
+    return job.definition.tools.platform_defaults
+
+
 def granted_platform_tools(
     job: EngineJob,
     *,
@@ -125,13 +144,15 @@ def granted_platform_tools(
     memory: bool = False,
     diagnostics: bool = False,
     prompts: bool = False,
+    digests: bool = False,
 ) -> list[str]:
     granted = [DELEGATE_TOOL] if delegator and job.definition.delegates else []
     return [
         *granted,
-        *(MEMORY_TOOLS if memory else ()),
-        *(DIAGNOSTIC_TOOLS if diagnostics else ()),
+        *(MEMORY_TOOLS if memory and _defaults(job) else ()),
+        *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
+        *([SUMMARIZE_DAY_TOOL] if digests and _grants_digests(job) else ()),
     ]
 
 
@@ -141,17 +162,58 @@ def platform_server(
     memory: MemoryKeeper | None = None,
     diagnostics: Diagnostician | None = None,
     prompts: PromptProposer | None = None,
+    digests: DigestRequester | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
     if delegator is not None and job.definition.delegates:
         tools.append(delegate_tool(job, delegator))
-    if memory is not None:
+    if memory is not None and _defaults(job):
         tools.extend(memory_tools(job, memory))
-    if diagnostics is not None:
+    if diagnostics is not None and _defaults(job):
         tools.extend(diagnostic_tools(job, diagnostics))
     if prompts is not None and _grants_prompts(job):
         tools.extend([read_prompt_tool(job, prompts), propose_prompt_tool(job, prompts)])
+    if digests is not None and _grants_digests(job):
+        tools.append(summarize_day_tool(job, digests))
     return create_sdk_mcp_server(SERVER, tools=tools) if tools else None
+
+
+SUMMARIZE_DAY_DESCRIPTION: Final = (
+    "Make, or make again, the summary of one day's conversations with enikk in the "
+    "owner's vault (Private/enikk/대화/YYYY-MM-DD.md). It runs by itself every day at "
+    "04:00 Asia/Seoul for the day before; use this only when the owner asks for a day "
+    "by hand. day: YYYY-MM-DD in Asia/Seoul, not in the future. It returns at once; the "
+    "summary is written a few minutes later and replaces that day's note. A day without "
+    "conversations gets no note. A failure is reported to the owner in a DM."
+)
+
+
+def summarize_day_tool(job: EngineJob, digests: DigestRequester) -> SdkMcpTool[Any]:
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "day": {"type": "string", "description": "YYYY-MM-DD, in Asia/Seoul."},
+        },
+        "required": ["day"],
+    }
+
+    @tool("summarize_day", SUMMARIZE_DAY_DESCRIPTION, schema)
+    async def summarize_day(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = DigestRequest(
+                lease_id=job.lease_id, day=date.fromisoformat(str(args.get("day", "")))
+            )
+        except (ValidationError, ValueError):
+            return _result("day must be a date: YYYY-MM-DD.", True)
+        try:
+            accepted = await digests.request_digest(job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now; tell the owner.", True)
+        except CoreApiError as exc:
+            return _result(f"The summary was refused: {exc}", True)
+        return _result(f"{accepted.day}: {accepted.status}. {accepted.detail}".strip(), False)
+
+    return summarize_day
 
 
 READ_PROMPT_DESCRIPTION: Final = (

@@ -28,6 +28,9 @@ class ConnectorKind(StrEnum):
     SLACK = "slack"
     SMOKE = "smoke"
     """Deployment checks by ``enikk-ops smoke``; nothing publishes its messages."""
+    SCHEDULE = "schedule"
+    """Work core starts on its own schedule (daily conversation summaries, ADR-0035).
+    Nothing publishes its messages; core handles the outcome itself."""
 
 
 class ConversationRef(Contract):
