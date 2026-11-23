@@ -127,13 +127,42 @@ def test_an_existing_branch_is_continued(tmp_path: Path) -> None:
     workspace = GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
     assert workspace.continuing
     refspec = f"+refs/heads/{BRANCH}:refs/remotes/origin/{BRANCH}"
-    assert runner.argvs[-3:] == [
+    assert runner.argvs[-4:] == [
         ("git", "config", "--add", "remote.origin.fetch", refspec),
         ("git", "fetch", "--depth", "100", "origin", refspec),
+        ("git", "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{BRANCH}"),
         ("git", "switch", "--create", BRANCH, "--track", f"origin/{BRANCH}"),
     ]
     brief = task_brief(_assignment(), _token(), workspace)
     assert "do not open another pull request" in brief
+
+
+@pytest.mark.usefixtures("isolated_env")
+def test_a_branch_deleted_after_ls_remote_is_started_anew(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    runner.when("git", "ls-remote", stdout=f"abc123\trefs/heads/{BRANCH}\n")
+    runner.when("git", "fetch", returncode=128, stderr=f"fatal: couldn't find remote ref {BRANCH}")
+    workspace = GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
+    assert not workspace.continuing
+    assert runner.argvs[-1] == ("git", "switch", "--create", BRANCH)
+
+
+@pytest.mark.usefixtures("isolated_env")
+def test_other_fetch_failures_stop_the_task(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    runner.when("git", "ls-remote", stdout=f"abc123\trefs/heads/{BRANCH}\n")
+    runner.when("git", "fetch", returncode=128, stderr="fatal: unable to access")
+    with pytest.raises(WorkspaceError, match="git fetch failed"):
+        GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
+
+
+@pytest.mark.usefixtures("isolated_env")
+def test_a_fetched_branch_that_is_not_a_branch_stops_the_task(tmp_path: Path) -> None:
+    runner = RecordingRunner()
+    runner.when("git", "ls-remote", stdout=f"abc123\trefs/heads/{BRANCH}\n")
+    runner.when("git", "rev-parse", returncode=1)
+    with pytest.raises(WorkspaceError, match="is not a branch"):
+        GitWorkspace(runner, tmp_path / "ws", tmp_path / "tools").prepare(_token(), BRANCH)
 
 
 def test_the_work_branch_follows_the_session() -> None:
