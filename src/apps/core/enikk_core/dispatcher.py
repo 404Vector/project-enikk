@@ -1,4 +1,4 @@
-"""Starts one Job per isolated task, within the concurrency and optional daily limits (ADR-0021)."""
+"""Starts one Job per isolated task, within the concurrency and daily limits (ADR-0021)."""
 
 from __future__ import annotations
 
@@ -66,9 +66,8 @@ class DevJobDispatcher:
             if await uow.dispatches.count_for(task.id) >= task.max_attempts:
                 await self._abandon(uow, task)
                 return DispatchOutcome.ABANDONED
-            limit = self._policy.daily_limit
-            if limit is not None and await uow.dispatches.count_since(now - DAY) >= limit:
-                _log.warning("daily limit of %d dev Jobs reached", limit)
+            if await uow.dispatches.count_since(now - DAY) >= self._policy.daily_limit:
+                _log.warning("daily limit of %d dev Jobs reached", self._policy.daily_limit)
                 return DispatchOutcome.DAILY_LIMIT
             try:
                 job_name = await self._launcher.launch(task.id)

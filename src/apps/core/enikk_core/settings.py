@@ -121,9 +121,8 @@ class DevAgentSettings(SettingsModel):
     namespace: str = "enikk-dev"
     template_configmap: str = "enikk-dev-agent-job"
     api_url: str = "https://kubernetes.default.svc"
-    max_concurrent: int = Field(default=1, ge=1, le=10)
-    daily_limit: int | None = Field(default=None, ge=1)
-    """Job starts allowed in any 24 hours; None (the default) means no limit."""
+    max_concurrent: int = Field(default=1, ge=1, le=3)
+    daily_limit: int = Field(default=10, ge=1, le=100)
     interval_seconds: float = Field(default=10.0, gt=0, le=300)
 
 
