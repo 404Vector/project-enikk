@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 from pydantic import Field
@@ -9,6 +10,7 @@ from pydantic import Field
 from enikk_core_client.tokens import PROJECTED_TOKEN_FILE
 from enikk_kernel.settings import ServiceSettings, SettingsModel
 from enikk_runtime.worker import WorkerPolicy
+from enikk_runtime.workspace import WorkspaceConfig
 
 
 class WorkerSettings(SettingsModel):
@@ -21,6 +23,30 @@ class WorkerSettings(SettingsModel):
         )
 
 
+class WorkspaceSettings(SettingsModel):
+    """The shared volume (ADR-0037 §7). Off unless the chart mounts one."""
+
+    enabled: bool = False
+    root: Path = Path("/data")
+    repository: str = "404Vector/project-enikk"
+    remote_url: str = "https://github.com/404Vector/project-enikk.git"
+    branch: str = "main"
+    fetch_interval_seconds: int = Field(default=60, ge=0)
+    idle_days: int = Field(default=7, ge=1)
+    min_free_mib: int = Field(default=512, ge=0)
+
+    def to_config(self) -> WorkspaceConfig:
+        return WorkspaceConfig(
+            root=self.root,
+            repository=self.repository,
+            remote_url=self.remote_url,
+            branch=self.branch,
+            fetch_interval=timedelta(seconds=self.fetch_interval_seconds),
+            idle_days=self.idle_days,
+            min_free_bytes=self.min_free_mib * 1024 * 1024,
+        )
+
+
 class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     core_url: str = "http://enikk-core.enikk.svc"
     token_file: Path = PROJECTED_TOKEN_FILE
@@ -30,3 +56,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     tracing: bool = True
     verbose: bool = False
     worker: WorkerSettings = WorkerSettings()
+    workspace: WorkspaceSettings = WorkspaceSettings()

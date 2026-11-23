@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import Field
 
+from enikk_contracts.agents import Execution
 from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport, Succeeded
 from enikk_core_client.errors import CoreConflictError, CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
@@ -16,14 +17,15 @@ from enikk_runtime.errors import IncompatibleModelError, TaskFailedError
 from enikk_runtime.memory import with_memories
 from enikk_runtime.model import EngineJob
 from enikk_runtime.observing import NullObserver
+from enikk_runtime.workspace import with_workspace
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from enikk_contracts.tasks import TaskAssignment
     from enikk_kernel.clock import Clock
-    from enikk_runtime.model import EngineResult
-    from enikk_runtime.ports import ModelEngine, PromptStore, RunObserver, TaskSource
+    from enikk_runtime.model import EngineResult, SessionWorkspace
+    from enikk_runtime.ports import ModelEngine, PromptStore, RunObserver, TaskSource, Workspaces
 
     Sleep = Callable[[float], Awaitable[None]]
 
@@ -55,12 +57,14 @@ class TaskWorker:
         clock: Clock,
         policy: WorkerPolicy,
         observer: RunObserver | None = None,
+        workspaces: Workspaces | None = None,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self._core = core
         self._prompts = prompts
         self._engine = engine
         self._observer: RunObserver = observer or NullObserver()
+        self._workspaces = workspaces
         self._clock = clock
         self._policy = policy
         self._sleep = sleep
@@ -185,6 +189,7 @@ class TaskWorker:
             prompt.version,
             prompt.model,
         )
+        workspace = await self._workspace(assignment)
         job = EngineJob(
             task_id=assignment.task_id,
             lease_id=assignment.lease_id,
@@ -193,7 +198,8 @@ class TaskWorker:
             engine_session_id=assignment.engine_session_id,
             definition=definition,
             prompt=prompt,
-            input=with_memories(assignment.input, assignment.memories),
+            input=with_workspace(with_memories(assignment.input, assignment.memories), workspace),
+            workspace=workspace,
         )
         async with self._observer.observe(job) as observation:
             try:
@@ -206,6 +212,22 @@ class TaskWorker:
                 raise
             observation.succeeded(result)
         return result
+
+    async def _workspace(self, assignment: TaskAssignment) -> SessionWorkspace | None:
+        """The session's shared-volume paths, for shared roles with built-in tools only.
+        The task goes on without them when the volume cannot be prepared."""
+        definition = assignment.definition
+        if (
+            self._workspaces is None
+            or not definition.tools.builtin
+            or definition.execution is not Execution.SHARED
+        ):
+            return None
+        try:
+            return await asyncio.to_thread(self._workspaces.prepare, assignment.session_id)
+        except Exception:
+            _log.exception("task %s: shared volume unavailable", assignment.task_id)
+            return None
 
     # ------------------------------------------------------------ reporting
 

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+from enikk_contracts.agents import AgentDefinition, Execution, ToolPolicy
 from enikk_contracts.common import Engine
 from enikk_contracts.tasks import Failed, Succeeded
 from enikk_core_client.errors import CoreUnavailableError
 from enikk_kernel.testing import ManualClock
 from enikk_runtime.errors import EngineError
-from enikk_runtime.model import EngineResult
+from enikk_runtime.model import EngineResult, SessionWorkspace
 from enikk_runtime.testing import (
     FakeCore,
     RecordingObserver,
@@ -22,9 +24,11 @@ from enikk_runtime.testing import (
 from enikk_runtime.worker import INTERNAL_FAILURE, TaskWorker, WorkerPolicy
 
 if TYPE_CHECKING:
+    import uuid
     from collections.abc import Awaitable, Callable
 
     from enikk_runtime.model import EngineJob
+    from enikk_runtime.ports import Workspaces
 
 pytestmark = pytest.mark.anyio
 
@@ -40,6 +44,7 @@ def _worker(
     store: StaticPromptStore | None = None,
     policy: WorkerPolicy | None = None,
     sleep: Callable[[float], Awaitable[None]] = _tick,
+    workspaces: Workspaces | None = None,
 ) -> TaskWorker:
     return TaskWorker(
         core=core,
@@ -48,6 +53,7 @@ def _worker(
         clock=ManualClock(),
         policy=policy or WorkerPolicy(),
         sleep=sleep,
+        workspaces=workspaces,
     )
 
 
@@ -256,3 +262,76 @@ async def test_observer_records_success_and_failure() -> None:
         observer.events[2],
         ("failed", "busy"),
     ]
+
+
+class _Workspaces:
+    def __init__(self, *, broken: bool = False) -> None:
+        self.sessions: list[uuid.UUID] = []
+        self._broken = broken
+
+    def prepare(self, session_id: uuid.UUID) -> SessionWorkspace:
+        self.sessions.append(session_id)
+        if self._broken:
+            raise OSError("volume not mounted")
+        return SessionWorkspace(
+            repository="404Vector/project-enikk",
+            repo_dir=Path("/data/repo.git"),
+            snapshot_dir=Path("/data/snapshots") / ("b" * 40),
+            commit="b" * 40,
+            fetched_at=None,
+            fresh=True,
+            worktree_dir=Path("/data/worktrees") / str(session_id),
+            branch=f"session/{session_id}",
+            tmp_dir=Path("/data/tmp") / str(session_id),
+        )
+
+
+def _with_tools(execution: Execution = Execution.SHARED) -> AgentDefinition:
+    return definition().model_copy(
+        update={"tools": ToolPolicy(builtin=("Read", "Bash")), "execution": execution}
+    )
+
+
+async def test_a_shared_role_with_tools_gets_its_session_workspace() -> None:
+    core = FakeCore(ManualClock())
+    task = core.assign(_with_tools(), text="리뷰해 줘")
+    engine = ScriptedEngine()
+    workspaces = _Workspaces()
+    await _worker(core, engine, workspaces=workspaces).run_once()
+
+    assert workspaces.sessions == [task.session_id]
+    [job] = engine.jobs
+    assert job.workspace is not None
+    assert job.workspace.worktree_dir == Path("/data/worktrees") / str(task.session_id)
+    assert "b" * 40 in job.input
+    assert job.input.endswith("리뷰해 줘")
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [definition(), _with_tools(Execution.ISOLATED)],
+    ids=["no-tools", "isolated"],
+)
+async def test_other_roles_get_no_workspace(agent: AgentDefinition) -> None:
+    core = FakeCore(ManualClock())
+    core.assign(agent, text="hi")
+    engine = ScriptedEngine()
+    workspaces = _Workspaces()
+    await _worker(core, engine, workspaces=workspaces).run_once()
+
+    assert workspaces.sessions == []
+    [job] = engine.jobs
+    assert job.workspace is None
+    assert job.input == "hi"
+
+
+async def test_a_broken_volume_does_not_fail_the_task() -> None:
+    core = FakeCore(ManualClock())
+    core.assign(_with_tools(), text="hi")
+    engine = ScriptedEngine()
+    await _worker(core, engine, workspaces=_Workspaces(broken=True)).run_once()
+
+    [job] = engine.jobs
+    assert job.workspace is None
+    assert job.input == "hi"
+    assert isinstance(_outcome(core), Succeeded)

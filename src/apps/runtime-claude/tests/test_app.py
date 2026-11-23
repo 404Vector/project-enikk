@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -10,7 +12,9 @@ from enikk_contracts.credentials import CredentialName, CredentialRequest, Crede
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_core_client import CoreClient, StaticTokenSource
 from enikk_core_client.credentials import wait_for_credentials
-from enikk_runtime_claude.app import CREDENTIALS
+from enikk_engine_claude import sandbox
+from enikk_engine_claude.engine import SandboxConfig
+from enikk_runtime_claude.app import CREDENTIALS, _sandboxed
 from enikk_runtime_claude.settings import RuntimeClaudeSettings
 
 if TYPE_CHECKING:
@@ -68,3 +72,26 @@ def test_defaults_point_at_the_cluster_and_the_japan_region() -> None:
     assert settings.core_url == "http://enikk-core.enikk.svc"
     assert settings.langfuse_url == "https://jp.cloud.langfuse.com"
     assert settings.worker.to_policy().wait_seconds == 20
+
+
+def test_the_shared_volume_is_off_unless_the_chart_turns_it_on() -> None:
+    settings = RuntimeClaudeSettings()
+    assert not settings.workspace.enabled
+    config = settings.workspace.to_config()
+    assert config.root == Path("/data")
+    assert config.remote_url == "https://github.com/404Vector/project-enikk.git"
+    assert config.idle_days == 7
+
+
+def test_shared_volume_git_runs_in_the_sandbox_shell_without_the_secrets() -> None:
+    rules = SandboxConfig(secrets=(Path("/run/secrets/token"),))
+    wrap = _sandboxed(rules, Path("/data"), Path("/app/.venv/bin/enikk-sandbox-shell"))
+    argv = wrap(["git", "--git-dir=/data/repo.git", "fetch", "origin"])
+
+    assert argv[0] == "env"
+    assert f"{sandbox.ENV_MODE}={sandbox.LANDLOCK}" in argv
+    assert f"{sandbox.ENV_SECRETS}=/run/secrets/token" in argv
+    write = next(a for a in argv if a.startswith(f"{sandbox.ENV_WRITE}="))
+    assert write.split("=", 1)[1].split(os.pathsep) == ["/data", "/dev"]
+    assert argv[-2] == "/app/.venv/bin/enikk-sandbox-shell"
+    assert argv[-1] == "git --git-dir=/data/repo.git fetch origin"
