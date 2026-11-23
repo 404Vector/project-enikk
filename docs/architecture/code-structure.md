@@ -55,7 +55,8 @@ src/
       ├─ k8s-auth/        enikk_k8s_auth         TokenReview 검증기 (core 용)
       ├─ github/          enikk_github           GitHub App JWT·용도별 설치 토큰 (core 전용, I-32)
       ├─ k8s-jobs/        enikk_k8s_jobs         격리 작업 Job 실행기 (core 전용, ADR-0021)
-      ├─ engine-claude/   enikk_engine_claude    ModelEngine 구현: Claude Agent SDK
+      ├─ engine-claude/   enikk_engine_claude    ModelEngine 구현: Claude Agent SDK,
+      │                                          도구 샌드박스(enikk-claude-launch, enikk-sandbox-shell)와 감사 로그 (ADR-0033)
       ├─ engine-gemini/   enikk_engine_gemini    ModelEngine 구현: Google ADK
       ├─ langfuse/        enikk_langfuse         PromptStore·FeedbackSink 구현, OTel 내보내기 설정,
       │                                          core 용 PromptRegistry(후보 생성·production 이동, ADR-0032)

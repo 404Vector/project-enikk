@@ -23,11 +23,11 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0014](0014-engine-transcripts-in-core.md) | 엔진 대화 이력(트랜스크립트)은 core 가 저장한다 | 승인 | 2026-11-22 |
 | [0015](0015-runtime-worker.md) | 런타임 공통 작업 처리 흐름 | 승인 | 2026-11-22 |
 | [0016](0016-langfuse-adapter.md) | Langfuse 어댑터 — 프롬프트 조회와 트레이스 전송 설정 | 승인 | 2026-11-22 |
-| [0017](0017-claude-engine-runtime.md) | Claude 엔진 런타임 — 도구 차단, 대화 이어 가기, 트레이스 | 승인 | 2026-11-22 |
+| [0017](0017-claude-engine-runtime.md) | Claude 엔진 런타임 — 도구 차단, 대화 이어 가기, 트레이스 | 승인 (공용 역할의 도구 차단과 토큰 전달 방식은 ADR-0033 으로 부분 대체) | 2026-11-22 |
 | [0018](0018-slack-connector.md) | Slack 커넥터 — 연결 규칙, 중복 처리, 진행 표시 | 승인 | 2026-11-22 |
 | [0019](0019-github-app-scoped-tokens.md) | GitHub App 신원과 용도별로 좁힌 설치 토큰 | 승인 | 2026-11-22 |
 | [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 (알림 위치는 ADR-0026 으로 부분 대체) | 2026-11-22 |
-| [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 | 2026-11-22 |
+| [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로 부분 대체) | 2026-11-22 |
 | [0022](0022-delegation-to-developer.md) | assistant 역할이 개발 역할에 작업을 위임한다 | 승인 | 2026-11-22 |
 | [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 (알림 위치는 ADR-0026 으로 부분 대체) | 2026-11-22 |
 | [0024](0024-sensitive-paths-instead-of-protected.md) | 보호 경로를 막지 않고, 민감 경로로 표시해 강화된 승인을 받는다 | 승인 | 2026-11-22 |
@@ -39,6 +39,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 | 2026-11-23 |
 | [0032](0032-prompt-candidates-and-promotion-in-slack.md) | Slack 에서 프롬프트 후보를 만들고, 소유자가 승격한다 | 승인 | 2026-11-23 |
+| [0033](0033-sdk-tools-for-every-role-in-a-sandbox.md) | 모든 역할에 SDK 기본 도구를 주고, 서비스의 비밀값과 떼어 놓는다 | 승인 | 2026-11-23 |
 
 ## 상태 정의
 

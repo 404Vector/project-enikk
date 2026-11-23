@@ -12,7 +12,7 @@ from enikk_contracts.tasks import Failed, ResultReport
 from enikk_core_client import CoreClient, CoreConflictError, CoreNotFoundError
 from enikk_core_client.credentials import wait_for_credentials
 from enikk_core_client.tokens import FileTokenSource
-from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
+from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig, SandboxConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.errors import ConfigurationError, EnikkError
 from enikk_langfuse.config import LangfuseConfig
@@ -120,6 +120,12 @@ class DevAgentApp:
                 scratch_dir=s.scratch_dir,
                 client_app="enikk-dev-agent/0.1",
                 tool_env=workspace.tool_env,
+                # The repository and the git/gh configuration stay reachable; the core
+                # token does not (ADR-0033).
+                sandbox=SandboxConfig(
+                    secrets=(s.token_file, s.token_file.parent),
+                    write=(s.workspace, s.tool_home),
+                ),
             ),
             oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
             transcripts=core,

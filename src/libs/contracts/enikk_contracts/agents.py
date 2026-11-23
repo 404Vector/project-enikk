@@ -33,6 +33,35 @@ class McpToolGrant(Contract):
     allow: Annotated[tuple[ToolName, ...], Field(min_length=1)]
 
 
+BUILTIN_TOOLS: frozenset[str] = frozenset(
+    {
+        # files
+        "Read",
+        "Write",
+        "Edit",
+        "NotebookEdit",
+        # search
+        "Glob",
+        "Grep",
+        # commands, including background ones
+        "Bash",
+        "Monitor",
+        "TaskStop",
+        # web; its content is untrusted input
+        "WebSearch",
+        "WebFetch",
+        # work tracking and sub-agents
+        "TaskCreate",
+        "TaskGet",
+        "TaskList",
+        "TaskUpdate",
+        "Task",
+    }
+)
+"""Built-in tools of Claude Code (2.1.330) a role may be granted (ADR-0033). They run in
+the engine's sandbox. Others (scheduling, worktrees, skills, workflows) are not."""
+
+
 class PlatformTool(StrEnum):
     """Platform tools a role must be granted by name (ADR-0032). Others go to every role."""
 
@@ -84,9 +113,8 @@ class AgentDefinition(Contract):
         return self
 
     @model_validator(mode="after")
-    def _builtin_tools_only_in_isolation(self) -> Self:
-        if self.tools.builtin and self.execution is not Execution.ISOLATED:
-            raise ValueError(
-                "built-in tools (shell, files) are allowed only for isolated agents (ADR-0021)"
-            )
+    def _known_builtin_tools(self) -> Self:
+        unknown = sorted(set(self.tools.builtin) - BUILTIN_TOOLS)
+        if unknown:
+            raise ValueError(f"built-in tools {unknown} are not ones a role may have (ADR-0033)")
         return self

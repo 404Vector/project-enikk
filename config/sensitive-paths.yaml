@@ -8,7 +8,8 @@ paths:
   - AGENTS.md
   - docs/architecture/invariants.md
   - docs/adr/
-  - agents/developer.yaml
+  # Role definitions grant shell, file and web tools (ADR-0033).
+  - agents/
   - config/sensitive-paths.yaml
   - config/github.yaml
   - deploy/github/
@@ -19,4 +20,7 @@ paths:
   # Prompt promotion: the only code that moves Langfuse's production label (I-36).
   - src/apps/core/enikk_core/prompts.py
   - src/libs/adapters/langfuse/enikk_langfuse/registry.py
+  # What keeps those tools away from the service's secrets, and their audit log (I-37).
+  - src/libs/adapters/engine-claude/enikk_engine_claude/sandbox.py
+  - src/libs/adapters/engine-claude/enikk_engine_claude/audit.py
   - src/libs/adapters/github/
