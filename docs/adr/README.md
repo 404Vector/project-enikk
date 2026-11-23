@@ -43,6 +43,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0034](0034-resume-inside-the-sandbox-and-failed-runs.md) | 세션 이어받기를 샌드박스 안에서 하고, 실패한 실행을 자세히 남긴다 | 승인 | 2026-11-23 |
 | [0035](0035-daily-conversation-summaries.md) | 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다 | 승인 | 2026-11-23 |
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 | 2026-11-23 |
+| [0037](0037-shared-volume-and-roles-as-skills.md) | 공유 볼륨, 역할을 스킬로 재구성, 권한 동작을 core 도구로 분리 | 제안 | 2026-11-23 |
 
 ## 상태 정의
 
