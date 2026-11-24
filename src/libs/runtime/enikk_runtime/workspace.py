@@ -13,7 +13,8 @@ Layout under the volume root::
 resets the base repository's config and hooks to known values, fetches main when the
 last fetch is old enough, writes a snapshot of it, clears stale git locks, prunes
 worktrees, deletes workspaces idle for ``idle_days`` and makes (or reuses) the
-session's worktree, moving its branch to main when its work is already there. Nothing runs in between: there is no sidecar (ADR-0037 §7).
+session's worktree, moving its branch to main when its work is already there.
+Nothing runs in between: there is no sidecar (ADR-0037 §7).
 
 Sessions may write the base repository (their commits go there), so its config and
 hooks are not trusted. Every git command here runs with the system and global config
