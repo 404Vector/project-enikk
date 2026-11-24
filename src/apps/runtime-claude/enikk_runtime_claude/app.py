@@ -74,6 +74,7 @@ class RuntimeClaudeApp:
                 scratch_dir=s.scratch_dir,
                 # The core token must stay out of the model's reach (ADR-0033).
                 sandbox=SandboxConfig(secrets=secrets),
+                mcp_gateway=s.mcp.gateway_url if s.mcp.enabled else None,
             )
             workspaces = self._workspaces(config, clock)
             pulls = (

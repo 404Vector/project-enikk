@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, JsonValue, StringConstraints
+from pydantic import Field, JsonValue, SecretStr, StringConstraints
 
 from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.common import Identifier, NonEmptyText
@@ -96,6 +96,8 @@ class EngineJob(FrozenModel):
     workspace: SessionWorkspace | None = None
     skills: tuple[SkillSummary, ...] | None = None
     """The skills the session may load; ``None`` when it gets no ``load_skill``."""
+    mcp_token: SecretStr | None = None
+    """Core's token for the definition's MCP tools (ADR-0039 §2); never shown to tools."""
 
 
 TokenCount = Annotated[int, Field(ge=0)]

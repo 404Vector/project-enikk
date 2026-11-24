@@ -44,6 +44,8 @@ from enikk_contracts.common import Engine
 from enikk_engine_claude import sandbox
 from enikk_engine_claude.audit import audit_hooks
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
+from enikk_engine_claude.mcp_gateway import ENV_TOKEN as MCP_ENV_TOKEN
+from enikk_engine_claude.mcp_gateway import gateway_tools
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
 from enikk_engine_claude.platform_tools import granted_platform_tools, platform_server
 from enikk_engine_claude.resume import PROMPT_CHANGED_HEADER, prompt_changed, with_history
@@ -97,7 +99,9 @@ task's home and ``TMPDIR``. ``/tmp`` itself is not."""
 _KNOWN_CONFIG: Final = frozenset({"effort", "description", "requires"})
 """Prompt config keys besides the model; ``description`` and ``requires`` are for skills
 (ADR-0037 §2) and do not change the run."""
-_TOKEN_NAMES: Final = frozenset({"CLAUDE_CODE_OAUTH_TOKEN", sandbox.ENV_TOKEN, sandbox.TOKEN_FD})
+_TOKEN_NAMES: Final = frozenset(
+    {"CLAUDE_CODE_OAUTH_TOKEN", sandbox.ENV_TOKEN, sandbox.TOKEN_FD, MCP_ENV_TOKEN}
+)
 
 _log = logging.getLogger(__name__)
 
@@ -137,6 +141,8 @@ class ClaudeEngineConfig(FrozenModel):
     cli: Path = Field(default_factory=_bundled_cli)
     launcher: Path = Field(default_factory=lambda: _installed() / "enikk-claude-launch")
     shell_prefix: Path = Field(default_factory=lambda: _installed() / "enikk-sandbox-shell")
+    mcp_gateway: str | None = None
+    """agentgateway's base URL; ``None`` attaches no MCP server (ADR-0039 §2)."""
 
 
 class ClaudeEngine:
@@ -291,10 +297,14 @@ class ClaudeEngine:
             pulls=self._pulls,
         )
         platform = self._platform(job) if server is not None else []
+        mcp = gateway_tools(job, self._config.mcp_gateway, reserved=PLATFORM_SERVER)
+        servers: dict[str, Any] = dict(mcp.servers)
+        if server is not None:
+            servers[PLATFORM_SERVER] = server
         return ClaudeAgentOptions(
             tools=builtin,
-            allowed_tools=[*builtin, *platform],
-            mcp_servers={} if server is None else {PLATFORM_SERVER: server},
+            allowed_tools=[*builtin, *platform, *mcp.allowed],
+            mcp_servers=servers,
             setting_sources=[],
             strict_mcp_config=True,
             permission_mode="dontAsk",
@@ -312,6 +322,7 @@ class ClaudeEngine:
             env={
                 **{k: v for k, v in self._config.tool_env.items() if k not in _TOKEN_NAMES},
                 **self._sandbox_env(home, cwd, job),
+                **mcp.env,
                 sandbox.ENV_TOKEN: self._token.get_secret_value(),
                 "ANTHROPIC_API_KEY": "",
                 "CLAUDE_CONFIG_DIR": str(home),
@@ -366,7 +377,8 @@ class ClaudeEngine:
         }
 
     def _granted(self, job: EngineJob) -> tuple[str, ...]:
-        return (*self._builtin(job), *self._platform(job))
+        mcp = gateway_tools(job, self._config.mcp_gateway, reserved=PLATFORM_SERVER)
+        return (*self._builtin(job), *self._platform(job), *mcp.allowed)
 
     def _platform(self, job: EngineJob) -> list[str]:
         return granted_platform_tools(
