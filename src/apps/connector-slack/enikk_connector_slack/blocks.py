@@ -410,7 +410,7 @@ MERGED_STAGES: Final = frozenset(
     }
 )
 """Stages after the merge. Builds and deployments are told in the deployment channel."""
-OUTCOME_TEXT: Final = {
+CLOSED_TEXT: Final = {
     PullStage.REJECTED: ":no_entry_sign: 반려됨",
     PullStage.CLOSED: ":heavy_minus_sign: 닫힘",
 }
@@ -432,7 +432,7 @@ def status_card(card: PullStatusCard, review_link: str | None) -> Message:
 def _outcome(stage: PullStage) -> str | None:
     if stage in MERGED_STAGES:
         return ":white_check_mark: 머지됨"
-    return OUTCOME_TEXT.get(stage)
+    return CLOSED_TEXT.get(stage)
 
 
 # ---------------------------------------------------------------- prompts (ADR-0032)
