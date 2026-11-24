@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn>=0.32",
     "typer>=0.15",
     "pyyaml>=6.0.2",
+    "cryptography>=44",
 ]
 
 [project.scripts]

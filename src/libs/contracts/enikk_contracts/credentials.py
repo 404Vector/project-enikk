@@ -20,9 +20,14 @@ class CredentialName(StrEnum):
     LANGFUSE_SECRET_KEY = "langfuse.secret-key"
     GITHUB_APP_PRIVATE_KEY = "github.app-private-key"
     """Used by core alone and never handed out (I-32)."""
+    MCP_TOKEN_SIGNING_KEY = "mcp.token-signing-key"
+    """EC P-256 private key (PEM) that signs the tasks' MCP tokens; core alone
+    (ADR-0039 §2)."""
 
 
-CORE_ONLY: frozenset[CredentialName] = frozenset({CredentialName.GITHUB_APP_PRIVATE_KEY})
+CORE_ONLY: frozenset[CredentialName] = frozenset(
+    {CredentialName.GITHUB_APP_PRIVATE_KEY, CredentialName.MCP_TOKEN_SIGNING_KEY}
+)
 """Credentials no role binding may grant."""
 
 

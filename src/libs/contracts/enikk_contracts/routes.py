@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Final
 
 HEALTH: Final = "/healthz"
+MCP_JWKS: Final = "/v1/mcp/jwks"
+"""Public keys of the tasks' MCP tokens; read by the gateway without a token (I-28)."""
 EVENTS: Final = "/v1/events"
 TASK_LEASE: Final = "/v1/tasks/lease"
 TASK_HEARTBEAT: Final = "/v1/tasks/{task_id}/heartbeat"

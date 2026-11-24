@@ -34,12 +34,16 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Awaitable, Callable
 
+    from pydantic import SecretStr
+
+    from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import Engine
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
+    from enikk_core.mcp_tokens import McpTokenIssuer
     from enikk_core.memory import MemoryService
     from enikk_core.settings import TaskSettings
     from enikk_core_domain.model import WorkerScope
@@ -66,6 +70,7 @@ class CoreUseCases:
         policy: TaskSettings,
         sleep: Sleep,
         memory: MemoryService | None = None,
+        mcp_tokens: McpTokenIssuer | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -74,6 +79,7 @@ class CoreUseCases:
         self._policy = policy
         self._sleep = sleep
         self._memory = memory
+        self._mcp_tokens = mcp_tokens
 
     # ------------------------------------------------------------ connector
 
@@ -244,7 +250,30 @@ class CoreUseCases:
             engine_session_id=session.engine_session_id,
             input=leased.input,
             memories=memories,
+            mcp_token=self._mcp_token(leased.id, leased.last_lease_id, session.id, definition),
         )
+
+    def _mcp_token(
+        self,
+        task_id: uuid.UUID,
+        lease_id: uuid.UUID,
+        session_id: uuid.UUID,
+        definition: AgentDefinition,
+    ) -> SecretStr | None:
+        """The task's MCP token (ADR-0039 §2). A signing failure never blocks the task."""
+        if self._mcp_tokens is None:
+            return None
+        try:
+            return self._mcp_tokens.issue(
+                task_id=task_id,
+                lease_id=lease_id,
+                session_id=session_id,
+                definition=definition,
+                now=self._clock.now(),
+            )
+        except Exception:
+            _log.exception("task %s: could not sign its MCP token", task_id)
+            return None
 
     async def _memories(self) -> tuple[MemoryNote, ...]:
         """Enikk's memory for a task (ADR-0028). A broken index never blocks work."""

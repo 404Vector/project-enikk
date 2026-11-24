@@ -19,6 +19,7 @@ from enikk_core.github import (
     load_repository_policy,
     load_sensitive_paths,
 )
+from enikk_core.mcp_tokens import McpTokenIssuer
 from enikk_core.memory import MemoryPolicy, MemoryService
 from enikk_core.prompts import PromptService, load_owner
 from enikk_core.schedules import ScheduleService
@@ -61,6 +62,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     store = DirectoryCredentialStore(settings.credentials_dir)
     catalog = YamlAgentCatalog.load(settings.agents_dir)
     memory = _memory(settings, store, clock, uow, ids, catalog)
+    mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.MCP_TOKEN_SIGNING_KEY))
     usecases = CoreUseCases(
         uow=uow,
         catalog=catalog,
@@ -69,6 +71,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         policy=settings.tasks,
         sleep=asyncio.sleep,
         memory=memory,
+        mcp_tokens=mcp_tokens,
     )
     authenticator = TokenReviewAuthenticator.in_cluster(
         TokenReviewConfig(
@@ -92,6 +95,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         deployment_interval_seconds=settings.deployments.interval_seconds,
         review_links=ReviewLinks(uow, ThreadNotes(clock, ids)),
         memory=memory,
+        mcp_tokens=mcp_tokens,
         memory_interval_seconds=settings.memory.interval_seconds,
         diagnostics=_diagnostics(settings, store, clock, uow),
         prompts=_prompts(settings, store, catalog, clock, uow, ids),

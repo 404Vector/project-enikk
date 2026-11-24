@@ -689,6 +689,7 @@ name = "enikk-core"
 version = "0.1.0"
 source = { editable = "src/apps/core" }
 dependencies = [
+    { name = "cryptography" },
     { name = "enikk-contracts" },
     { name = "enikk-core-client" },
     { name = "enikk-core-domain" },
@@ -706,6 +707,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-core-domain", editable = "src/libs/core-domain" },
