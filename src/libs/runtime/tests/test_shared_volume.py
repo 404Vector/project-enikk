@@ -12,7 +12,14 @@ from enikk_kernel.process import SubprocessRunner
 from enikk_kernel.testing import ManualClock
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
 from enikk_runtime.memory import with_memories
-from enikk_runtime.workspace import HEADER, SessionWorkspaces, WorkspaceConfig, with_workspace
+from enikk_runtime.workspace import (
+    GIT_USER_EMAIL,
+    GIT_USER_NAME,
+    HEADER,
+    SessionWorkspaces,
+    WorkspaceConfig,
+    with_workspace,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -170,6 +177,30 @@ def test_planted_config_and_hooks_are_reset(tmp_path: Path, origin: Origin) -> N
     assert "fsmonitor = false" in (repo / "config").read_text()
     assert "touch" not in (repo / "config").read_text()
     assert not (repo / "hooks").exists()
+
+
+def test_a_worktree_can_commit_without_a_global_identity(
+    tmp_path: Path, origin: Origin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin.commit("a.txt", "a\n")
+    worktree = _workspaces(tmp_path, origin, _clock()).prepare(SESSION).worktree_dir
+    assert worktree is not None
+    config = (tmp_path / "data" / "repo.git" / "config").read_text()
+    assert f"name = {GIT_USER_NAME}" in config
+    assert f"email = {GIT_USER_EMAIL}" in config
+
+    for name in ("AUTHOR", "COMMITTER"):
+        for part in ("NAME", "EMAIL"):
+            monkeypatch.delenv(f"GIT_{name}_{part}", raising=False)
+    monkeypatch.delenv("EMAIL", raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    (worktree / "b.txt").write_text("b\n")
+    run = SubprocessRunner()
+    run.run(["git", "-C", str(worktree), "add", "b.txt"])
+    run.run(["git", "-C", str(worktree), "commit", "--quiet", "-m", "add b"])
+    author = run.run(["git", "-C", str(worktree), "log", "-1", "--format=%an <%ae>"])
+    assert author.stdout.strip() == f"{GIT_USER_NAME} <{GIT_USER_EMAIL}>"
 
 
 def test_gc_is_off(tmp_path: Path, origin: Origin) -> None:

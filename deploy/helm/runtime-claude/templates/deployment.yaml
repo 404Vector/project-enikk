@@ -55,6 +55,8 @@ spec:
               value: /work
             - name: ENIKK_RUNTIME_SCRATCH_DIR
               value: /tmp/enikk
+            - name: ENIKK_RUNTIME_WORKER__SLOTS
+              value: {{ .Values.worker.slots | quote }}
             - name: ENIKK_RUNTIME_PULLS__ENABLED
               value: {{ .Values.pulls.enabled | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
@@ -109,7 +111,8 @@ spec:
             sizeLimit: {{ .Values.scratch.sizeLimit }}
         - name: work
           emptyDir:
-            sizeLimit: 64Mi
+            # One directory per running task (ADR-0037 3a).
+            sizeLimit: 128Mi
         {{- if .Values.workspace.enabled }}
         - name: data
           persistentVolumeClaim:

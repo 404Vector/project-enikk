@@ -234,6 +234,62 @@ async def test_run_forever_backs_off_while_core_is_down_and_stops() -> None:
     assert pauses == [1.0, 2.0, 4.0]
 
 
+async def test_two_slots_run_two_tasks_at_the_same_time() -> None:
+    core = FakeCore(ManualClock())
+    first, second = core.assign(text="one"), core.assign(text="two")
+    running: set[uuid.UUID] = set()
+    both = asyncio.Event()
+    worker: TaskWorker
+
+    async def respond(job: EngineJob) -> EngineResult:
+        running.add(job.task_id)
+        if len(running) == 2:
+            both.set()
+            worker.stop()
+        await asyncio.wait_for(both.wait(), timeout=5)
+        return EngineResult(text=f"done: {job.input}", engine_session_id=None)
+
+    worker = _worker(core, ScriptedEngine(respond), policy=WorkerPolicy(slots=2))
+    await asyncio.wait_for(worker.run_forever(), timeout=5)
+
+    assert running == {first.task_id, second.task_id}
+    assert {task_id for task_id, _ in core.reports} == {first.task_id, second.task_id}
+    assert all(isinstance(r.outcome, Succeeded) for _, r in core.reports)
+
+
+async def test_stop_lets_every_slot_finish_its_task_and_lease_no_more() -> None:
+    core = FakeCore(ManualClock())
+    running = [core.assign(text="one"), core.assign(text="two")]
+    waiting = core.assign(text="three")
+    started = 0
+    release = asyncio.Event()
+
+    async def respond(job: EngineJob) -> EngineResult:
+        nonlocal started
+        started += 1
+        await release.wait()
+        return EngineResult(text=f"done: {job.input}", engine_session_id=None)
+
+    worker = _worker(core, ScriptedEngine(respond), policy=WorkerPolicy(slots=2))
+    loop = asyncio.create_task(worker.run_forever())
+    while started < 2:
+        await asyncio.sleep(0.001)
+    worker.stop()
+    release.set()
+    await asyncio.wait_for(loop, timeout=5)
+
+    assert {task_id for task_id, _ in core.reports} == {t.task_id for t in running}
+    assert core.queue == [waiting]
+
+
+def test_slots_are_between_one_and_four() -> None:
+    assert WorkerPolicy().slots == 1
+    with pytest.raises(ValueError, match="slots"):
+        WorkerPolicy(slots=0)
+    with pytest.raises(ValueError, match="slots"):
+        WorkerPolicy(slots=5)
+
+
 async def test_observer_records_success_and_failure() -> None:
     core = FakeCore(ManualClock())
     first = core.assign(text="one")

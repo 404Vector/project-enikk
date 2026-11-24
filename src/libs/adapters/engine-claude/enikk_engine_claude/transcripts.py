@@ -57,10 +57,19 @@ class CoreSessionStore:
     optional methods at runtime and treats missing ones as absent.
     """
 
-    def __init__(self, api: TranscriptApi, task_id: uuid.UUID, lease_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        api: TranscriptApi,
+        task_id: uuid.UUID,
+        lease_id: uuid.UUID,
+        *,
+        project_key: str | None = None,
+    ) -> None:
         self._api = api
         self._task_id = task_id
         self._lease_id = lease_id
+        self._project_key = project_key
+        """When set, replaces the ``project_key`` of every key the SDK passes in."""
 
     def as_sdk_store(self) -> SessionStore:
         """The SDK's Protocol also declares the optional methods, so it needs a cast."""
@@ -70,7 +79,7 @@ class CoreSessionStore:
         if not entries:
             return
         validated = _ENTRIES.validate_python(entries)
-        transcript = _transcript_key(key)
+        transcript = self._key(key)
         for start in range(0, len(validated), MAX_ENTRIES_PER_APPEND):
             await self._api.append_transcript(
                 self._task_id,
@@ -83,7 +92,7 @@ class CoreSessionStore:
 
     async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None:
         loaded = await self._api.load_transcript(
-            self._task_id, TranscriptQuery(lease_id=self._lease_id, key=_transcript_key(key))
+            self._task_id, TranscriptQuery(lease_id=self._lease_id, key=self._key(key))
         )
         if not loaded.entries:
             return None
@@ -95,11 +104,17 @@ class CoreSessionStore:
             self._task_id,
             SubpathQuery(
                 lease_id=self._lease_id,
-                project_key=key["project_key"],
+                project_key=self._project_key or key["project_key"],
                 engine_session_id=key["session_id"],
             ),
         )
         return list(found.subpaths)
+
+    def _key(self, key: SessionKey) -> TranscriptKey:
+        transcript = _transcript_key(key)
+        if self._project_key is None:
+            return transcript
+        return transcript.model_copy(update={"project_key": self._project_key})
 
 
 def _transcript_key(key: SessionKey) -> TranscriptKey:

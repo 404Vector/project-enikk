@@ -72,6 +72,12 @@ def test_defaults_point_at_the_cluster_and_the_japan_region() -> None:
     assert settings.core_url == "http://enikk-core.enikk.svc"
     assert settings.langfuse_url == "https://jp.cloud.langfuse.com"
     assert settings.worker.to_policy().wait_seconds == 20
+    assert settings.worker.to_policy().slots == 1
+
+
+def test_the_chart_sets_the_number_of_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENIKK_RUNTIME_WORKER__SLOTS", "2")
+    assert RuntimeClaudeSettings().worker.to_policy().slots == 2
 
 
 def test_the_shared_volume_is_off_unless_the_chart_turns_it_on() -> None:
