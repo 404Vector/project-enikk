@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack, dev-agent]
+        app: [core, runtime-claude, connector-slack]
         platform:
           - { arch: amd64, runner: ubuntu-latest }
           - { arch: arm64, runner: ubuntu-24.04-arm }
@@ -63,8 +63,7 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          # dev-agent adds git, gh and uv to the shared Python image (ADR-0021).
-          file: deploy/docker/${{ matrix.app == 'dev-agent' && 'dev-agent' || 'python-app' }}.Dockerfile
+          file: deploy/docker/python-app.Dockerfile
           build-args: PACKAGE=enikk-${{ matrix.app }}
           platforms: linux/${{ matrix.platform.arch }}
           push: false
@@ -81,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack, dev-agent]
+        app: [core, runtime-claude, connector-slack]
         platform:
           - { arch: amd64, runner: ubuntu-latest }
           - { arch: arm64, runner: ubuntu-24.04-arm }
@@ -104,8 +103,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          # dev-agent adds git, gh and uv to the shared Python image (ADR-0021).
-          file: deploy/docker/${{ matrix.app == 'dev-agent' && 'dev-agent' || 'python-app' }}.Dockerfile
+          file: deploy/docker/python-app.Dockerfile
           build-args: PACKAGE=enikk-${{ matrix.app }}
           platforms: linux/${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
@@ -140,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack, dev-agent]
+        app: [core, runtime-claude, connector-slack]
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
     steps:
