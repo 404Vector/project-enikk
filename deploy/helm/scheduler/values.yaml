@@ -1,0 +1,18 @@
+# Off switch (ADR-0039 "되돌리기"): false runs no replicas.
+enabled: true
+
+image:
+  repository: ghcr.io/404vector/enikk-scheduler
+  # Set by Argo CD Image Updater. While empty, the Deployment runs no replicas.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Schedules live in core's database; the scheduler reads them through core (ADR-0039 §1).
+coreUrl: http://enikk-core.enikk.svc
+
+# Lifetime of the audience=enikk-core projected token. kubelet rotates it.
+coreTokenSeconds: 3600
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { memory: 256Mi }

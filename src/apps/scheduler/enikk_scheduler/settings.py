@@ -15,6 +15,10 @@ class SchedulerSettings(ServiceSettings, env_prefix="ENIKK_SCHEDULER_"):
     token_file: Path = PROJECTED_TOKEN_FILE
     host: str = "0.0.0.0"  # noqa: S104 - reached only through its Service in the cluster.
     port: int = Field(default=8080, ge=1, le=65535)
-    allowed_hosts: tuple[str, ...] = ("enikk-scheduler", "enikk-scheduler.enikk.svc")
+    allowed_hosts: tuple[str, ...] = (
+        "enikk-scheduler",
+        "enikk-scheduler.enikk.svc",
+        "enikk-scheduler.enikk.svc.cluster.local",
+    )
     """Host header values the MCP endpoint accepts, with any port."""
     verbose: bool = False

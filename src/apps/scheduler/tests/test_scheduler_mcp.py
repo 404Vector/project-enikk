@@ -95,6 +95,11 @@ def test_health(client: TestClient) -> None:
     assert client.get(HEALTH_PATH).json() == {"status": "ok"}
 
 
+def test_health_answers_the_kubelet_on_the_pod_address(client: TestClient) -> None:
+    response = client.get(HEALTH_PATH, headers={"host": "10.1.2.3:8080"})
+    assert response.status_code == 200
+
+
 def test_lists_only_the_read_tools(client: TestClient) -> None:
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
     response = client.post(MCP_PATH, json=body, headers=MCP_HEADERS)
