@@ -22,6 +22,16 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.anyio
 
+SETTINGS_PREFIX = "ENIKK_RUNTIME_"
+
+
+@pytest.fixture(autouse=True)
+def _without_service_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Removes the runtime's own settings from the environment for every test."""
+    for name in list(os.environ):
+        if name.startswith(SETTINGS_PREFIX):
+            monkeypatch.delenv(name)
+
 
 def _responses() -> Iterator[httpx.Response]:
     yield httpx.Response(503, text="starting")
