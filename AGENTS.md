@@ -1,6 +1,6 @@
 # AGENTS.md
 
-코딩 에이전트(에닉의 developer 역할, Claude Code 등)를 위한 작업 지침. 설계 결정·원칙·불변식은 이 파일에 적지 않는다. 모두 `docs/` 에 있다.
+코딩 에이전트(에닉의 스레드 세션, Claude Code 등)를 위한 작업 지침. 설계 결정·원칙·불변식은 이 파일에 적지 않는다. 모두 `docs/` 에 있다.
 
 ## 작업 전에 읽을 것
 
@@ -32,7 +32,7 @@ uv run lint-imports              # 계층 의존성 규칙
 uv run pytest                    # 영속성 통합 테스트는 Postgres 를 띄운다
 ```
 
-- 영속성 통합 테스트는 PC·CI 에서는 Docker 로, 개발 Pod 에서는 이미지에 든 Postgres 로 임시 서버를 띄운다. 어디서든 오류와 실패가 0 이어야 한다. 자세한 방법은 `docs/development/testing.md`.
+- 영속성 통합 테스트는 PC·CI 에서 Docker 로 임시 서버를 띄운다. 에닉 세션(runtime)에서는 돌리지 않고 CI 에 맡긴다. 어디서든 오류와 실패가 0 이어야 한다. 자세한 방법은 `docs/development/testing.md`.
 
 ## 코드 규칙
 

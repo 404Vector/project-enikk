@@ -13,7 +13,7 @@
 | 순서 | 조건 | 동작 | 쓰는 곳 |
 |---|---|---|---|
 | 1 | `ENIKK_TEST_POSTGRES_DSN` 이 있다 | 그 서버에 붙는다. 호스트가 `localhost`·`127.0.0.1`·`::1`·Unix 소켓이 아니면 접속 전에 오류 | 직접 띄운 일회용 Postgres |
-| 2 | `ENIKK_TEST_POSTGRES_BIN` 이 있다 | 그 디렉터리의 `initdb`·`pg_ctl` 로 임시 서버를 띄운다(Unix 소켓만, `trust` 인증). 끝나면 지운다 | 개발 Pod (이미지가 설정) |
+| 2 | `ENIKK_TEST_POSTGRES_BIN` 이 있다 | 그 디렉터리의 `initdb`·`pg_ctl` 로 임시 서버를 띄운다(Unix 소켓만, `trust` 인증). 끝나면 지운다 | 직접 설치한 Postgres (개발 Pod 는 ADR-0037 4e 에서 없앰) |
 | 3 | 둘 다 없다 | testcontainers 로 `postgres:18-alpine` 컨테이너를 띄운다 | PC(Docker Desktop), CI |
 
 - 어느 경우든 세션마다 `enikk_test_<임의값>` 데이터베이스를 새로 만들어 마이그레이션하고, 끝나면 지운다. 테스트마다 테이블을 비운다.
@@ -35,11 +35,6 @@ ENIKK_TEST_POSTGRES_BIN=/usr/lib/postgresql/18/bin uv run pytest
 ```bash
 ENIKK_TEST_POSTGRES_DSN=postgresql://enikk@127.0.0.1:5432/postgres uv run pytest
 ```
-
-### 개발 Pod 에서 (에닉의 개발 역할)
-
-개발 이미지(`deploy/docker/dev-agent.Dockerfile`)에 Postgres 18 서버가 들어 있고 `ENIKK_TEST_POSTGRES_BIN` 이 설정돼 있다.
-개발 역할은 PC 와 같은 명령(`uv run pytest`)만 실행하면 된다. Docker 는 필요 없다.
 
 ### 에닉 세션에서 (runtime, 스레드 worktree)
 
@@ -69,5 +64,5 @@ uv run pytest --ignore=src/libs/adapters/persistence-sql/tests
 `src/libs/adapters/engine-claude/tests/test_sandbox.py` 는 역할의 기본 도구를 가두는 Landlock 샌드박스(ADR-0033)를 실제 커널과 실제 Claude Code CLI(SDK 에 들어 있는 것)로 확인한다.
 CLI 는 테스트가 localhost 에 띄운 가짜 Anthropic API 와 통신하므로 자격증명이 필요 없고 외부로 나가지 않는다.
 같은 방법으로 앞 작업의 세션을 샌드박스 안에서 이어받는지, 검색 요청이 거부된 WebSearch 가 작업 실패가 아니라 도구 오류로 끝나는지도 확인한다(ADR-0034).
-Landlock 이 없는 커널에서는 이 테스트들이 그 이유와 함께 건너뛰어진다. Docker Desktop(WSL2)과 개발 Pod, GitHub 호스팅 runner 의 커널에는 Landlock 이 있다(GitHub runner 는 CI 결과로 확인한다).
+Landlock 이 없는 커널에서는 이 테스트들이 그 이유와 함께 건너뛰어진다. Docker Desktop(WSL2)과 GitHub 호스팅 runner 의 커널에는 Landlock 이 있다(GitHub runner 는 CI 결과로 확인한다).
 macOS 호스트에는 Landlock 이 없으므로 Mac 에서 `uv run pytest` 를 돌리면 이 테스트들은 건너뛰어진다. Docker Desktop for Mac 의 VM 커널은 WSL2 커널과 다르므로, 클러스터를 Mac 으로 옮길 때는 `docker run --rm alpine cat /sys/kernel/security/lsm` 에 `landlock` 이 있는지 따로 확인한다(ADR-0038).

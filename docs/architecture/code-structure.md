@@ -36,7 +36,6 @@ src/
 │  ├─ connector-slack/ enikk_connector_slack Slack Socket Mode 커넥터
 │  ├─ runtime-claude/  enikk_runtime_claude 런타임 프레임워크 + Claude 엔진 조립
 │  ├─ runtime-gemini/  enikk_runtime_gemini 런타임 프레임워크 + Gemini 엔진 조립
-│  ├─ dev-agent/       enikk_dev_agent      격리 개발 역할(developer): 작업 하나 → PR (Job, ADR-0021)
 │  ├─ ops-cli/         enikk_ops            부트스트랩, 로컬 개발 도구
 │  └─ mcp-<name>/      enikk_mcp_<name>     자체 MCP 서버 (필요해질 때 추가)
 │
@@ -102,7 +101,7 @@ src/
 - **core 도메인을 라이브러리로 둔 이유**: 영속성 어댑터(`persistence-sql`)가 레포지토리 포트를 구현하려면 포트를 import 해야 한다. 라이브러리는 앱을 import 할 수 없으므로 포트와 도메인은 앱 밖(`core-domain`)에 있어야 한다. 유스케이스와 API 는 core 앱 안에 둔다.
 - **contracts 는 공유 커널**: core 와 커넥터·런타임이 함께 쓰는 유일한 타입 집합이다. 바뀌면 양쪽이 영향을 받으므로 변경은 하위 호환을 원칙으로 한다.
 - **엔진별 런타임 앱이 얇은 이유**: 작업 처리 흐름은 `runtime` 프레임워크가 공통으로 갖고, 앱은 엔진 어댑터를 끼워 넣기만 한다. 새 엔진 = `adapters/engine-<x>` + `apps/runtime-<x>`.
-- **개발 역할(developer)**: 별도 앱을 만들지 않고 `runtime-claude` 를 다른 배포 프로필(전용 이미지에 git·uv 등 도구 포함, 전용 ServiceAccount, 격리 Pod)로 실행한다. 차이는 역할 정의(ADR-0005)의 허용 도구와 배포 설정뿐이다.
+- **개발 작업**: 별도 앱이나 역할 없이 `runtime-claude` 의 스레드 세션이 `skill-developer` 를 불러 스레드 worktree 에서 한다. push·PR 은 core 가 한다(ADR-0037). 격리 개발 역할(dev-agent 앱, ADR-0021)은 ADR-0037 4e 에서 없앴다.
 - **Slack 전용 라이브러리를 두지 않은 이유**: Slack 을 쓰는 곳이 커넥터 하나뿐이다. 두 번째 사용처가 생기면 그때 분리한다.
 
 ## 6. 기존 작성분 처리
