@@ -13,7 +13,6 @@ tools:
   builtin:
     [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
      WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
-delegates: []
 limits:
   max_turns: 100
   timeout_seconds: 3600

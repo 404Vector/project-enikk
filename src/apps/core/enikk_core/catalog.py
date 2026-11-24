@@ -37,11 +37,6 @@ class YamlAgentCatalog:
                 problems.append(f"{path.name}: name '{definition.name}' must match the file name")
             definitions.append(definition)
 
-        names = {d.name for d in definitions}
-        for definition in definitions:
-            missing = sorted(set(definition.delegates) - names)
-            if missing:
-                problems.append(f"{definition.name}: unknown delegates {missing}")
         if problems:
             raise ConfigurationError("invalid agent definitions:\n" + "\n".join(problems))
         return cls(tuple(definitions))

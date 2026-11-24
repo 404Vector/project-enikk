@@ -48,14 +48,14 @@ def test_prompt_ref_requires_exactly_one_selector(prompt: str) -> None:
         PromptRef.model_validate_json(prompt)
 
 
-def test_agent_definition_rejects_unknown_fields_and_self_delegation() -> None:
+def test_agent_definition_rejects_unknown_fields() -> None:
     base = (
         '"name": "a", "description": "d", "engine": "gemini", "prompt": {"name": "a", "version": 1}'
     )
     with pytest.raises(ValidationError):
         AgentDefinition.model_validate_json("{" + base + ', "engine_options": {}}')
-    with pytest.raises(ValidationError, match="itself"):
-        AgentDefinition.model_validate_json("{" + base + ', "delegates": ["a"]}')
+    with pytest.raises(ValidationError):
+        AgentDefinition.model_validate_json("{" + base + ', "delegates": []}')
 
 
 def test_agent_name_pattern() -> None:

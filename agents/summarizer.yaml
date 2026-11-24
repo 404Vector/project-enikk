@@ -12,7 +12,6 @@ tools:
   builtin: []
   platform: []
   platform_defaults: false
-delegates: []
 limits:
   max_turns: 2
   timeout_seconds: 600

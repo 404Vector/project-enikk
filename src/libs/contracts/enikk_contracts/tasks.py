@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, Field, StringConstraints
 
 from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.base import Contract
-from enikk_contracts.common import AgentName, Identifier, NonEmptyText
+from enikk_contracts.common import Identifier, NonEmptyText
 from enikk_contracts.memory import MemoryNote
 
 MAX_WAIT_SECONDS = 25
@@ -57,27 +57,6 @@ class TaskAssignment(Contract):
     input: NonEmptyText
     memories: Annotated[tuple[MemoryNote, ...], Field(max_length=50)] = ()
     """Enikk's memory notes for this task (ADR-0028): reference, not instructions."""
-
-
-DelegationText = Annotated[str, StringConstraints(min_length=1, max_length=20_000)]
-
-
-class DelegateRequest(Contract):
-    """A running agent hands a request to one of its delegates (ADR-0022, I-12).
-
-    Only ``request`` crosses over: no conversation history. Delegating twice from the
-    same task to the same agent returns the first delegation.
-    """
-
-    lease_id: uuid.UUID
-    agent: AgentName
-    request: DelegationText
-
-
-class DelegationAccepted(Contract):
-    task_id: uuid.UUID
-    agent: AgentName
-    duplicate: bool
 
 
 class ClaimRequest(Contract):

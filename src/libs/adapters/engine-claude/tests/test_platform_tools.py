@@ -17,15 +17,12 @@ from enikk_contracts.prompts import (
     PromptRead,
     PromptReadRequest,
 )
-from enikk_contracts.tasks import DelegateRequest, DelegationAccepted
-from enikk_core_client.errors import CoreConflictError, CoreUnavailableError
+from enikk_core_client.errors import CoreConflictError
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.platform_tools import (
-    DELEGATE_TOOL,
     PROPOSE_PROMPT_TOOL,
     READ_PROMPT_TOOL,
     SUMMARIZE_DAY_TOOL,
-    delegate_tool,
     granted_platform_tools,
     platform_server,
     propose_prompt_tool,
@@ -46,21 +43,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.anyio
 
 
-class _Delegator:
-    def __init__(self, error: Exception | None = None) -> None:
-        self.calls: list[tuple[uuid.UUID, DelegateRequest]] = []
-        self._error = error
-
-    async def delegate_task(
-        self, task_id: uuid.UUID, request: DelegateRequest
-    ) -> DelegationAccepted:
-        self.calls.append((task_id, request))
-        if self._error is not None:
-            raise self._error
-        return DelegationAccepted(task_id=uuid.uuid4(), agent=request.agent, duplicate=False)
-
-
-def _job(delegates: tuple[str, ...] = ("developer",)) -> EngineJob:
+def _job() -> EngineJob:
     base = definition()
     return EngineJob(
         task_id=uuid.uuid4(),
@@ -68,47 +51,10 @@ def _job(delegates: tuple[str, ...] = ("developer",)) -> EngineJob:
         attempt=1,
         session_id=uuid.uuid4(),
         engine_session_id=None,
-        definition=base.model_copy(update={"delegates": delegates}),
+        definition=base,
         prompt=ResolvedPrompt(name="assistant", version=1, text="hi", model="claude-test-1"),
         input="please change the README",
     )
-
-
-async def test_delegate_sends_only_the_request_under_the_lease() -> None:
-    job = _job()
-    delegator = _Delegator()
-    result = await delegate_tool(job, delegator).handler(
-        {"agent": "developer", "request": "Add a line to the README"}
-    )
-    assert not result["is_error"]
-    assert "Accepted by developer" in result["content"][0]["text"]
-    [(task_id, request)] = delegator.calls
-    assert task_id == job.task_id
-    assert request == DelegateRequest(
-        lease_id=job.lease_id, agent="developer", request="Add a line to the README"
-    )
-
-
-@pytest.mark.parametrize(
-    ("error", "message"),
-    [
-        (CoreConflictError("daily limit reached", status=409), "refused: daily limit"),
-        (CoreUnavailableError("down"), "unreachable"),
-    ],
-)
-async def test_refusals_are_reported_to_the_model(error: Exception, message: str) -> None:
-    result = await delegate_tool(_job(), _Delegator(error)).handler(
-        {"agent": "developer", "request": "x"}
-    )
-    assert result["is_error"]
-    assert message in result["content"][0]["text"]
-
-
-async def test_empty_request_is_rejected_before_core() -> None:
-    delegator = _Delegator()
-    result = await delegate_tool(_job(), delegator).handler({"agent": "developer", "request": ""})
-    assert result["is_error"]
-    assert delegator.calls == []
 
 
 class _Script:
@@ -131,12 +77,11 @@ class _Script:
         )
 
 
-def _engine(script: _Script, tmp_path: Path, delegator: _Delegator | None) -> ClaudeEngine:
+def _engine(script: _Script, tmp_path: Path) -> ClaudeEngine:
     return ClaudeEngine(
         config=ClaudeEngineConfig(workdir=tmp_path / "w", scratch_dir=tmp_path / "s"),
         oauth_token=SecretStr("sk-ant-oat-test"),
         transcripts=cast("TranscriptApi", _NoTranscripts()),
-        delegator=delegator,
         query_fn=script,
     )
 
@@ -152,28 +97,12 @@ class _NoTranscripts:
         raise AssertionError("not used")
 
 
-async def test_agents_with_delegates_get_only_the_delegate_tool(tmp_path: Path) -> None:
-    script = _Script([DELEGATE_TOOL])
-    await _engine(script, tmp_path, _Delegator()).run(_job())
-    assert script.options is not None
-    assert script.options.tools == []
-    assert script.options.allowed_tools == [DELEGATE_TOOL]
-    assert isinstance(script.options.mcp_servers, dict)
-    assert list(script.options.mcp_servers) == ["enikk"]
-
-
-async def test_agents_without_delegates_get_no_platform_tools(tmp_path: Path) -> None:
+async def test_an_engine_without_core_services_gives_no_platform_tools(tmp_path: Path) -> None:
     script = _Script([])
-    await _engine(script, tmp_path, _Delegator()).run(_job(delegates=()))
+    await _engine(script, tmp_path).run(_job())
     assert script.options is not None
     assert script.options.allowed_tools == []
     assert script.options.mcp_servers == {}
-
-
-async def test_the_delegate_tool_is_refused_without_a_delegator(tmp_path: Path) -> None:
-    script = _Script([DELEGATE_TOOL])
-    with pytest.raises(Exception, match="delegate"):
-        await _engine(script, tmp_path, None).run(_job())
 
 
 # ---------------------------------------------------------------- propose_prompt (ADR-0032)
@@ -298,8 +227,8 @@ class _Digests:
         return DigestAccepted(day=request.day, status=DigestStatus.RUNNING, detail="시작")
 
 
-def _with_tools(tools: ToolPolicy, delegates: tuple[str, ...] = ()) -> EngineJob:
-    job = _job(delegates)
+def _with_tools(tools: ToolPolicy) -> EngineJob:
+    job = _job()
     return job.model_copy(update={"definition": job.definition.model_copy(update={"tools": tools})})
 
 
@@ -307,7 +236,7 @@ def test_a_role_without_platform_defaults_gets_no_platform_tools() -> None:
     bare = _with_tools(ToolPolicy(platform_defaults=False))
     every = {"memory": True, "diagnostics": True, "prompts": True, "digests": True}
     assert granted_platform_tools(bare, **every) == []
-    assert platform_server(bare, _Delegator(), memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
+    assert platform_server(bare, memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
     usual = _with_tools(ToolPolicy())
     assert len(granted_platform_tools(usual, **every)) > 0
     assert SUMMARIZE_DAY_TOOL not in granted_platform_tools(usual, **every)

@@ -16,7 +16,6 @@ name: {name}
 description: test agent
 engine: claude
 prompt: {{name: {name}, label: production}}
-delegates: {delegates}
 """
 
 
@@ -74,18 +73,20 @@ def test_the_summarizer_has_no_tools() -> None:
         tools = definition.tools
         assert (tools.builtin, tools.mcp, tools.platform) == ((), (), ()), name
         assert tools.platform_defaults is False, name
-        assert definition.delegates == (), name
 
 
 def test_catalog_reports_every_problem(tmp_path: Path) -> None:
-    (tmp_path / "good.yaml").write_text(VALID.format(name="good", delegates="[ghost]"))
-    (tmp_path / "renamed.yaml").write_text(VALID.format(name="other", delegates="[]"))
+    (tmp_path / "good.yaml").write_text(VALID.format(name="good"))
+    (tmp_path / "delegating.yaml").write_text(
+        VALID.format(name="delegating") + "delegates: [good]\n"
+    )
+    (tmp_path / "renamed.yaml").write_text(VALID.format(name="other"))
     (tmp_path / "broken.yaml").write_text("name: broken\nengine: [")
-    (tmp_path / "extra.yaml").write_text(VALID.format(name="extra", delegates="[]") + "x: 1\n")
+    (tmp_path / "extra.yaml").write_text(VALID.format(name="extra") + "x: 1\n")
     with pytest.raises(ConfigurationError) as caught:
         YamlAgentCatalog.load(tmp_path)
     message = str(caught.value)
-    for fragment in ("ghost", "must match the file name", "broken.yaml", "extra.yaml"):
+    for fragment in ("delegating.yaml", "must match the file name", "broken.yaml", "extra.yaml"):
         assert fragment in message
 
 

@@ -61,7 +61,6 @@ if TYPE_CHECKING:
     from enikk_engine_claude.transcripts import TranscriptApi
     from enikk_runtime.model import EngineJob
     from enikk_runtime.ports import (
-        Delegator,
         Diagnostician,
         DigestRequester,
         MemoryKeeper,
@@ -147,7 +146,6 @@ class ClaudeEngine:
         config: ClaudeEngineConfig,
         oauth_token: SecretStr,
         transcripts: TranscriptApi,
-        delegator: Delegator | None = None,
         memory: MemoryKeeper | None = None,
         diagnostics: Diagnostician | None = None,
         prompts: PromptProposer | None = None,
@@ -160,7 +158,6 @@ class ClaudeEngine:
         self._config = config
         self._token = oauth_token
         self._transcripts = transcripts
-        self._delegator = delegator
         self._memory = memory
         self._diagnostics = diagnostics
         self._prompts = prompts
@@ -285,7 +282,6 @@ class ClaudeEngine:
         builtin = self._builtin(job)
         server = platform_server(
             job,
-            self._delegator,
             self._memory,
             self._diagnostics,
             self._prompts,
@@ -375,7 +371,6 @@ class ClaudeEngine:
     def _platform(self, job: EngineJob) -> list[str]:
         return granted_platform_tools(
             job,
-            delegator=self._delegator is not None,
             memory=self._memory is not None,
             diagnostics=self._diagnostics is not None,
             prompts=self._prompts is not None,

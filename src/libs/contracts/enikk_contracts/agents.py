@@ -111,14 +111,7 @@ class AgentDefinition(Contract):
     execution: Execution = Execution.SHARED
     prompt: PromptRef
     tools: ToolPolicy = ToolPolicy()
-    delegates: tuple[AgentName, ...] = ()
     limits: Limits = Limits()
-
-    @model_validator(mode="after")
-    def _no_self_delegation(self) -> Self:
-        if self.name in self.delegates:
-            raise ValueError("an agent cannot delegate to itself")
-        return self
 
     @model_validator(mode="after")
     def _known_builtin_tools(self) -> Self:

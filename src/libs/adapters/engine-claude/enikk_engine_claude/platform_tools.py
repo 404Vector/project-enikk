@@ -1,7 +1,7 @@
 """Platform tools served in-process to the Claude CLI (ADR-0022).
 
 They call core only, never an external MCP server, so they do not go through
-agentgateway (I-05): ``delegate`` (ADR-0022), enikk's memory, ``remember``,
+agentgateway (I-05): enikk's memory, ``remember``,
 ``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028), diagnostics (ADR-0029)
 ``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032) and
 ``summarize_day`` for roles granted ``conversation-digest`` (ADR-0035). A role with
@@ -41,7 +41,7 @@ from enikk_contracts.prompts import (
     PromptReadRequest,
 )
 from enikk_contracts.skills import Capability
-from enikk_contracts.tasks import DelegateRequest, TaskStatus
+from enikk_contracts.tasks import TaskStatus
 from enikk_core_client.errors import CoreApiError, CoreUnavailableError
 from enikk_runtime.errors import PromptInvalidError, PromptUnavailableError
 from enikk_runtime.model import SkillUse
@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from enikk_contracts.memory import MemoryWritten
     from enikk_runtime.model import EngineJob
     from enikk_runtime.ports import (
-        Delegator,
         Diagnostician,
         DigestRequester,
         MemoryKeeper,
@@ -65,7 +64,6 @@ if TYPE_CHECKING:
     from enikk_runtime.pulls import SessionPulls
 
 SERVER: Final = "enikk"
-DELEGATE_TOOL: Final = f"mcp__{SERVER}__delegate"
 _REMEMBERABLE: Final[dict[str, Literal[NoteKind.PREFERENCE, NoteKind.FACT, NoteKind.WORK]]] = {
     "preference": NoteKind.PREFERENCE,
     "fact": NoteKind.FACT,
@@ -82,15 +80,6 @@ LOAD_SKILL_TOOL: Final = f"mcp__{SERVER}__load_skill"
 SUBMIT_PULL_TOOL: Final = f"mcp__{SERVER}__submit_pull_request"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
-)
-
-DELEGATE_DESCRIPTION: Final = (
-    "Hand a change to the enikk platform itself - its code, configuration, agent "
-    "definitions or documentation - to another agent. The developer agent works in an "
-    "isolated workspace and opens a pull request; the owner approves it in Slack and "
-    "nothing changes before that. Write a complete, self-contained request: the other "
-    "agent does not see this conversation. Returns at once; its result is posted to "
-    "this thread later. Call it at most once per message."
 )
 
 _log = logging.getLogger(__name__)
@@ -166,7 +155,6 @@ def _has_skills(job: EngineJob) -> bool:
 def granted_platform_tools(
     job: EngineJob,
     *,
-    delegator: bool = True,
     memory: bool = False,
     diagnostics: bool = False,
     prompts: bool = False,
@@ -174,9 +162,7 @@ def granted_platform_tools(
     skills: bool = False,
     pulls: bool = False,
 ) -> list[str]:
-    granted = [DELEGATE_TOOL] if delegator and job.definition.delegates else []
     return [
-        *granted,
         *(MEMORY_TOOLS if memory and _defaults(job) else ()),
         *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
@@ -188,7 +174,6 @@ def granted_platform_tools(
 
 def platform_server(
     job: EngineJob,
-    delegator: Delegator | None,
     memory: MemoryKeeper | None = None,
     diagnostics: Diagnostician | None = None,
     prompts: PromptProposer | None = None,
@@ -198,8 +183,6 @@ def platform_server(
     pulls: SessionPulls | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
-    if delegator is not None and job.definition.delegates:
-        tools.append(delegate_tool(job, delegator))
     if memory is not None and _defaults(job):
         tools.extend(memory_tools(job, memory))
     if diagnostics is not None and _defaults(job):
@@ -669,46 +652,6 @@ async def _written(call: Awaitable[MemoryWritten]) -> dict[str, Any]:
     except CoreApiError as exc:
         return _result(f"Refused: {exc}", True)
     return _result(f"Done ({written.action}): {written.path}", False)
-
-
-def delegate_tool(job: EngineJob, delegator: Delegator) -> SdkMcpTool[Any]:
-    agents = list(job.definition.delegates)
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "agent": {"type": "string", "enum": agents, "description": "Who should do it."},
-            "request": {
-                "type": "string",
-                "description": "What to change and why, with every detail the agent needs.",
-            },
-        },
-        "required": ["agent", "request"],
-    }
-
-    @tool("delegate", DELEGATE_DESCRIPTION, schema)
-    async def delegate(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            request = DelegateRequest(
-                lease_id=job.lease_id,
-                agent=str(args.get("agent", "")),
-                request=str(args.get("request", "")),
-            )
-        except ValidationError:
-            return _result("The request was empty or too long (20000 characters at most).", True)
-        try:
-            accepted = await delegator.delegate_task(job.task_id, request)
-        except CoreUnavailableError:
-            return _result("The platform is unreachable right now; tell the owner.", True)
-        except CoreApiError as exc:
-            return _result(f"The delegation was refused: {exc}", True)
-        _log.info("task %s delegated to %s as %s", job.task_id, accepted.agent, accepted.task_id)
-        note = " (already delegated earlier in this message)" if accepted.duplicate else ""
-        return _result(
-            f"Accepted by {accepted.agent}{note}. Its result will be posted to this thread.",
-            False,
-        )
-
-    return delegate
 
 
 def _result(text: str, is_error: bool) -> dict[str, Any]:

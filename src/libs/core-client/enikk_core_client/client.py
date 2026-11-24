@@ -30,7 +30,6 @@ from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
     ClaimRequest,
-    DelegationAccepted,
     LeaseExtended,
     LeaseResponse,
     ResultAccepted,
@@ -72,7 +71,7 @@ if TYPE_CHECKING:
         PromptReadRequest,
     )
     from enikk_contracts.pulls import PullSubmission
-    from enikk_contracts.tasks import DelegateRequest, Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
@@ -132,13 +131,6 @@ class CoreClient:
         """Isolated workers only: lease the task this Job was started for (ADR-0021)."""
         path = routes.TASK_CLAIM.format(task_id=task_id)
         return _parse(LeaseResponse, await self._post(path, ClaimRequest()))
-
-    async def delegate_task(
-        self, task_id: uuid.UUID, request: DelegateRequest
-    ) -> DelegationAccepted:
-        """Queue ``request`` for a delegate of the running task's agent (ADR-0022)."""
-        path = routes.TASK_DELEGATE.format(task_id=task_id)
-        return _parse(DelegationAccepted, await self._post(path, request))
 
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended:
         path = routes.TASK_HEARTBEAT.format(task_id=task_id)
