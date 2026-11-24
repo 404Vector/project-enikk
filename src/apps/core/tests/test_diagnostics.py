@@ -17,7 +17,7 @@ from enikk_contracts.diagnostics import (
     TaskDetailQuery,
 )
 from enikk_contracts.tasks import TaskStatus
-from enikk_core.diagnostics import DiagnosticsPolicy, DiagnosticsService
+from enikk_core.diagnostics import SELECTORS, DiagnosticsPolicy, DiagnosticsService
 from enikk_core_domain.model import Notice
 from enikk_core_domain.redaction import MASK, looks_secret, redact
 from enikk_core_domain.testing import session, task
@@ -111,3 +111,8 @@ async def test_deployments_come_from_the_notices(
     [event] = found.events
     assert (event.kind, event.succeeded) == ("deployment", False)
     assert "enikk-core: Degraded" in event.summary
+
+
+def test_every_service_has_a_log_selector() -> None:
+    assert set(SELECTORS) == set(Service)
+    assert SELECTORS[Service.SCHEDULER] == "app.kubernetes.io/name=enikk-scheduler"
