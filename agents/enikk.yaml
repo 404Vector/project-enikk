@@ -8,7 +8,11 @@ prompt:
   name: enikk
   label: production
 tools:
-  mcp: []
+  # MCP servers through agentgateway (ADR-0039 §2, I-05). Core's token for the task
+  # names exactly these tools; the gateway shows and allows no others.
+  mcp:
+    - server: scheduler
+      allow: [list_schedules, get_schedule, list_runs]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
   # web returns is untrusted input. No browser automation.
   builtin:
