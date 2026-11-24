@@ -121,7 +121,7 @@ def langfuse() -> FakeLangfuse:
     fake.put("assistant", "v1 text", {"model": "claude-old"})
     fake.put("assistant", "v2 text", {"model": "claude-a"})
     fake.put("assistant", "You are enikk.", {"model": "claude-a", "effort": "low"}, PRODUCTION)
-    fake.put("developer", "dev text", {"model": "claude-d"}, PRODUCTION)
+    fake.put("painter", "paint text", {"model": "claude-d"}, PRODUCTION)
     return fake
 
 
@@ -297,9 +297,6 @@ async def test_runtimes_cannot_decide_and_connectors_cannot_propose(
     async with harness.client("slack") as slack:
         with pytest.raises(CoreApiError, match="may not call this endpoint"):
             await slack.propose_prompt(lease.task_id, _request(lease.lease_id))
-    async with harness.client("dev") as dev:
-        with pytest.raises(CoreApiError):
-            await dev.propose_prompt(lease.task_id, _request(lease.lease_id))
     assert langfuse.production("assistant") == 3
 
 
@@ -445,15 +442,15 @@ async def test_posting_the_dm_tells_the_asking_thread_its_link(
     assert "승격 요청을 보냈습니다: https://slack.test/archives/D1/p1" in note
 
 
-async def test_developer_prompt_takes_effect_from_the_next_task(
+async def test_another_role_prompt_takes_effect_from_the_next_task(
     harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
 ) -> None:
     lease = await _leased(harness, claude)
-    request = _request(lease.lease_id, prompt="developer", text="You change code carefully.")
+    request = _request(lease.lease_id, prompt="painter", text="You paint carefully.")
     created = await claude.propose_prompt(lease.task_id, request)
     result = await prompts.decide(created.promotion_id, _press(PromotionAction.PROMOTE))
-    assert "developer 역할은 다음 작업부터" in result.detail
-    assert langfuse.production("developer") == 2
+    assert "painter 역할은 최대 60초 안에" in result.detail
+    assert langfuse.production("painter") == 2
 
 
 async def test_disabled_feature_is_reported(harness: Harness, claude: CoreClient) -> None:
@@ -497,10 +494,10 @@ async def test_read_prompt_returns_a_role_prompt_without_writing(
         lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant", version=1)
     )
     assert older.text == "v1 text"
-    developer = await claude.read_prompt(
-        lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="developer")
+    painter = await claude.read_prompt(
+        lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="painter")
     )
-    assert developer.text == "dev text"
+    assert painter.text == "paint text"
     with pytest.raises(CoreApiError, match="not the prompt of any role"):
         await claude.read_prompt(
             lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="other")

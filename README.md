@@ -132,7 +132,7 @@ Slack 에서 enikk 자체(코드, 설정, 역할 정의, 문서)를 바꿔 달�
 
 ### 역할이 쓰는 도구
 
-assistant 와 developer 역할은 Claude Agent SDK 의 기본 도구를 씁니다([ADR-0033](docs/adr/0033-sdk-tools-for-every-role-in-a-sandbox.md)). 날짜별 대화 요약을 만드는 `summarizer` 역할은 도구가 하나도 없습니다([ADR-0035](docs/adr/0035-daily-conversation-summaries.md)).
+assistant 역할은 Claude Agent SDK 의 기본 도구를 씁니다([ADR-0033](docs/adr/0033-sdk-tools-for-every-role-in-a-sandbox.md)). 날짜별 대화 요약을 만드는 `summarizer` 역할은 도구가 하나도 없습니다([ADR-0035](docs/adr/0035-daily-conversation-summaries.md)).
 
 - 파일 `Read` `Write` `Edit` `NotebookEdit`, 검색 `Glob` `Grep`, 명령 `Bash` (백그라운드 `Monitor` `TaskStop`), 웹 `WebSearch` `WebFetch`, 작업 관리 `TaskCreate` `TaskGet` `TaskList` `TaskUpdate` `Task`
 - 이름은 Claude Code 2.1.330 기준입니다. 역할 정의(`agents/*.yaml`)의 `tools.builtin` 에 적힌 것만 열립니다.
@@ -141,7 +141,7 @@ assistant 와 developer 역할은 Claude Agent SDK 의 기본 도구를 씁니�
   - 명령·웹 검색어·URL 은 역할과 작업 ID 와 함께 런타임 로그에 남습니다(비밀값은 가림).
   - WebFetch 는 클러스터 내부·사설 주소를 가져오지 않습니다.
   - 웹에서 가져온 내용은 참고 자료일 뿐 지시가 아닙니다.
-- assistant 는 여전히 enikk 의 코드를 직접 바꾸지 않고 developer 에 위임합니다. assistant 의 작업 폴더는 대화(작업)가 끝날 때마다 비워집니다.
+- assistant 는 enikk 의 코드를 스레드 worktree 에서 `skill-developer` 절차로 바꾸고, push 와 PR 은 core 에 맡깁니다(ADR-0037). 작업 폴더는 대화(작업)가 끝날 때마다 비워지지만 스레드 worktree 는 7일 동안 남습니다.
 - WebSearch 는 Anthropic 의 서버 검색을 같은 구독 토큰으로 씁니다. 새 키는 필요 없지만, 지역 제한으로 동작하지 않을 수 있습니다. 그때의 대안은 ADR-0033 에 있습니다.
 
 ### 프롬프트 수정 방법
@@ -167,21 +167,20 @@ assistant 와 developer 역할은 Claude Agent SDK 의 기본 도구를 씁니�
 **어디를 고치나**
 
 - Langfuse 호스트: `https://jp.cloud.langfuse.com` (Langfuse Cloud 일본 리전, 직접 호스팅 아님, [ADR-0001](docs/adr/0001-observability-langfuse-cloud.md), [ADR-0016](docs/adr/0016-langfuse-adapter.md))
-  - 기본값: `ENIKK_RUNTIME_LANGFUSE_URL`, `ENIKK_DEV_LANGFUSE_URL` 설정의 기본값
-  - 배포값: Helm values 의 `langfuseUrl` (`deploy/helm/runtime-claude/values.yaml`, `deploy/helm/dev-agent/values.yaml`). Argo CD Application 은 이 값을 덮어쓰지 않습니다.
+  - 기본값: `ENIKK_RUNTIME_LANGFUSE_URL` 설정의 기본값
+  - 배포값: Helm values 의 `langfuseUrl` (`deploy/helm/runtime-claude/values.yaml`). Argo CD Application 은 이 값을 덮어쓰지 않습니다.
 - 프롬프트 (역할 정의 `agents/*.yaml` 의 `prompt`):
 
   | 역할 | 하는 일 | 프롬프트 이름 | label |
   |---|---|---|---|
   | `assistant` | Slack DM·멘션에 답하는 에닉의 대화 역할 (`config/slack.yaml`) | `assistant` | `production` |
-  | `developer` | 코드 변경 요청을 받아 PR 을 만드는 에닉의 개발 역할 | `developer` | `production` |
   | `summarizer` | 매일 04:00 Asia/Seoul 에 전날 대화를 요약하는 역할 (도구 없음) | `conversation-summary` | `production` |
 
 - 프로젝트 ID: **저장소에 없습니다.** 런타임은 API 키로 프로젝트를 정하므로 코드와 설정에 프로젝트 ID 를 적지 않습니다.
   Langfuse 에 로그인해 프로젝트를 열면 주소창의 `/project/<프로젝트 ID>/...` 부분, 또는 **Settings → General** 화면에서 확인합니다.
 - 바로 가는 주소 (`<프로젝트 ID>` 를 위 값으로 바꿉니다):
   - `https://jp.cloud.langfuse.com/project/<프로젝트 ID>/prompts/assistant`
-  - `https://jp.cloud.langfuse.com/project/<프로젝트 ID>/prompts/developer`
+  - `https://jp.cloud.langfuse.com/project/<프로젝트 ID>/prompts/skill-developer` (개발 절차 스킬, ADR-0037)
 - API 키 이름: `langfuse.public-key`, `langfuse.secret-key` (core 가 런타임에 전달합니다. [비밀값](#비밀값) 참고).
 
 **절차**
@@ -199,7 +198,6 @@ assistant 와 developer 역할은 Claude Agent SDK 의 기본 도구를 씁니�
 
 - 재시작은 필요 없습니다. 런타임이 작업마다 Langfuse 에서 프롬프트를 가져옵니다.
 - `assistant`: 런타임 프로세스가 프롬프트를 **60초** 캐시하므로, label 을 옮기고 최대 60초 뒤의 대화부터 새 버전이 쓰입니다.
-- `developer`: 작업마다 새 Job 으로 실행되므로 다음 작업부터 새 버전이 쓰입니다.
 - Langfuse 에 연결할 수 없을 때만 최대 1시간 된 캐시를 씁니다. 어떤 버전이 쓰였는지는 런타임 로그(`prompt <이름> v<버전>`)에서 확인할 수 있습니다.
 
 ### 날짜별 대화 요약
@@ -238,4 +236,4 @@ uv run enikk-ops smoke claude       # Claude 런타임과 두 메시지 대화 (
 
 ## 기여
 
-코딩 에이전트(에닉의 developer 역할, Claude Code 등)용 작업 지침은 [AGENTS.md](AGENTS.md) 에 있습니다.
+코딩 에이전트(에닉의 스레드 세션, Claude Code 등)용 작업 지침은 [AGENTS.md](AGENTS.md) 에 있습니다.

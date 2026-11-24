@@ -1,6 +1,6 @@
 # ADR-0022: assistant 가 개발 에이전트에 작업을 위임한다
 
-- 상태: 승인
+- 상태: 대체됨 (ADR-0037 4e: `delegate` 도구와 위임 API 를 없앰. assistant 가 `skill-developer` 를 불러 직접 변경을 만든다)
 - 날짜: 2026-11-22
 - 관련: ADR-0003, ADR-0004, ADR-0005, ADR-0007, ADR-0017, ADR-0020, ADR-0021, I-05, I-11, I-12, I-14, I-17
 

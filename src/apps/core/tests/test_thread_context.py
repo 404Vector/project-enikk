@@ -1,4 +1,4 @@
-"""The thread's agent sees what delegates posted in its thread (ADR-0027)."""
+"""The thread's agent sees what other sessions posted in its thread (ADR-0027)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+from enikk_contracts.agents import Execution
+from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
 from enikk_contracts.outbox import OutboundKind
-from enikk_contracts.tasks import DelegateRequest, LeaseRequest, ResultReport, Succeeded
-from enikk_core_domain.model import OutboxMessage
-from enikk_core_domain.testing import agent
+from enikk_contracts.tasks import LeaseRequest, ResultReport, Succeeded
+from enikk_core_domain.model import OutboxMessage, Session
+from enikk_core_domain.testing import agent, task
 from enikk_core_domain.thread_context import HEADER, MAX_INPUT, with_thread_context
 
 if TYPE_CHECKING:
@@ -27,12 +28,6 @@ THREAD = ConversationRef(connector=ConnectorKind.SLACK, channel="C1", thread="18
 DRAFT = "PR 은 만들지 않았습니다. ADR-0026 초안 요지: 배포 알림을 #release 로."
 
 
-@pytest.fixture(autouse=True)
-def _assistant_delegates(harness: Harness) -> None:
-    base = agent("assistant", Engine.CLAUDE)
-    harness.catalog.put(base.model_copy(update={"delegates": ("developer",)}))
-
-
 async def _say(harness: Harness, event_id: str, text: str) -> TaskAssignment:
     async with harness.client("slack") as slack, harness.client("claude") as claude:
         await slack.submit_event(
@@ -45,22 +40,44 @@ async def _say(harness: Harness, event_id: str, text: str) -> TaskAssignment:
     return lease
 
 
-async def test_the_next_turn_sees_what_the_delegate_posted(harness: Harness) -> None:
-    turn = await _say(harness, "Ev1", "배포 알림을 채널로 옮겨 줘")
-    async with harness.client("claude") as claude, harness.client("dev") as dev:
-        accepted = await claude.delegate_task(
-            turn.task_id, DelegateRequest(lease_id=turn.lease_id, agent="developer", request="X")
+async def _posted_by_another_session(harness: Harness, text: str) -> None:
+    """A message another session (an earlier delegate) posted into ``THREAD``."""
+    import uuid
+
+    now = harness.clock.now()
+    other = Session.start(
+        session_id=uuid.uuid4(),
+        conversation=THREAD.model_copy(update={"thread": f"{THREAD.thread}:developer"}),
+        agent=agent("developer"),
+        now=now,
+        reply_to=THREAD,
+    )
+    work = task(other, now=now, execution=Execution.ISOLATED)
+    async with harness.db.unit_of_work() as uow:
+        await uow.sessions.add(other)
+        await uow.tasks.add(work)
+        await uow.outbox.add(
+            OutboxMessage(
+                id=uuid.uuid4(),
+                task_id=work.id,
+                source_event_id="ev-other",
+                conversation=THREAD,
+                kind=OutboundKind.REPLY,
+                text=text,
+                created_at=now,
+            )
         )
+        await uow.commit()
+
+
+async def test_the_next_turn_sees_what_another_session_posted(harness: Harness) -> None:
+    turn = await _say(harness, "Ev1", "배포 알림을 채널로 옮겨 줘")
+    async with harness.client("claude") as claude:
         await claude.report_result(
             turn.task_id, ResultReport(lease_id=turn.lease_id, outcome=Succeeded(text="넘겼어요"))
         )
-        harness.clock.advance(timedelta(minutes=1))
-        await harness.dispatcher.dispatch_once()
-        work = (await dev.claim_task(accepted.task_id)).assignment
-        assert work is not None
-        await dev.report_result(
-            work.task_id, ResultReport(lease_id=work.lease_id, outcome=Succeeded(text=DRAFT))
-        )
+    harness.clock.advance(timedelta(minutes=1))
+    await _posted_by_another_session(harness, DRAFT)
 
     harness.clock.advance(timedelta(minutes=1))
     nxt = await _say(harness, "Ev2", "방금 초안대로 만들어 줘")

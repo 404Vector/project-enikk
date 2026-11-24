@@ -7,6 +7,7 @@ import pydantic_core
 import pytest
 from pydantic import ValidationError
 
+from enikk_contracts.common import Engine
 from enikk_contracts.credentials import CredentialName
 from enikk_core.github import GitHubHealthCheck, load_repository_policy
 from enikk_core.settings import CoreSettings, RoleBindingSettings
@@ -104,8 +105,9 @@ def test_the_app_key_cannot_be_granted_to_a_service() -> None:
     with pytest.raises(ValidationError, match="never leave core"):
         RoleBindingSettings(
             namespace="enikk",
-            service_account="enikk-dev-agent",
-            role="dev-agent",
+            service_account="enikk-runtime-claude",
+            role="runtime",
+            engine=Engine.CLAUDE,
             credentials=(CredentialName.GITHUB_APP_PRIVATE_KEY,),
         )
 

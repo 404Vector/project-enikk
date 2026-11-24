@@ -40,8 +40,6 @@ if TYPE_CHECKING:
     from enikk_contracts.pulls import PullSubmission, PullSubmitted
     from enikk_contracts.skills import SkillSummary
     from enikk_contracts.tasks import (
-        DelegateRequest,
-        DelegationAccepted,
         Heartbeat,
         LeaseExtended,
         LeaseRequest,
@@ -81,14 +79,6 @@ class PullSubmitter(Protocol):
     """Core pushes a session's bundle and opens its PR. ``CoreClient`` implements it."""
 
     async def submit_pull(self, task_id: uuid.UUID, request: PullSubmission) -> PullSubmitted: ...
-
-
-class Delegator(Protocol):
-    """Hands a request to another agent through core (ADR-0022). ``CoreClient`` implements it."""
-
-    async def delegate_task(
-        self, task_id: uuid.UUID, request: DelegateRequest
-    ) -> DelegationAccepted: ...
 
 
 class MemoryKeeper(Protocol):

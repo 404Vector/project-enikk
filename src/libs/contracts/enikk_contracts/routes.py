@@ -7,8 +7,6 @@ from typing import Final
 HEALTH: Final = "/healthz"
 EVENTS: Final = "/v1/events"
 TASK_LEASE: Final = "/v1/tasks/lease"
-TASK_CLAIM: Final = "/v1/tasks/{task_id}/claim"
-TASK_DELEGATE: Final = "/v1/tasks/{task_id}/delegate"
 TASK_HEARTBEAT: Final = "/v1/tasks/{task_id}/heartbeat"
 TASK_RESULT: Final = "/v1/tasks/{task_id}/result"
 TASK_CANCEL: Final = "/v1/tasks/{task_id}/cancel"
@@ -39,7 +37,6 @@ DIGESTS: Final = "/v1/tasks/{task_id}/digests"
 PROMOTION_DECISION: Final = "/v1/prompt-promotions/{promotion_id}/decision"
 PROMOTION_POSTED: Final = "/v1/prompt-promotions/{promotion_id}/posted"
 GITHUB_HEALTH: Final = "/v1/github/health"
-GITHUB_TOKEN: Final = "/v1/github/token"  # noqa: S105 - URL path
 
 AUDIENCE: Final = "enikk-core"
 """Audience of the ServiceAccount tokens that core accepts (ADR-0011)."""

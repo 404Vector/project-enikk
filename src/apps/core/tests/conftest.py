@@ -8,21 +8,18 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind, Engine
 from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
 from enikk_core.credentials import CredentialIssuer
-from enikk_core.dispatcher import DevJobDispatcher
-from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
+from enikk_core.github import GitHubHealthCheck
 from enikk_core.security import Gatekeeper
-from enikk_core.settings import DevAgentSettings, TaskSettings
+from enikk_core.settings import TaskSettings
 from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core_client import CoreClient, StaticTokenSource
 from enikk_core_domain.auth import (
     ConnectorRole,
-    DevAgentRole,
     RoleBinding,
     RoleDirectory,
     RuntimeRole,
@@ -42,7 +39,6 @@ from enikk_kernel.ids import RandomIdGenerator
 from enikk_kernel.testing import ManualClock, SequentialIds
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import AsyncIterator
 
     from fastapi import FastAPI
@@ -52,7 +48,6 @@ CLAUDE = ServiceIdentity(namespace="enikk", name="enikk-runtime-claude")
 GEMINI = ServiceIdentity(namespace="enikk", name="enikk-runtime-gemini")
 STRANGER = ServiceIdentity(namespace="enikk", name="default")
 SMOKE = ServiceIdentity(namespace="enikk", name="enikk-smoke")
-DEV = ServiceIdentity(namespace="enikk-dev", name="enikk-dev-agent")
 
 TOKENS = {
     "slack": SLACK,
@@ -60,35 +55,12 @@ TOKENS = {
     "gemini": GEMINI,
     "stranger": STRANGER,
     "smoke": SMOKE,
-    "dev": DEV,
 }
 
 POLICY = RepositoryPolicy.model_validate_json(
     '{"repositories": [{"name": "project-enikk", "self": true},'
     ' {"name": "side-project", "workflows": true}]}'
 )
-
-
-class FakeLauncher:
-    """Records launches; ``running`` counts launched Jobs until ``finish_all``."""
-
-    def __init__(self) -> None:
-        self.deployed = True
-        self.launched: list[uuid.UUID] = []
-        self.finished = 0
-
-    async def ready(self) -> bool:
-        return self.deployed
-
-    async def running(self) -> int:
-        return len(self.launched) - self.finished
-
-    async def launch(self, task_id: uuid.UUID) -> str:
-        self.launched.append(task_id)
-        return f"enikk-dev-{task_id}"
-
-    def finish_all(self) -> None:
-        self.finished = len(self.launched)
 
 
 class FakeGitHubApp:
@@ -140,8 +112,6 @@ class Harness:
     usecases: CoreUseCases
     catalog: StaticAgentCatalog
     github: FakeGitHubApp
-    launcher: FakeLauncher
-    dispatcher: DevJobDispatcher
     services: CoreServices
 
     def client(self, token: str) -> CoreClient:
@@ -163,7 +133,6 @@ def harness() -> Harness:
     catalog = StaticAgentCatalog(
         agent("assistant", Engine.CLAUDE),
         agent("painter", Engine.GEMINI),
-        agent("developer", Engine.CLAUDE, Execution.ISOLATED),
     )
     usecases = CoreUseCases(
         uow=db.unit_of_work,
@@ -172,7 +141,6 @@ def harness() -> Harness:
         ids=SequentialIds(),
         policy=TaskSettings(lease_seconds=60, max_attempts=2),
         sleep=sleep,
-        isolated_daily_limit=3,
     )
     directory = RoleDirectory(
         (
@@ -190,7 +158,6 @@ def harness() -> Harness:
             ),
             RoleBinding(identity=GEMINI, role=RuntimeRole(engine=Engine.GEMINI)),
             RoleBinding(identity=SMOKE, role=ConnectorRole(connector=ConnectorKind.SMOKE)),
-            RoleBinding(identity=DEV, role=DevAgentRole()),
         )
     )
     store = StaticCredentialStore(
@@ -200,23 +167,13 @@ def harness() -> Harness:
         }
     )
     github = FakeGitHubApp()
-    launcher = FakeLauncher()
-    dispatcher = DevJobDispatcher(
-        uow=db.unit_of_work,
-        launcher=launcher,
-        clock=clock,
-        ids=RandomIdGenerator(),
-        policy=DevAgentSettings(enabled=True, daily_limit=3),
-    )
     services = CoreServices(
         version="test",
         usecases=usecases,
         credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(StaticAuthenticator(TOKENS), directory),
         github=GitHubHealthCheck(github, POLICY, lambda: SecretStr("pem")),
-        dev_tokens=DevTokenIssuer(github, POLICY),
         reaper_interval_seconds=60,
-        dispatcher=dispatcher,
         review_links=ReviewLinks(db.unit_of_work, ThreadNotes(clock, RandomIdGenerator())),
     )
     return Harness(
@@ -226,8 +183,6 @@ def harness() -> Harness:
         usecases=usecases,
         catalog=catalog,
         github=github,
-        launcher=launcher,
-        dispatcher=dispatcher,
         services=services,
     )
 

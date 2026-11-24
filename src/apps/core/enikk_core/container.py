@@ -14,9 +14,7 @@ from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
 from enikk_core.diagnostics import DiagnosticsPolicy, DiagnosticsService
 from enikk_core.digests import DigestPolicy, DigestService
-from enikk_core.dispatcher import DevJobDispatcher
 from enikk_core.github import (
-    DevTokenIssuer,
     GitHubHealthCheck,
     load_repository_policy,
     load_sensitive_paths,
@@ -39,7 +37,6 @@ from enikk_github.reverts import Reverter
 from enikk_github.vault import VaultReader, VaultWriter
 from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewConfig
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
-from enikk_k8s_jobs.launcher import KubeJobConfig, KubeJobLauncher
 from enikk_k8s_jobs.logs import KubeLogReader, LogConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
@@ -70,20 +67,8 @@ def build_services(settings: CoreSettings) -> CoreServices:
         ids=ids,
         policy=settings.tasks,
         sleep=asyncio.sleep,
-        isolated_daily_limit=settings.dev_agent.daily_limit,
         memory=memory,
     )
-    dispatcher = None
-    dev = settings.dev_agent
-    if dev.enabled:
-        launcher = KubeJobLauncher.in_cluster(
-            KubeJobConfig(
-                namespace=dev.namespace,
-                template_configmap=dev.template_configmap,
-                api_url=dev.api_url,
-            )
-        )
-        dispatcher = DevJobDispatcher(uow=uow, launcher=launcher, clock=clock, ids=ids, policy=dev)
     authenticator = TokenReviewAuthenticator.in_cluster(
         TokenReviewConfig(
             api_url=settings.token_review.api_url,
@@ -92,17 +77,14 @@ def build_services(settings: CoreSettings) -> CoreServices:
         clock,
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
-    github, dev_tokens, approvals, deployments = _github(settings, store, clock, uow, ids)
+    github, approvals, deployments = _github(settings, store, clock, uow, ids)
     return CoreServices(
         version=settings.version,
         usecases=usecases,
         credentials=CredentialIssuer(store),
         gatekeeper=Gatekeeper(authenticator, directory),
         github=github,
-        dev_tokens=dev_tokens,
         reaper_interval_seconds=settings.tasks.reaper_interval_seconds,
-        dispatcher=dispatcher,
-        dispatch_interval_seconds=dev.interval_seconds,
         approvals=approvals,
         watch_interval_seconds=settings.approval.interval_seconds,
         deployments=deployments,
@@ -232,7 +214,6 @@ def _diagnostics(
         clock=clock,
         policy=DiagnosticsPolicy(
             namespace=d.namespace,
-            dev_namespace=d.dev_namespace,
             apps=settings.deployments.apps,
             repository=settings.github.self_repository,
         ),
@@ -283,7 +264,7 @@ def _github(
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
-) -> tuple[GitHubHealthCheck, DevTokenIssuer, ApprovalService | None, DeploymentService | None]:
+) -> tuple[GitHubHealthCheck, ApprovalService | None, DeploymentService | None]:
     policy = load_repository_policy(
         settings.github.repositories_file, self_repository=settings.github.self_repository
     )
@@ -333,7 +314,6 @@ def _github(
         )
     return (
         GitHubHealthCheck(app, policy, private_key),
-        DevTokenIssuer(app, policy),
         approvals,
         deployments,
     )

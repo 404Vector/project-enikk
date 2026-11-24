@@ -1,7 +1,7 @@
 [project]
 name = "enikk-k8s-jobs"
 version = "0.1.0"
-description = "JobLauncher port implementation: one Kubernetes Job per isolated task"
+description = "Kubernetes API readers for core: Argo CD Applications (ADR-0023) and Pod logs (ADR-0029)"
 requires-python = ">=3.12"
 dependencies = [
     "enikk-kernel",

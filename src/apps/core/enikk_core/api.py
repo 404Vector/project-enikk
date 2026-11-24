@@ -40,7 +40,7 @@ from enikk_contracts.diagnostics import (
 from enikk_contracts.digests import DigestAccepted, DigestRequest
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
-from enikk_contracts.github import GitHubHealth, GitHubToken, GitHubTokenRequest
+from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.memory import (
     ForgetRequest,
@@ -65,9 +65,6 @@ from enikk_contracts.pulls import PullSubmission, PullSubmitted
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
-    ClaimRequest,
-    DelegateRequest,
-    DelegationAccepted,
     Heartbeat,
     LeaseExtended,
     LeaseRequest,
@@ -85,7 +82,7 @@ from enikk_contracts.transcripts import (
     TranscriptSubpaths,
 )
 from enikk_core.security import declared_roles, requires
-from enikk_core_domain.auth import ConnectorRole, DevAgentRole, RuntimeRole
+from enikk_core_domain.auth import ConnectorRole, RuntimeRole
 from enikk_core_domain.errors import (
     AuthenticationError,
     ConflictError,
@@ -107,8 +104,7 @@ if TYPE_CHECKING:
     from enikk_core.deployments import DeploymentService
     from enikk_core.diagnostics import DiagnosticsService
     from enikk_core.digests import DigestService
-    from enikk_core.dispatcher import DevJobDispatcher
-    from enikk_core.github import DevTokenIssuer, GitHubHealthCheck
+    from enikk_core.github import GitHubHealthCheck
     from enikk_core.memory import MemoryService
     from enikk_core.prompts import PromptService
     from enikk_core.security import Gatekeeper
@@ -145,10 +141,7 @@ class CoreServices:
         credentials: CredentialIssuer,
         gatekeeper: Gatekeeper,
         github: GitHubHealthCheck,
-        dev_tokens: DevTokenIssuer,
         reaper_interval_seconds: float,
-        dispatcher: DevJobDispatcher | None = None,
-        dispatch_interval_seconds: float = 10.0,
         approvals: ApprovalService | None = None,
         watch_interval_seconds: float = 30.0,
         deployments: DeploymentService | None = None,
@@ -167,10 +160,7 @@ class CoreServices:
         self.credentials = credentials
         self.gatekeeper = gatekeeper
         self.github = github
-        self.dev_tokens = dev_tokens
         self.reaper_interval_seconds = reaper_interval_seconds
-        self.dispatcher = dispatcher
-        self.dispatch_interval_seconds = dispatch_interval_seconds
         self.approvals = approvals
         self.watch_interval_seconds = watch_interval_seconds
         self.deployments = deployments
@@ -191,8 +181,6 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         loops: list[asyncio.Task[None]] = []
         if run_reaper:
             loops.append(asyncio.create_task(_reap_forever(services)))
-            if services.dispatcher is not None:
-                loops.append(asyncio.create_task(_dispatch_forever(services)))
             if services.approvals is not None:
                 loops.append(asyncio.create_task(_watch_forever(services)))
             if services.deployments is not None:
@@ -258,15 +246,8 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         lease = await _parse(request, LeaseRequest)
         return _json(await usecases.lease_task(role.engine, lease))
 
-    @app.post(routes.TASK_CLAIM, responses={200: {"model": LeaseResponse}})
-    @requires("dev-agent")
-    async def claim_task(task_id: uuid.UUID, request: Request) -> Response:
-        _dev_agent(await gate.admit(request))
-        await _parse(request, ClaimRequest)
-        return _json(await usecases.claim_task(task_id))
-
     @app.post(routes.DIAG_TASKS, responses={200: {"model": RecentTasks}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def diagnose_recent_tasks(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, RecentTasksQuery)
@@ -274,7 +255,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _diagnostics(services).recent_tasks(body))
 
     @app.post(routes.DIAG_TASK, responses={200: {"model": TaskDetail}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def diagnose_task_detail(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, TaskDetailQuery)
@@ -282,7 +263,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _diagnostics(services).task_detail(body))
 
     @app.post(routes.DIAG_DEPLOYMENTS, responses={200: {"model": Deployments}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def diagnose_deployments(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, DeploymentsQuery)
@@ -290,7 +271,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _diagnostics(services).deployments(body))
 
     @app.post(routes.DIAG_LOGS, responses={200: {"model": LogLines}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def diagnose_logs(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, LogsQuery)
@@ -298,7 +279,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _diagnostics(services).logs(body))
 
     @app.post(routes.DIAG_PULLS, responses={200: {"model": Pulls}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def diagnose_pulls(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, PullsQuery)
@@ -306,7 +287,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _diagnostics(services).pulls(body))
 
     @app.post(routes.MEMORY_REMEMBER, responses={200: {"model": MemoryWritten}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def remember(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, RememberRequest)
@@ -314,7 +295,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _memory(services).remember(task_id, body))
 
     @app.post(routes.MEMORY_UPDATE, responses={200: {"model": MemoryWritten}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def update_memory(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, UpdateMemoryRequest)
@@ -322,7 +303,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _memory(services).update(task_id, body))
 
     @app.post(routes.MEMORY_FORGET, responses={200: {"model": MemoryWritten}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def forget_memory(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, ForgetRequest)
@@ -330,7 +311,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await _memory(services).forget(task_id, body))
 
     @app.post(routes.MEMORY_SEARCH, responses={200: {"model": MemoryMatches}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def search_memory(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, MemorySearch)
@@ -383,50 +364,43 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PromotionPosted)
         return _json(await _prompts(services).posted(promotion_id, body))
 
-    @app.post(routes.TASK_DELEGATE, responses={200: {"model": DelegationAccepted}})
-    @requires("runtime", "dev-agent")
-    async def delegate(task_id: uuid.UUID, request: Request) -> Response:
-        scope = _worker(await gate.admit(request))
-        body = await _parse(request, DelegateRequest)
-        return _json(await usecases.delegate(scope, task_id, body))
-
     @app.post(routes.TASK_HEARTBEAT, responses={200: {"model": LeaseExtended}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def heartbeat(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         beat = await _parse(request, Heartbeat)
         return _json(await usecases.heartbeat(scope, task_id, beat))
 
     @app.post(routes.TASK_RESULT, responses={200: {"model": ResultAccepted}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def report_result(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         report = await _parse(request, ResultReport)
         return _json(await usecases.report_result(scope, task_id, report))
 
     @app.post(routes.TRANSCRIPT_APPEND, responses={200: {"model": TranscriptAppended}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def append_transcript(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, TranscriptAppend)
         return _json(await usecases.append_transcript(scope, task_id, body))
 
     @app.post(routes.TRANSCRIPT_LOAD, responses={200: {"model": TranscriptLoaded}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def load_transcript(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         query = await _parse(request, TranscriptQuery)
         return _json(await usecases.load_transcript(scope, task_id, query))
 
     @app.post(routes.TRANSCRIPT_SUBPATHS, responses={200: {"model": TranscriptSubpaths}})
-    @requires("runtime", "dev-agent")
+    @requires("runtime")
     async def transcript_subpaths(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         query = await _parse(request, SubpathQuery)
         return _json(await usecases.transcript_subpaths(scope, task_id, query))
 
     @app.post(routes.CREDENTIALS, responses={200: {"model": Credentials}})
-    @requires("connector", "runtime", "dev-agent")
+    @requires("connector", "runtime")
     async def fetch_credentials(request: Request) -> Response:
         principal = await gate.admit(request)
         wanted = await _parse(request, CredentialRequest)
@@ -477,16 +451,6 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, DecisionRequest)
         return _json(await _approvals(services).decide(approval_id, body))
 
-    @app.post(routes.GITHUB_TOKEN, responses={200: {"model": GitHubToken}})
-    @requires("dev-agent")
-    async def github_token(request: Request) -> Response:
-        _dev_agent(await gate.admit(request))
-        wanted = await _parse(request, GitHubTokenRequest)
-        await usecases.verify_lease(WorkerScope.isolated(), wanted.task_id, wanted.lease_id)
-        response = _json(await services.dev_tokens.issue(wanted.repository))
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
     verify_declared_roles(app)
     return app
 
@@ -518,18 +482,10 @@ def _connector(principal: Principal) -> ConnectorRole:
     return principal.role
 
 
-def _dev_agent(principal: Principal) -> DevAgentRole:
-    if not isinstance(principal.role, DevAgentRole):
-        raise PermissionDeniedError("dev-agent role required")
-    return principal.role
-
-
 def _worker(principal: Principal) -> WorkerScope:
-    """Shared runtimes see their engine's shared tasks; dev agents see isolated ones."""
+    """Shared runtimes see their engine's tasks."""
     if isinstance(principal.role, RuntimeRole):
         return WorkerScope.shared(principal.role.engine)
-    if isinstance(principal.role, DevAgentRole):
-        return WorkerScope.isolated()
     raise PermissionDeniedError("worker role required")
 
 
@@ -641,18 +597,6 @@ async def _digest_forever(services: CoreServices) -> None:
         except Exception:
             _log.exception("conversation summary iteration failed")
         await asyncio.sleep(services.digest_interval_seconds)
-
-
-async def _dispatch_forever(services: CoreServices) -> None:
-    dispatcher = services.dispatcher
-    if dispatcher is None:
-        return
-    while True:
-        try:
-            await dispatcher.dispatch_once()
-        except Exception:
-            _log.exception("dev Job dispatch iteration failed")
-        await asyncio.sleep(services.dispatch_interval_seconds)
 
 
 async def _reap_forever(services: CoreServices) -> None:

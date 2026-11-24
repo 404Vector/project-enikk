@@ -26,8 +26,6 @@ github:
   owner: 404Vector
   selfRepository: project-enikk
 
-# Isolated dev agent Jobs (ADR-0021). The Role that lets core start them is in
-# deploy/helm/dev-agent; core waits until that chart publishes the Job template.
 # Slack approval of pull requests (ADR-0020): core watches open PRs to main and
 # asks the owner in a DM; approving records enikk/owner-approval and merges.
 approval:
@@ -40,7 +38,7 @@ deployments:
   enabled: true
   intervalSeconds: 30
   argocdNamespace: argocd
-  apps: [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-dev-agent]
+  apps: [enikk-core, enikk-runtime-claude, enikk-connector-slack]
   timeoutSeconds: 600
   settleSeconds: 60
 
@@ -80,15 +78,6 @@ prompts:
   enabled: true
   langfuseUrl: https://jp.cloud.langfuse.com
 
-devAgent:
-  enabled: true
-  namespace: enikk-dev
-  # Developer Jobs running at once (owner decision 2026-11-23). Each Job
-  # requests 512Mi; ten fit the node, but their 3Gi limits overcommit memory.
-  maxConcurrent: 10
-  # Job starts allowed in any 24 hours. Unset means no limit.
-  dailyLimit: null
-
 # ServiceAccounts allowed to call core, their roles (ADR-0011 §5) and the
 # credentials each may fetch (ADR-0013). Any other ServiceAccount is rejected.
 # Accounts live in deploy/k8s/identities.
@@ -107,11 +96,6 @@ roleBindings:
     service_account: enikk-runtime-gemini
     role: runtime
     engine: gemini
-  - namespace: enikk-dev
-    service_account: enikk-dev-agent
-    role: dev-agent
-    # Its GitHub token comes from /v1/github/token, scoped per task (ADR-0019, I-32).
-    credentials: [claude.oauth-token, langfuse.public-key, langfuse.secret-key]
   - namespace: enikk
     service_account: enikk-smoke
     role: connector

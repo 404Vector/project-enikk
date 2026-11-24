@@ -82,14 +82,11 @@ class Service(StrEnum):
     CORE = "core"
     RUNTIME_CLAUDE = "runtime-claude"
     CONNECTOR_SLACK = "connector-slack"
-    DEV_JOB = "dev-job"
-    """A dev agent Job; needs ``task_id``."""
 
 
 class LogsQuery(Contract):
     lease_id: uuid.UUID
     service: Service
-    task_id: uuid.UUID | None = None
     minutes: Annotated[int, Field(ge=1, le=180)] = 30
     contains: Annotated[str, StringConstraints(min_length=1, max_length=100)] | None = None
 

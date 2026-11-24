@@ -1,10 +1,10 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 4e-1(이미지 빌드에서 dev-agent 제외, Argo finalizer) 구현됨. 5단계는 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 4e-1(이미지 빌드에서 dev-agent 제외, Argo finalizer)·4e-2(위임·개발 Job·`enikk-dev` 제거와 대체 표시) 구현됨. 역할 개념 자체의 정리는 5단계로 넘긴다. 5단계는 따로 구현한다)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
-> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)과 2a 에서 바뀌는 것(ADR-0032·I-36, ADR-0005·I-16 의 스킬 부분), 2b 에서 바뀌는 것(ADR-0019 §2, ADR-0021 §3·§7, ADR-0007 의 I-17, I-32), 3단계에서 바뀌는 것(ADR-0012 의 I-29, ADR-0014, ADR-0027, ADR-0034)만 표시했다.
+> 결정은 2026-11-23 소유자가 Slack 스레드에서 확정했다. 이 ADR 은 여러 기존 ADR 과 불변식을 바꾸지만, 대체 표시는 **실제로 바뀌는 단계**에서 단다(아래 "바뀌는 ADR·불변식"). 1단계에서 바뀌는 것(ADR-0010 의 I-25, ADR-0033 §2.5)과 2a 에서 바뀌는 것(ADR-0032·I-36, ADR-0005·I-16 의 스킬 부분), 2b 에서 바뀌는 것(ADR-0019 §2, ADR-0021 §3·§7, ADR-0007 의 I-17, I-32), 3단계에서 바뀌는 것(ADR-0012 의 I-29, ADR-0014, ADR-0027, ADR-0034), 4e-2 에서 바뀌는 것(ADR-0007, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0030, ADR-0031, I-11, I-12, I-16, I-17, I-20, I-28, I-32)만 표시했다.
 
 ## 배경
 
@@ -184,6 +184,17 @@
 - **개발 역할로 낸 이유**: 새 길(`submit_pull_request`, 2b)은 `.github/workflows/` 를 바꿀 수 없다. 그래서 workflow 를 바꾸는 이 단위는 workflow 권한이 있는 개발 역할로 마지막으로 냈다(소유자 지시).
 - **4e-2 예고**: dev-agent 패키지·Dockerfile·Helm 차트·Argo 앱, core 의 디스패처·isolated API·개발 토큰, `delegate`, `agents/developer.yaml` 을 지우고, 위 표의 ADR·불변식에 대체 표시를 단다. 새 길로 낸다.
 
+### 4e-2 구현 세부 (2026-11-24)
+4d(assistant 프롬프트 v9, `skill-developer` v2)가 production 이 된 뒤, 스레드 세션이 `skill-developer` 로 만든 PR 이다.
+- **위임**: `delegate` 플랫폼 도구, runtime 의 `Delegator` 포트, core client 의 `delegate_task`, `POST /v1/tasks/{task}/delegate` 와 그 use case, 계약 `DelegateRequest`·`DelegationAccepted`, 역할 정의의 `delegates` 키를 없앴다. `delegates` 가 있는 역할 정의는 이제 거부된다.
+- **개발 Job**: dev-agent 앱, `agents/developer.yaml`, core 의 Job 디스패처·`POST /v1/tasks/{task}/claim`·`POST /v1/github/token`(`DevTokenIssuer`)·일일 한도·`dev_agent` 설정, `dev-agent` 서비스 역할, Kubernetes Job launcher, `enikk-ops smoke dev` 를 없앴다. Argo CD Application·Pod 로그 읽기는 남기고 공통 인증은 `enikk_k8s_jobs.kube` 로 옮겼다. 패키지 이름 `enikk-k8s-jobs` 는 그대로 둔다.
+- **배포**: `deploy/helm/dev-agent`, Argo 앱 `enikk-dev-agent`(4e-1 의 finalizer 로 `enikk-dev` 네임스페이스와 그 안의 Role·ServiceAccount·ConfigMap 도 지워진다), `deploy/docker/dev-agent.Dockerfile`, Image Updater 항목, core values 의 `devAgent`·역할 바인딩·감시 앱 목록의 `enikk-dev-agent`, 민감 경로 목록의 차트 줄을 없앴다.
+- **불변식**: I-11·I-12(위임 없음, 예전 위임 세션의 글만 남음), I-17(개발 역할 없음), I-28(core 의 `enikk-dev` 권한 없음), I-32(설치 토큰도 core 밖으로 나가지 않음), I-16(위임 대상이라는 권한 없음), I-20(민감 경로 설명에서 개발 역할 정의를 역할 정의로)을 고쳤다.
+- **진단**: `service_logs` 의 `dev-job` 과 `LogsQuery.task_id`, core 의 `diagnostics.dev_namespace` 를 없앴다.
+- **남긴 것**: 도메인·SQL 의 isolated 작업(`Execution.ISOLATED`, `queue.next_isolated`·`claim_isolated`)과 `dispatches`, 세션의 `reply_to` 는 마이그레이션 0004·0005 의 열과 함께 남긴다(소유자 결정: DB 정리는 나중에). 이미 있는 위임 세션의 PR 상태 카드, 위임 답의 상태 줄, 스레드 맥락은 그대로 동작한다. GitHub App 의 `develop` 용도는 core 의 되돌리기 PR(ADR-0023)이 계속 쓴다.
+- **남은 isolated 작업**: 배포 시점에 대기 중인 developer 작업이 있으면 실행할 곳이 없어 남는다. 4e-2 전에 열린 위임이 없는지 확인하고 배포한다.
+- **되돌리기**: 이전 이미지와 매니페스트로 되돌린다(ADR-0023). `enikk-dev` 네임스페이스는 Argo 앱을 되살리면 다시 만들어진다.
+
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
 - 권한을 역할 대신 **동작**에 묶으면(6) 스킬은 지시만 담으면 된다. 되돌릴 수 없는 동작은 모두 core 를 거치거나 소유자 승인을 받으므로, 프롬프트 인젝션이 닿는 범위가 넓어져도 결과가 GitHub 이나 운영에 바로 닿지 않는다.
@@ -216,12 +227,12 @@
 |---|---|---|
 | ADR-0010 §3, I-25 | 런타임은 상태를 갖지 않는다 → 공유 볼륨(다시 만들 수 있는 캐시·작업 공간)은 예외 | **1 (이번)** |
 | ADR-0033 §2.2·§2.5 | 쓰기 허용 경로에 그 스레드의 볼륨 경로 추가. 작업 폴더는 지우되 스레드 worktree 는 남긴다 | **1 (이번)** |
-| ADR-0019, ADR-0021 §3·§7, I-32, ADR-0007(I-17) | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | **2b (표시함)**·4 |
+| ADR-0019, ADR-0021 §3·§7, I-32, ADR-0007(I-17) | 개발 Pod 가 받는 GitHub 토큰 → core 만 토큰을 갖고 push·PR 은 core 도구 | **2b (표시함)**·**4e-2 (표시함)** |
 | ADR-0032, I-36 | 스킬 config(`requires`)와 승격 경고 | **2a (표시함)** |
 | ADR-0005, I-16 | Langfuse 의 스킬 config 에 `requires`(core 경유 동작의 선언)를 둔다 | **2a (표시함)** |
 | ADR-0005, I-10, I-14, I-16 | 역할 정의 파일 → 기본 프롬프트 + 스킬 + 동작 권한 | 2b·4 |
 | ADR-0012(I-29), ADR-0014, ADR-0027, ADR-0034 | 세션 = 스레드, 스레드 사이 동시 2, 취소 | **3 (표시함)** |
-| ADR-0007, ADR-0021, ADR-0022, ADR-0025, ADR-0030, ADR-0031, I-11, I-12, I-17, I-28 | 위임·개발 Job·`enikk-dev`·역할 개념 제거, 영속성 테스트는 CI 에서만(4a), core 의 Job 권한 제거 | 4 |
+| ADR-0007, ADR-0021, ADR-0022, ADR-0025, ADR-0030, ADR-0031, I-11, I-12, I-17, I-28 | 위임·개발 Job·`enikk-dev` 제거, 영속성 테스트는 CI 에서만(4a), core 의 Job 권한 제거. 역할 개념 자체는 5 | **4e-2 (표시함)** |
 | ADR-0035, I-38 | 요약 역할 → 도구 없는 요약 스킬 세션, 스케줄러 정리 | 5 |
 | ADR-0006, I-13 | 그대로(스킬도 Langfuse 가 원본) | — |
 
@@ -230,7 +241,7 @@
 1. 공유 볼륨·기준 저장소·worktree. runtime 이 저장소 원문을 읽는다. **(이 PR)**
 2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(bundle → core 전용 clone → push·PR). **(구현됨)**
 3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정. 3a: 동시 실행 칸·작업 디렉터리·자원·git 신원 **(구현됨)**. 3b: 취소·대기 표시·CLI 홈 격리 **(구현됨)**.
-4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv, 관련 ADR·불변식 대체 표시. 4a: runtime 의 uv·assistant 한도 **(구현됨)**. 4b~4e 는 위 4a 구현 세부의 순서대로.
+4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv, 관련 ADR·불변식 대체 표시. 4a: runtime 의 uv·assistant 한도 **(구현됨)**. 4b~4d: 스킬·시험·프롬프트 전환 **(완료)**. 4e-1·4e-2: 이미지 빌드 정리·제거 **(구현됨)**.
 5. conversation-summary 스킬로 전환, 스케줄러 정리.
 
 ### 되돌리기

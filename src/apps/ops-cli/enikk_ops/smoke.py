@@ -6,7 +6,6 @@ Uses real ServiceAccount tokens and a port-forward; creates no cluster resources
 from __future__ import annotations
 
 import asyncio
-import re
 import uuid
 from typing import TYPE_CHECKING, Final
 
@@ -43,7 +42,6 @@ if TYPE_CHECKING:
     ClientFactory = Callable[[str, SecretStr], CoreClient]
 
 SMOKE_CHANNEL: Final = "enikk-smoke"
-PR_URL: Final = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/(\d+)")
 READY_ATTEMPTS: Final = 30
 
 
@@ -262,43 +260,6 @@ class ClaudeSmokeTest:
             if batch.messages:
                 await asyncio.sleep(1)
         raise SmokeTestError(f"no reply for task {accepted.task_id} within {timeout:.0f}s")
-
-
-class DevSmokeTest(ClaudeSmokeTest):
-    """Asks the isolated dev agent for a tiny change and expects a pull request back.
-
-    Exercises the Job dispatch, the scoped GitHub token, the clone, the push to an
-    ``agent/`` branch and the PR (ADR-0021). The PR is left open for the owner to close.
-    """
-
-    async def _conversation(self, base_url: str, token: SecretStr) -> None:
-        async with self._client(base_url, token) as connector:
-            await _until_ready(connector)
-            marker = uuid.uuid4().hex[:8]
-            request = (
-                "This is an automated smoke test of the dev agent. Create the file "
-                f"`smoke/dev-agent-{marker}.md` containing exactly one line: "
-                f"`dev agent smoke test {marker}`. Change nothing else. Run the checks, "
-                "commit, push your branch and open the pull request as usual."
-            )
-            self._report(
-                f"  ..  asked the dev agent for a PR (marker {marker}); this takes minutes"
-            )
-            reply = await self._ask(
-                connector,
-                uuid.uuid4().hex,
-                request,
-                agent="developer",
-                timeout_seconds=self._settings.dev_timeout_seconds,
-            )
-            match = PR_URL.search(reply)
-            if match is None:
-                raise SmokeTestError(f"the dev agent replied without a PR link: {reply[:500]}")
-            self._ok(f"the dev agent opened {match.group(0)}")
-            self._report(f"  --  close it when done: gh pr close {match.group(1)} --delete-branch")
-
-    def _ok(self, text: str) -> None:
-        self._report(f"  ok  {text}")
 
 
 def _smoke_event() -> InboundEvent:

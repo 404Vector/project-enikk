@@ -1,6 +1,6 @@
 # ADR-0021: 개발 에이전트는 작업마다 새 Pod(Job)로 실행한다
 
-- 상태: 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로, §3·§7 의 "push·PR 은 개발 Pod 만"은 ADR-0037 로 부분 대체)
+- 상태: 대체됨 (ADR-0037 4e: 개발 Job, `enikk-dev` 네임스페이스, dev-agent 앱을 없앰. 개발은 Slack 스레드의 세션이 worktree 에서 하고 push·PR 은 core 가 한다)
 - 날짜: 2026-11-22
 - 관련: ADR-0002, ADR-0007, ADR-0010, ADR-0011, ADR-0013, ADR-0017, ADR-0019, ADR-0020, ADR-0022, I-14, I-17, I-18, I-20, I-21, I-28
 

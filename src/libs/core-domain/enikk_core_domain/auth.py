@@ -33,12 +33,8 @@ class RuntimeRole(FrozenModel):
     engine: Engine
 
 
-class DevAgentRole(FrozenModel):
-    kind: Literal["dev-agent"] = "dev-agent"
-
-
-Role = Annotated[ConnectorRole | RuntimeRole | DevAgentRole, Field(discriminator="kind")]
-RoleKind = Literal["connector", "runtime", "dev-agent"]
+Role = Annotated[ConnectorRole | RuntimeRole, Field(discriminator="kind")]
+RoleKind = Literal["connector", "runtime"]
 
 
 class Principal(FrozenModel):

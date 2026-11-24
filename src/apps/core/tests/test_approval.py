@@ -304,7 +304,7 @@ async def test_drafts_and_forks_are_ignored(service: ApprovalService, pulls: Fak
 
 
 async def test_only_the_slack_connector_reaches_the_owner(harness: Harness) -> None:
-    for token in ("smoke", "claude", "dev"):
+    for token in ("smoke", "claude"):
         async with harness.client(token) as client:
             with pytest.raises(CoreForbiddenError):
                 await client.poll_notices(NoticePoll(wait_seconds=0))

@@ -85,7 +85,6 @@ class RuntimeClaudeApp:
                 config=config,
                 oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
                 transcripts=core,
-                delegator=core,
                 memory=core,
                 diagnostics=core,
                 prompts=core,
