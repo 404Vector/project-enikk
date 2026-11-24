@@ -62,6 +62,7 @@ SELECTORS: Final = {
     Service.CORE: "app.kubernetes.io/name=enikk-core",
     Service.RUNTIME_CLAUDE: "app.kubernetes.io/name=enikk-runtime-claude",
     Service.CONNECTOR_SLACK: "app.kubernetes.io/name=enikk-connector-slack",
+    Service.SCHEDULER: "app.kubernetes.io/name=enikk-scheduler",
 }
 
 

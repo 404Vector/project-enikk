@@ -82,6 +82,7 @@ class Service(StrEnum):
     CORE = "core"
     RUNTIME_CLAUDE = "runtime-claude"
     CONNECTOR_SLACK = "connector-slack"
+    SCHEDULER = "scheduler"
 
 
 class LogsQuery(Contract):
