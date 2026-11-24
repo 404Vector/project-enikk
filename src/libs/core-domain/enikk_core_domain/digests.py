@@ -212,7 +212,10 @@ def day_threads(
         )
         roles.setdefault(where, []).append(task.agent)
     for message in messages:
-        if message.conversation.connector is not ConnectorKind.SLACK:
+        if (
+            message.conversation.connector is not ConnectorKind.SLACK
+            or message.kind is OutboundKind.STARTED
+        ):
             continue
         agent = agents_of.get(message.task_id)
         who = "에닉" if agent is None else f"에닉({agent})"

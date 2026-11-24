@@ -18,6 +18,10 @@ MAX_ACK_BATCH = 100
 class OutboundKind(StrEnum):
     REPLY = "reply"
     FAILURE = "failure"
+    STARTED = "started"
+    """A worker took the task; the connector shows it as running (ADR-0037 3b)."""
+    CANCELLED = "cancelled"
+    """The owner cancelled the thread's work."""
 
 
 class OutboundMessage(Contract):

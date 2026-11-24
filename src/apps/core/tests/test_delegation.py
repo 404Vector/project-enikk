@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.events import InboundEvent
-from enikk_contracts.outbox import OutboxAck, OutboxPoll
+from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
     DelegateRequest,
     LeaseRequest,
@@ -88,7 +88,7 @@ async def test_delegated_work_answers_in_the_original_thread(harness: Harness) -
         assert work.definition.execution is Execution.ISOLATED
         await _finish(dev, work, "PR 을 만들지 않았습니다: 요청이 모호합니다.")
 
-        batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
+        batch = await _poll_answers(slack)
     assert [m.text for m in batch.messages] == [
         "개발 에이전트에 넘겼습니다.",
         "PR 을 만들지 않았습니다: 요청이 모호합니다.",
@@ -119,7 +119,7 @@ async def test_the_asking_thread_sees_status_and_the_review_thread_the_report(
         work = (await dev.claim_task(accepted.task_id)).assignment
         assert work is not None
         await _finish(dev, work, REPORT)
-        [handed, status] = (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+        [handed, status] = (await _poll_answers(slack)).messages
         assert status.conversation == THREAD
         assert "#7" in status.text
         assert "github.com" not in status.text
@@ -139,14 +139,14 @@ async def test_the_asking_thread_sees_status_and_the_review_thread_the_report(
         assert linked.report == REPORT
         # The asking thread links to the approval message through its status card
         # (ADR-0036), not with a separate message.
-        assert not (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+        assert not (await _poll_answers(slack)).messages
 
 
 async def test_review_threads_of_other_branches_link_nothing(harness: Harness) -> None:
     async with harness.client("slack") as slack, harness.client("claude") as claude:
         review = ReviewThreadOpened(repository="o/r", number=3, branch="feat/owner")
         assert await slack.review_thread_opened(review) == ReviewThreadLinked()
-        assert not (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
+        assert not (await _poll_answers(slack)).messages
         with pytest.raises(CoreForbiddenError):
             await claude.review_thread_opened(review)
 
@@ -213,3 +213,14 @@ async def test_delegation_stops_at_the_daily_limit(harness: Harness) -> None:
 def test_requests_are_bounded() -> None:
     with pytest.raises(ValidationError, match="at most 20000"):
         DelegateRequest(lease_id=uuid.uuid4(), agent="developer", request="x" * 20_001)
+
+
+async def _poll_answers(client: CoreClient) -> OutboxBatch:
+    """Poll the outbox, acknowledging and leaving out the "started" notes (ADR-0037 3b)."""
+    batch = await client.poll_outbox(OutboxPoll(wait_seconds=0))
+    started = tuple(m.message_id for m in batch.messages if m.kind is OutboundKind.STARTED)
+    if started:
+        await client.ack_outbox(OutboxAck(message_ids=started))
+    return OutboxBatch(
+        messages=tuple(m for m in batch.messages if m.kind is not OutboundKind.STARTED)
+    )

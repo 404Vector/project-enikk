@@ -368,6 +368,10 @@ class _Tasks:
         found = [t for t in self._s.tasks.values() if start <= t.created_at < end]
         return sorted(found, key=lambda t: (t.created_at, t.id))[:limit]
 
+    async def active_in_session(self, session_id: uuid.UUID) -> Sequence[Task]:
+        found = [t for t in self._s.tasks.values() if t.session_id == session_id and not t.terminal]
+        return sorted(found, key=lambda t: (t.created_at, t.id))
+
     async def add(self, task: Task) -> None:
         self._s.tasks[task.id] = task
 
@@ -392,6 +396,7 @@ class _Outbox:
             and m.created_at > since
             and (task := self._s.tasks.get(m.task_id)) is not None
             and task.session_id != session_id
+            and m.kind is not OutboundKind.STARTED
         ]
         return sorted(found, key=lambda m: (m.created_at, m.id))[-limit:]
 
@@ -1176,6 +1181,30 @@ async def check_digests_and_day_ranges(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.digests.get_for_update(date(2020, 1, 1)) is None, "missing day")
 
 
+async def check_active_in_session(new_uow: UnitOfWorkFactory) -> None:
+    owner, other = session(), session(thread="2.0")
+    running = task(owner, now=T0)
+    waiting = task(owner, now=T0 + timedelta(seconds=1))
+    finished = task(owner, now=T0 + timedelta(seconds=2)).cancel(T0)
+    elsewhere = task(other, now=T0)
+    async with new_uow() as uow:
+        for s in (owner, other):
+            await uow.sessions.add(s)
+        for t in (running, waiting, finished, elsewhere):
+            await uow.tasks.add(t)
+        await uow.commit()
+    async with new_uow() as uow:
+        await uow.tasks.update(
+            running.grant_lease(lease_id=uuid.uuid4(), now=T0, duration=timedelta(minutes=1))
+        )
+        await uow.commit()
+    async with new_uow() as uow:
+        active = await uow.tasks.active_in_session(owner.id)
+        _expect(
+            [t.id for t in active] == [running.id, waiting.id], "queued and leased, oldest first"
+        )
+
+
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_updates_persist,
@@ -1183,6 +1212,7 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_duplicate_event_rejected,
     check_claim_order_and_engine,
     check_one_running_task_per_session,
+    check_active_in_session,
     check_claim_skips_locked,
     check_claim_skips_locked_session,
     check_claim_expired,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind
@@ -12,6 +12,7 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxAcked, OutboxBatch
 from enikk_contracts.tasks import (
     HELD_EVENT_PREFIX,
+    CancelResult,
     DelegationAccepted,
     LeaseExtended,
     LeaseResponse,
@@ -51,6 +52,9 @@ if TYPE_CHECKING:
     Sleep = Callable[[float], Awaitable[None]]
 
 _log = logging.getLogger(__name__)
+
+STARTED_TEXT: Final = "작업 중"
+CANCELLED_TEXT: Final = "취소했습니다."
 
 
 class CoreUseCases:
@@ -155,6 +159,36 @@ class CoreUseCases:
             await uow.commit()
         return OutboxAcked(acknowledged=changed)
 
+    async def cancel_task(self, connector: ConnectorKind, task_id: uuid.UUID) -> CancelResult:
+        """Cancel the queued and running tasks of ``task_id``'s session (ADR-0037 3b).
+
+        Workers find out at their next heartbeat, which core then rejects."""
+        async with self._uow() as uow:
+            task = await uow.tasks.get_for_update(task_id)
+            session = None if task is None else await uow.sessions.get(task.session_id)
+            if task is None or session is None or session.conversation.connector is not connector:
+                raise NotFoundError(f"task {task_id} not found")
+            now = self._clock.now()
+            cancelled: list[uuid.UUID] = []
+            for active in await uow.tasks.active_in_session(session.id):
+                await uow.tasks.update(active.cancel(now))
+                cancelled.append(active.id)
+            if cancelled:
+                await uow.outbox.add(
+                    OutboxMessage(
+                        id=self._ids.new(),
+                        task_id=task.id,
+                        source_event_id=task.source_event_id,
+                        conversation=session.outbox_conversation,
+                        kind=OutboundKind.CANCELLED,
+                        text=CANCELLED_TEXT,
+                        created_at=now,
+                    )
+                )
+            await uow.commit()
+        _log.info("task %s: cancelled %d task(s) of its session", task_id, len(cancelled))
+        return CancelResult(task_id=task_id, cancelled=tuple(cancelled))
+
     # ------------------------------------------------------------ runtime
 
     async def lease_task(self, engine: Engine, request: LeaseRequest) -> LeaseResponse:
@@ -199,6 +233,7 @@ class CoreUseCases:
                 _log.warning("task %s failed: agent %s is not defined", failed.id, failed.agent)
                 return None
             await uow.tasks.update(leased)
+            await self._publish_started(uow, session, leased)
             await uow.commit()
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
         scheduled = session.conversation.connector is ConnectorKind.SCHEDULE
@@ -241,6 +276,7 @@ class CoreUseCases:
                 await uow.commit()
                 raise NotFoundError(f"task {task_id} has no isolated agent definition")
             await uow.tasks.update(leased)
+            await self._publish_started(uow, session, leased)
             await uow.commit()
         _log.info("isolated task %s claimed (attempt %d)", leased.id, leased.attempt)
         memories = await self._memories()
@@ -443,6 +479,22 @@ class CoreUseCases:
         if session is None:
             raise NotFoundError(f"session {task.session_id} of task {task.id} is missing")
         return session
+
+    async def _publish_started(self, uow: UnitOfWork, session: Session, task: Task) -> None:
+        """Tell the Slack thread its first attempt started; retries say nothing."""
+        if task.attempt != 1 or session.conversation.connector is not ConnectorKind.SLACK:
+            return
+        await uow.outbox.add(
+            OutboxMessage(
+                id=self._ids.new(),
+                task_id=task.id,
+                source_event_id=task.source_event_id,
+                conversation=session.outbox_conversation,
+                kind=OutboundKind.STARTED,
+                text=STARTED_TEXT,
+                created_at=self._clock.now(),
+            )
+        )
 
     async def _publish_outcome(self, uow: UnitOfWork, task: Task) -> None:
         if task.status is TaskStatus.SUCCEEDED and task.output is not None:
