@@ -57,6 +57,7 @@ uv run pytest --ignore=src/libs/adapters/persistence-sql/tests
 - 픽스처는 그대로다. 이 디렉터리를 빼지 않으면 testcontainers 가 Docker 를 찾다 오류로 끝난다.
 - 영속성 코드(`persistence-sql`, 마이그레이션)를 바꿨으면 PR 본문에 "영속성 테스트는 CI 에서만 확인"이라고 적고, 소유자는 CI 결과를 보고 승인한다.
 - uv 캐시는 `UV_CACHE_DIR=/data/tmp/<스레드>/uv-cache` 처럼 그 스레드의 tmp 에 둔다. 기본 위치(그 실행의 홈)는 runtime 의 `/tmp` emptyDir(1Gi 한도, 두 칸이 함께 씀) 아래라, 넘치면 Pod 가 축출된다. 다른 스레드와 캐시를 함께 쓰지 않는다.
+- runtime Pod 에는 서비스 자신의 설정(`ENIKK_RUNTIME_*`)이 환경 변수로 있다. runtime-claude 테스트(`test_app.py`)는 테스트마다 이 변수를 지우므로, 따로 지우지 않아도 설정 기본값 테스트가 그대로 돈다.
 
 ## 비밀 파일 권한 테스트
 
