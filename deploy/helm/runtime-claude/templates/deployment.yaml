@@ -61,6 +61,10 @@ spec:
               value: {{ .Values.pulls.enabled | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
               value: {{ .Values.skills.enabled | quote }}
+            - name: ENIKK_RUNTIME_MCP__ENABLED
+              value: {{ .Values.mcp.enabled | quote }}
+            - name: ENIKK_RUNTIME_MCP__GATEWAY_URL
+              value: {{ .Values.mcp.gatewayUrl | quote }}
             - name: ENIKK_RUNTIME_WORKSPACE__ENABLED
               value: {{ .Values.workspace.enabled | quote }}
             {{- if .Values.workspace.enabled }}

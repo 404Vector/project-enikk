@@ -30,3 +30,9 @@ paths:
   # Who may change schedules, the tool limit and the approval rule (ADR-0039, I-39).
   - src/apps/core/enikk_core/schedules.py
   - src/libs/core-domain/enikk_core_domain/schedules.py
+  # The MCP path: core's task tokens, the gateway that checks them and the engine's
+  # MCP connection (ADR-0039 §2, I-05, I-14).
+  - src/apps/core/enikk_core/mcp_tokens.py
+  - deploy/k8s/agentgateway/
+  - deploy/argocd/apps/enikk-agentgateway.yaml
+  - src/libs/adapters/engine-claude/enikk_engine_claude/mcp_gateway.py

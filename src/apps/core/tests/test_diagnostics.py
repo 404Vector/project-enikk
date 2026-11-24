@@ -116,3 +116,4 @@ async def test_deployments_come_from_the_notices(
 def test_every_service_has_a_log_selector() -> None:
     assert set(SELECTORS) == set(Service)
     assert SELECTORS[Service.SCHEDULER] == "app.kubernetes.io/name=enikk-scheduler"
+    assert SELECTORS[Service.AGENTGATEWAY] == "app.kubernetes.io/name=enikk-agentgateway"

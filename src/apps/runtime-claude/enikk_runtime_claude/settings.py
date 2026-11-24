@@ -65,6 +65,13 @@ class PullSettings(SettingsModel):
     enabled: bool = False
 
 
+class McpSettings(SettingsModel):
+    """MCP tools through agentgateway (ADR-0039 §2). The off switch of S3."""
+
+    enabled: bool = False
+    gateway_url: str = "http://enikk-agentgateway.enikk.svc"
+
+
 class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     core_url: str = "http://enikk-core.enikk.svc"
     token_file: Path = PROJECTED_TOKEN_FILE
@@ -77,3 +84,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     workspace: WorkspaceSettings = WorkspaceSettings()
     skills: SkillSettings = SkillSettings()
     pulls: PullSettings = PullSettings()
+    mcp: McpSettings = McpSettings()

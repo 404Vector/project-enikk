@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk.testing import run_session_store_conformance
 from pydantic import SecretStr
 
-from enikk_contracts.agents import Execution, ToolPolicy
+from enikk_contracts.agents import Execution, McpToolGrant, ToolPolicy
 from enikk_contracts.transcripts import (
     SubpathQuery,
     TranscriptAppend,
@@ -33,6 +33,8 @@ from enikk_contracts.transcripts import (
 )
 from enikk_engine_claude import sandbox
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
+from enikk_engine_claude.mcp_gateway import ENV_TOKEN
+from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
 from enikk_engine_claude.resume import EMPTY_HEADER, with_history
 from enikk_engine_claude.transcripts import CoreSessionStore
 from enikk_runtime.errors import EngineError
@@ -577,3 +579,110 @@ async def test_a_session_resumes_from_another_tasks_directory(tmp_path: Path) ->
     assert here != project
     loaded = await script.options.session_store.load({"project_key": here, "session_id": session})
     assert loaded == entries
+
+
+# ------------------------------------------------ MCP through the gateway (ADR-0039 S3)
+
+GATEWAY = "http://enikk-agentgateway.enikk.svc"
+LIST = "mcp__scheduler__list_schedules"
+GET = "mcp__scheduler__get_schedule"
+
+
+def _gateway_engine(script: _Script, tmp_path: Path, gateway: str | None = GATEWAY) -> ClaudeEngine:
+    return ClaudeEngine(
+        config=ClaudeEngineConfig(
+            workdir=tmp_path / "work", scratch_dir=tmp_path / "scratch", mcp_gateway=gateway
+        ),
+        oauth_token=SecretStr("sk-ant-oat-test"),
+        transcripts=FakeTranscripts(),
+        query_fn=script,
+    )
+
+
+def _granted(
+    *grants: McpToolGrant,
+    token: str | None = "header.claims.sig",  # noqa: S107 - a fake token
+) -> EngineJob:
+    job = _job()
+    definition = job.definition.model_copy(update={"tools": ToolPolicy(mcp=grants)})
+    return job.model_copy(
+        update={
+            "definition": definition,
+            "mcp_token": None if token is None else SecretStr(token),
+        }
+    )
+
+
+SCHEDULER = McpToolGrant(server="scheduler", allow=("list_schedules", "get_schedule"))
+
+
+async def test_granted_servers_go_through_the_gateway_with_the_token_in_the_env(
+    tmp_path: Path,
+) -> None:
+    script = _Script(_init([LIST, GET]), _result())
+    await _gateway_engine(script, tmp_path).run(_granted(SCHEDULER))
+
+    options = script.options
+    assert options is not None
+    assert options.strict_mcp_config
+    servers = options.mcp_servers
+    assert isinstance(servers, dict)
+    assert servers["scheduler"] == {
+        "type": "http",
+        "url": f"{GATEWAY}/mcp/scheduler",
+        "headers": {"Authorization": "Bearer ${ENIKK_MCP_TOKEN}"},
+    }
+    assert "header.claims.sig" not in str(servers)
+    assert options.env[ENV_TOKEN] == "header.claims.sig"
+    assert options.allowed_tools == [LIST, GET]
+
+
+def test_the_token_variable_is_hidden_from_shell_commands() -> None:
+    assert sandbox.SECRET_NAME.search(ENV_TOKEN)
+    assert ENV_TOKEN not in sandbox.clean_environment({ENV_TOKEN: "x"})
+
+
+async def test_an_mcp_tool_the_definition_does_not_grant_aborts_the_run(tmp_path: Path) -> None:
+    only_list = McpToolGrant(server="scheduler", allow=("list_schedules",))
+    script = _Script(_init([LIST, GET]), _result())
+    with pytest.raises(EngineError, match="get_schedule"):
+        await _gateway_engine(script, tmp_path).run(_granted(only_list))
+
+
+@pytest.mark.parametrize(
+    ("gateway", "token", "grants"),
+    [
+        (None, "t", (SCHEDULER,)),
+        (GATEWAY, None, (SCHEDULER,)),
+        (GATEWAY, "t", ()),
+        (GATEWAY, "t", (McpToolGrant(server=PLATFORM_SERVER, allow=("x",)),)),
+    ],
+    ids=["gateway-off", "no-token", "no-grant", "reserved-name"],
+)
+async def test_no_mcp_server_without_gateway_token_or_grant(
+    tmp_path: Path, gateway: str | None, token: str | None, grants: tuple[McpToolGrant, ...]
+) -> None:
+    script = _Script(_init(), _result())
+    await _gateway_engine(script, tmp_path, gateway).run(_granted(*grants, token=token))
+    options = script.options
+    assert options is not None
+    assert options.mcp_servers == {}
+    assert ENV_TOKEN not in options.env
+    assert options.allowed_tools == []
+
+
+async def test_tool_env_cannot_set_the_token(tmp_path: Path) -> None:
+    script = _Script(_init(), _result())
+    engine = ClaudeEngine(
+        config=ClaudeEngineConfig(
+            workdir=tmp_path / "work",
+            scratch_dir=tmp_path / "scratch",
+            tool_env={ENV_TOKEN: "forged"},
+        ),
+        oauth_token=SecretStr("sk-ant-oat-test"),
+        transcripts=FakeTranscripts(),
+        query_fn=script,
+    )
+    await engine.run(_job())
+    assert script.options is not None
+    assert ENV_TOKEN not in script.options.env

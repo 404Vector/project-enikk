@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (S1·S2 구현. 남은 단위 S3~S7 은 아래 "이행 순서")
+- 상태: 승인 (S1·S2·S3 구현. 남은 단위 S4~S7 은 아래 "이행 순서")
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -33,6 +33,7 @@
 - agentgateway 를 `enikk` 네임스페이스에 Argo 앱으로 배포한다(업스트림 이미지).
 - 엔진은 에이전트 정의의 `tools.mcp` 에 적힌 서버와 허용 도구만 gateway 로 붙인다. 정의에 없는 서버·도구는 보이지 않는다(I-14).
 - **호출자 신원**: runtime 이 실행 중인 작업 ID 와 임대를 담은 토큰을 붙인다. 스케줄러는 core 에 그 임대가 살아 있는지, 어느 에이전트·세션인지 확인한 뒤에만 동작한다(지금 플랫폼 도구가 하는 확인과 같다).
+- **토큰과 허용 목록은 gateway 한곳에서 본다**(S3 에서 소유자 결정): 토큰은 core 가 작업마다 서명하고, gateway 가 서명을 확인하고 토큰이 허용한 도구만 보이고 허용한다. runtime 안에 도구 목록을 거르는 중계를 두지 않는다.
 
 ### 3. 스케줄 하나에 담는 것
 - 이름, 설명, 시각(cron 5필드 + 시간대, 또는 한 번만)
@@ -73,12 +74,18 @@
 - 예약 세션이 스케줄을 바꿀 수 없으면 웹 글이나 대화 원문 속 지시가 스스로를 반복 실행하게 만드는 길이 없다.
 - MCP 는 gateway 하나로 모아야 서버가 늘어도 인증과 허용 목록을 한곳에서 본다(ADR-0004).
 
-### 외부 사실 (확인 2026-11-24, 구현 전에 다시 확인한다)
+### 외부 사실 (확인 2026-11-24, S3 구현 전에 다시 확인함)
 - agentgateway 는 JWKS 로 JWT 를 검증하고 클레임으로 접근을 허용·거부할 수 있다. https://agentgateway.dev/docs/kubernetes/1.0.x/security/jwt/mcp/ , https://agentgateway.dev/docs/kubernetes/latest/mcp/mcp-access/
 - 호출자 토큰을 백엔드로 그대로 넘기는 방식은 제3자 예제에서만 확인했다(https://github.com/rvennam/agentgateway-auth-patterns). Kubernetes ServiceAccount 토큰으로 runtime 을 인증하고 작업 토큰을 스케줄러까지 넘길 수 있는지는 공식 문서로 확인하지 못했다.
+- S3 재확인(v1.7.0, 2026-10-27 릴리스, https://github.com/agentgateway/agentgateway/releases):
+  - MCP 인증은 `mcpAuthentication`(issuer, audiences, jwks), 도구 허용은 `mcpAuthorization.rules` 의 CEL(`mcp.tool.name`, `jwt.<클레임>`)이다. 허용되지 않은 도구는 `tools/list` 에서 빠진다. https://agentgateway.dev/docs/standalone/latest/configuration/security/mcp-authn/ , https://agentgateway.dev/docs/standalone/latest/configuration/security/mcp-authz.md
+  - 들어온 헤더를 MCP 백엔드로 넘기는지는 공식 문서에 없다. 소스(`crates/agentgateway/src/mcp/upstream/mod.rs` 의 `IncomingRequestContext::apply`)는 `content-encoding`·`content-length`·`mcp-session-id` 밖의 헤더(Host 포함)를 넘긴다. 로컬에서 v1.7.0 바이너리로 시험했다: JWT 를 확인한 뒤 `Authorization` 은 넘기지 않고, `transformations.request.set` 으로 클레임에서 만든 헤더는 넘기며 호출자가 보낸 같은 이름의 헤더를 덮어쓴다.
+  - JWKS 는 시작할 때 한 번 읽는다. 주소에 닿지 못하거나 응답에 `keys` 가 없으면 시작하지 않고, 실행 중에는 다시 읽지 않는다(2분 관찰).
+  - `ghcr.io/agentgateway/agentgateway:v1.7.0` 은 linux/amd64·linux/arm64 를 담은 index 다(레지스트리에서 확인). 로컬에서 작업 스레드 1개로 상주 메모리 약 60Mi.
+  - Claude Code 2.1.330 은 `--mcp-config` 의 `headers` 에서 `${VAR}` 를 펼친다(로컬 시험). https://code.claude.com/docs/en/mcp
 
 ## 결과
-- 상주 서비스가 둘(gateway, 스케줄러) 는다. 노드 메모리 여유는 확인하지 못했다.
+- 상주 서비스가 둘(gateway, 스케줄러) 는다. gateway 는 requests 64Mi·limits 128Mi(로컬 측정 약 60Mi). 노드 메모리 여유는 확인하지 못했다.
 - 새 이미지(`enikk-scheduler`)는 `.github/workflows/images.yml` 의 matrix 에 더해야 한다. 스레드 세션은 workflow 를 바꿀 수 없으므로(ADR-0037 2b) 소유자가 직접 고친다.
 - 구현 때 바꾸는 것(대체 표시는 그 단계에서):
   - I-05: 근거에 이 ADR 을 더한다.
@@ -99,6 +106,13 @@
    - Host 헤더는 서비스 이름만 받는다(DNS rebinding 방어).
    - 배포: 차트 `deploy/helm/scheduler`(Deployment, Service), Argo 앱, ServiceAccount `enikk-scheduler`, Image Updater 항목, core `roleBindings` 의 `role: scheduler`. 이미지 태그가 없거나 `enabled: false` 이면 복제본 0 이다.
 3. **S3**: agentgateway 배포, 엔진의 `tools.mcp` 연결, 호출자 신원. `agents/enikk.yaml` 에 스케줄러 조회 도구를 허용한다.
+   - 결정(소유자): 토큰 확인과 도구 허용 목록을 gateway 한곳에 모은다. 처음 낸 "runtime 안 중계"안(정의가 허용한 도구만 다시 보이는 SDK 서버)은 gateway 의 일과 겹쳐 버렸다.
+   - 토큰: core 가 임대를 줄 때 정의가 `tools.mcp` 를 가지면 ES256 JWT 를 서명해 `TaskAssignment.mcp_token` 으로 준다(`enikk_core.mcp_tokens`). 클레임은 `iss=enikk-core`, `aud=enikk-agentgateway`, 작업, 임대, 에이전트, 세션, `tools`(`<서버>:<도구>`), 만료(정의의 시간 한도 + 300초). 서명 키는 core 전용 비밀값 `mcp.token-signing-key`(EC P-256 PEM)이고, 없으면 MCP 도구 없이 돈다. 스케줄 실행(S5)에서 core 가 정의를 좁히면 토큰도 저절로 좁아진다.
+   - 공개 키: `GET /v1/mcp/jwks` 를 토큰 없이 준다(I-28 의 예외). 키가 없으면 503 이다. gateway 는 키를 시작할 때만 읽고 키 없이는 시작하지 않으므로, 키를 등록할 때까지 재시작하다 스스로 회복한다. 키를 바꾸면 gateway 매니페스트의 `enikk.dev/revision` 을 올려 다시 시작한다.
+   - 엔진: 정의의 서버마다 `<gateway>/mcp/<서버>` 를 CLI 의 HTTP MCP 서버로 붙이고 허용 도구만 `allowed_tools` 에 넣는다. 정의 밖 도구가 보이면 실행을 거부한다(I-14). 토큰은 헤더에 `${ENIKK_MCP_TOKEN}` 로만 적고 값은 CLI 환경에 둔다. SDK 가 MCP 설정을 CLI 인자로 넘기므로 값을 그대로 적으면 샌드박스의 셸이 `/proc` 에서 읽을 수 있다. 셸 래퍼는 이름에 `TOKEN` 이 든 변수를 지운다. 끄는 스위치는 runtime 의 `mcp.enabled` 다.
+   - gateway: `deploy/k8s/agentgateway`(업스트림 이미지를 digest 로 고정, 일반 매니페스트, requests 64Mi·limits 128Mi), Argo 앱 `enikk-agentgateway`(wave 30). 서버마다 경로 하나, `mcpAuthentication` → `mcpAuthorization`(gateway 의 상한 `require` + 토큰의 `tools` `allow`) → 토큰의 작업·임대를 `x-enikk-task-id`·`x-enikk-lease-id` 로 넘김. 스케줄러와 core 의 확인은 S2 그대로다. 우리 이미지가 아니므로 `deploy/images.yaml`·Image Updater 에 넣지 않는다(ADR-0040 의 "모든 차트는 우리 앱" 검사 때문에 Helm 차트가 아닌 일반 매니페스트로 둔다).
+   - 스케줄러는 gateway 가 넘기는 Host(`enikk-agentgateway…`)도 받는다. 진단 도구(deployments, service_logs)와 배포 알림에 gateway 를 더했다.
+   - 민감 경로: `enikk_core/mcp_tokens.py`, `deploy/k8s/agentgateway/`, Argo 앱, `enikk_engine_claude/mcp_gateway.py`.
 4. **S4**: 변경 도구, 권한 검사, 승인 카드(connector), 변경 알림과 경고.
 5. **S5**: 시계와 실행(스킬 미리 불러오기, 도구 좁히기, 출력 처리기, 재시도), `run_now`.
 6. **S6**: 경제 이슈 요약. 소유자가 대화로 직접 만들어 첫 실사용 시험으로 삼는다.

@@ -83,6 +83,7 @@ class Service(StrEnum):
     RUNTIME_CLAUDE = "runtime-claude"
     CONNECTOR_SLACK = "connector-slack"
     SCHEDULER = "scheduler"
+    AGENTGATEWAY = "agentgateway"
 
 
 class LogsQuery(Contract):

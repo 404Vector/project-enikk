@@ -19,6 +19,10 @@ class SchedulerSettings(ServiceSettings, env_prefix="ENIKK_SCHEDULER_"):
         "enikk-scheduler",
         "enikk-scheduler.enikk.svc",
         "enikk-scheduler.enikk.svc.cluster.local",
+        # agentgateway passes on the Host its caller used (ADR-0039 S3).
+        "enikk-agentgateway",
+        "enikk-agentgateway.enikk.svc",
+        "enikk-agentgateway.enikk.svc.cluster.local",
     )
     """Host header values the MCP endpoint accepts, with any port."""
     verbose: bool = False

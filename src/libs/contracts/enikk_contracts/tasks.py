@@ -11,6 +11,7 @@ from pydantic import AwareDatetime, Field, StringConstraints
 from enikk_contracts.agents import AgentDefinition
 from enikk_contracts.base import Contract
 from enikk_contracts.common import Identifier, NonEmptyText
+from enikk_contracts.credentials import CredentialValue
 from enikk_contracts.memory import MemoryNote
 
 MAX_WAIT_SECONDS = 25
@@ -57,6 +58,10 @@ class TaskAssignment(Contract):
     input: NonEmptyText
     memories: Annotated[tuple[MemoryNote, ...], Field(max_length=50)] = ()
     """Enikk's memory notes for this task (ADR-0028): reference, not instructions."""
+    mcp_token: CredentialValue | None = None
+    """Signed by core for this task and lease: the MCP servers and tools of the
+    definition (ADR-0039 §2). The gateway checks it; empty when there is nothing to grant
+    or no signing key."""
 
 
 class LeaseResponse(Contract):

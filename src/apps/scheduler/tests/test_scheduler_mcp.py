@@ -159,3 +159,10 @@ def test_caller_needs_both_ids(headers: dict[str, str] | None) -> None:
 def test_caller_headers_ignore_case() -> None:
     caller = caller_from({"X-Enikk-Task-Id": str(TASK), "X-ENIKK-LEASE-ID": str(LEASE)})
     assert caller == Caller(task_id=TASK, lease_id=LEASE)
+
+
+def test_accepts_the_host_agentgateway_passes_on() -> None:
+    from enikk_scheduler.settings import SchedulerSettings
+
+    hosts = SchedulerSettings().allowed_hosts
+    assert {"enikk-scheduler", "enikk-agentgateway", "enikk-agentgateway.enikk.svc"} <= set(hosts)

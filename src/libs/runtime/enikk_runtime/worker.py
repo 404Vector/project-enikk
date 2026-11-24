@@ -222,6 +222,7 @@ class TaskWorker:
             input=with_skills(text, skills),
             workspace=workspace,
             skills=skills,
+            mcp_token=assignment.mcp_token,
         )
         async with self._observer.observe(job) as observation:
             try:
