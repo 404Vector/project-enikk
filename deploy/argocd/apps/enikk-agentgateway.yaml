@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: enikk-agentgateway
+  namespace: argocd
+  annotations:
+    # After enikk-core (wave 10), whose public keys it reads at start, and the scheduler.
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/404Vector/project-enikk.git
+    targetRevision: main
+    path: deploy/k8s/agentgateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: enikk
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

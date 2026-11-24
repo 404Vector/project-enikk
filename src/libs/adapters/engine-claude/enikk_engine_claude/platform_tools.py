@@ -508,7 +508,7 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
     @tool(
         "service_logs",
         "Recent log lines of one of enikk's services: core, runtime-claude, "
-        "connector-slack or scheduler. minutes (default "
+        "connector-slack, scheduler or agentgateway. minutes (default "
         "30, at most 180) and contains (a word to filter lines) are optional. At most 200 "
         "lines; secrets are masked. " + DIAGNOSTICS_NOTE,
         {

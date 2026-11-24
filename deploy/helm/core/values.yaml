@@ -38,7 +38,8 @@ deployments:
   enabled: true
   intervalSeconds: 30
   argocdNamespace: argocd
-  apps: [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-scheduler]
+  apps:
+    [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-scheduler, enikk-agentgateway]
   timeoutSeconds: 600
   settleSeconds: 60
 

@@ -1,0 +1,52 @@
+# agentgateway's standalone configuration (ADR-0039 §2). One route per MCP server,
+# /mcp/<server> → that server only. Per server: check core's token
+# (mcpAuthentication), allow only the tools that are both in the ceiling and named by
+# the token (mcpAuthorization; others are also left out of tools/list), and hand the
+# task and lease from the token to the server (transformations; any such headers from
+# the caller are replaced). The token itself is not forwarded. The require rule is the
+# gateway's ceiling of tools for the server. After a change, bump enikk.dev/revision
+# in deployment.yaml so the gateway restarts with it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enikk-agentgateway
+  labels:
+    app.kubernetes.io/name: enikk-agentgateway
+    app.kubernetes.io/part-of: enikk
+data:
+  config.yaml: |
+    config:
+      adminAddr: "off"
+      statsAddr: "off"
+      readinessAddr: "0.0.0.0:15021"
+      workerThreads: "1"
+    binds:
+      - port: 8080
+        listeners:
+          - routes:
+              - name: scheduler
+                matches:
+                  - path: { pathPrefix: /mcp/scheduler }
+                policies:
+                  mcpAuthentication:
+                    issuer: "enikk-core"
+                    audiences: ["enikk-agentgateway"]
+                    jwks: { url: "http://enikk-core.enikk.svc/v1/mcp/jwks" }
+                    mode: strict
+                    resourceMetadata: {}
+                  mcpAuthorization:
+                    # Ceiling for this server; a task gets only the tools its token names.
+                    rules:
+                      - require: 'mcp.tool.name in ["list_schedules", "get_schedule", "list_runs"]'
+                      - allow: '("scheduler:" + mcp.tool.name) in jwt.tools'
+                  transformations:
+                    request:
+                      set:
+                        x-enikk-task-id: jwt.task
+                        x-enikk-lease-id: jwt.lease
+                backends:
+                  - mcp:
+                      statefulMode: stateless
+                      targets:
+                        - name: scheduler
+                          mcp: { host: "http://enikk-scheduler.enikk.svc/mcp" }
