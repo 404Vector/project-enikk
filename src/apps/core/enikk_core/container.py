@@ -62,7 +62,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
     store = DirectoryCredentialStore(settings.credentials_dir)
     catalog = YamlAgentCatalog.load(settings.agents_dir)
     memory = _memory(settings, store, clock, uow, ids, catalog)
-    mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.MCP_TOKEN_SIGNING_KEY))
+    mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.GITHUB_APP_PRIVATE_KEY))
     usecases = CoreUseCases(
         uow=uow,
         catalog=catalog,
