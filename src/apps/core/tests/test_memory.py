@@ -203,6 +203,36 @@ async def test_remember_writes_a_private_draft_note_and_tells_the_thread(
     assert told.text.startswith("기억했습니다: 배포 알림 / 위치")
 
 
+async def test_notes_name_the_agent_by_its_current_name(
+    harness: Harness, vault: VaultApi, writer: FakeWriter
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import RememberRequest
+    from enikk_core_domain.testing import T0, StaticAgentCatalog, agent
+    from enikk_kernel.ids import RandomIdGenerator
+
+    enikk = agent("enikk").model_copy(update={"aliases": ("assistant",)})
+    keeper = MemoryService(
+        uow=harness.db.unit_of_work,
+        app=harness.github,
+        vault=vault,
+        policy=MemoryPolicy(repository="vault.hyeongseok-kim"),
+        clock=harness.clock,
+        writer=writer,
+        ids=RandomIdGenerator(),
+        agents=StaticAgentCatalog(enikk),
+    )
+    _, work = await _owner_task(harness)  # a thread recorded under the former name
+    written = await keeper.remember(
+        work.id,  # type: ignore[attr-defined]
+        RememberRequest(lease_id=uuid.uuid4(), kind=NoteKind.FACT, title="사실", text="내용"),
+    )
+    assert "\nby: enikk\n" in vault.notes[written.path][1]
+    path = await keeper.write_conversations(T0.date(), "대화", "요약", 1)
+    assert "\nby: enikk\n" in vault.notes[path][1]
+
+
 async def test_work_expires_and_can_be_forgotten(
     harness: Harness, keeper: MemoryService, vault: VaultApi
 ) -> None:

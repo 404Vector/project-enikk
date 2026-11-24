@@ -225,7 +225,7 @@ class ClaudeSmokeTest:
         thread: str,
         text: str,
         *,
-        agent: str = "assistant",
+        agent: str = "enikk",
         timeout_seconds: float | None = None,
     ) -> str:
         accepted = await connector.submit_event(
@@ -271,7 +271,7 @@ def _smoke_event() -> InboundEvent:
         ),
         user="enikk-smoke",
         text="smoke test",
-        agent="assistant",
+        agent="enikk",
     )
 
 

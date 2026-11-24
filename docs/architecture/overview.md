@@ -6,7 +6,7 @@
 ## 목표
 
 소유자 1인이 Slack 으로 사용하는 개인용 AI 에이전트 에닉과 그 플랫폼.
-에이전트는 에닉 하나이고, `agents/*.yaml` 하나하나는 에닉의 역할(예: assistant, summarizer)이다(ADR-0031).
+`agents/*.yaml` 하나하나는 에이전트의 정의다. 지금 에이전트는 에닉(`enikk`) 하나이고, 대화 요약용 도구 없는 정의(`summarizer`)가 스케줄러로 옮길 때까지 남아 있다(ADR-0037 5b).
 
 - Slack(Socket Mode)으로 대화하고 작업을 맡긴다.
 - 역할 정의 파일에 적힌 엔진(Claude 또는 Gemini)이 작업을 수행한다 (ADR-0003, ADR-0005).
@@ -69,7 +69,7 @@
 ## 변경·배포 흐름
 
 ```
- Slack 프롬프트 변경 요청 ─► assistant 역할 ─► enikk-core ─► Langfuse 후보 버전(candidate)
+ Slack 프롬프트 변경 요청 ─► 에닉(enikk)     ─► enikk-core ─► Langfuse 후보 버전(candidate)
                                                    └─ 소유자 DM [승격] ─► core 가 production 라벨 이동 (ADR-0032)
 
  Slack 개선 요청 ─► enikk-core ─► 개발 역할 (격리 Pod)

@@ -6,8 +6,8 @@ owner: U04CF12EKRA
 
 # Agent that starts a new conversation. Replies in an existing thread keep its agent.
 routes:
-  direct_message: assistant
-  mention: assistant
+  direct_message: enikk
+  mention: enikk
 
 # Channel for deployment, image build and rollback notices (ADR-0026). The bot must be
 # a member. If posting there fails, the notice goes to the owner's DM instead.

@@ -106,12 +106,21 @@ class Execution(StrEnum):
 
 class AgentDefinition(Contract):
     name: AgentName
+    aliases: Annotated[tuple[AgentName, ...], Field(max_length=10)] = ()
+    """Former names of this agent. Sessions and tasks recorded under one of them run as
+    this agent (ADR-0037 5b: ``assistant`` became ``enikk``)."""
     description: Annotated[str, StringConstraints(min_length=1, max_length=500)]
     engine: Engine
     execution: Execution = Execution.SHARED
     prompt: PromptRef
     tools: ToolPolicy = ToolPolicy()
     limits: Limits = Limits()
+
+    @model_validator(mode="after")
+    def _distinct_aliases(self) -> Self:
+        if self.name in self.aliases or len(set(self.aliases)) != len(self.aliases):
+            raise ValueError("aliases must differ from the name and from each other")
+        return self
 
     @model_validator(mode="after")
     def _known_builtin_tools(self) -> Self:

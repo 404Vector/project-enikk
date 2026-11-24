@@ -16,10 +16,20 @@ if TYPE_CHECKING:
 
 
 class YamlAgentCatalog:
-    """Immutable catalog. Loading fails if any definition is invalid."""
+    """Immutable catalog. Loading fails if any definition is invalid. A definition is
+    found by its name or by one of its aliases (former names)."""
 
     def __init__(self, definitions: tuple[AgentDefinition, ...]) -> None:
         self._by_name = {d.name: d for d in definitions}
+        self._by_alias: dict[str, AgentDefinition] = {}
+        for definition in definitions:
+            for alias in definition.aliases:
+                if alias in self._by_name or alias in self._by_alias:
+                    raise ConfigurationError(
+                        f"alias '{alias}' of '{definition.name}' is already an agent's name "
+                        "or alias"
+                    )
+                self._by_alias[alias] = definition
 
     @classmethod
     def load(cls, directory: Path) -> YamlAgentCatalog:
@@ -42,7 +52,7 @@ class YamlAgentCatalog:
         return cls(tuple(definitions))
 
     def get(self, name: str) -> AgentDefinition | None:
-        return self._by_name.get(name)
+        return self._by_name.get(name) or self._by_alias.get(name)
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._by_name))

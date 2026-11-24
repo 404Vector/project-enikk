@@ -1,6 +1,6 @@
 # ADR-0035: 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다
 
-- 상태: 승인
+- 상태: 승인 (frontmatter 의 `by` 는 ADR-0037 5b 에서 `enikk` 로 바뀜)
 - 날짜: 2026-11-23
 - 관련: ADR-0006, ADR-0010, ADR-0014, ADR-0020, ADR-0027, ADR-0028, ADR-0032, ADR-0033, I-07, I-13, I-14, I-23, I-35, I-38
 
@@ -58,7 +58,7 @@ ADR-0028 §5 는 하루에 한 번 대화를 요약해 볼트의 `대화/YYYY-MM
 
 ### 4. 형식
 - 경로: `vault/Private/enikk/대화/YYYY-MM-DD.md` (날짜는 그 시간대 기준).
-- frontmatter: `title`(`YYYY-MM-DD 대화`), `kind: conversation`, `created`, `updated`, `source`(`enikk 대화 기록 (N개 스레드)`), `by: summarizer`, `draft: true`.
+- frontmatter: `title`(`YYYY-MM-DD 대화`), `kind: conversation`, `created`, `updated`, `source`(`enikk 대화 기록 (N개 스레드)`), `by: summarizer`(ADR-0037 5b 부터 `by: enikk`), `draft: true`.
 - 본문: core 가 `# YYYY-MM-DD 대화` 를 붙이고, 그 아래 요약 역할의 답(첫 줄은 그날의 한 줄 요약, 스레드마다 주제·결정·결과·남은 일), 끝에 core 가 `## 출처` 로 스레드 번호와 Slack 채널·스레드 ID, 관여한 역할을 붙인다.
 - Slack 링크 대신 채널·스레드 ID 를 적는다. core 는 Slack 워크스페이스 주소를 모르고, 영구 링크는 커넥터만 Slack API 로 만들 수 있다.
 
