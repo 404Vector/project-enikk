@@ -349,9 +349,10 @@ class ClaudeEngine:
             *code,
             *(workspace.read_paths if workspace else ()),
         ]
+        # Only this run's home under ``scratch_dir``; the launcher adds the SDK's resume
+        # directory when there is one (ADR-0037 3b).
         write = [
             cwd,
-            config.scratch_dir,
             home,
             *(Path(p) for p in SANDBOX_WRITE),
             *config.sandbox.write,

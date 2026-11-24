@@ -36,6 +36,7 @@ ENV_WRITE: Final = "ENIKK_SANDBOX_WRITE"
 ENV_SECRETS: Final = "ENIKK_SANDBOX_SECRETS"
 """Paths that must not be readable inside the sandbox; checked after restricting."""
 ENV_CLI: Final = "ENIKK_CLAUDE_CLI"
+CONFIG_DIR: Final = "CLAUDE_CONFIG_DIR"
 ENV_TOKEN: Final = "ENIKK_CLAUDE_OAUTH_TOKEN"  # noqa: S105 - variable name
 TOKEN_FD: Final = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"  # noqa: S105 - variable name
 LANDLOCK: Final = "landlock"
@@ -201,6 +202,16 @@ def clean_environment(env: dict[str, str]) -> dict[str, str]:
     }
 
 
+def with_config_dir(env: dict[str, str]) -> str:
+    """The writable paths plus the run's ``CLAUDE_CONFIG_DIR``: its home, or the
+    directory the SDK made to resume a session, which is only known here."""
+    config_dir = env.get(CONFIG_DIR, "")
+    paths = [p for p in env.get(ENV_WRITE, "").split(os.pathsep) if p]
+    if config_dir and config_dir not in paths:
+        paths.append(config_dir)
+    return os.pathsep.join(paths)
+
+
 def _paths(env: dict[str, str], name: str) -> list[Path]:
     return [Path(p) for p in env.get(name, "").split(os.pathsep) if p]
 
@@ -226,6 +237,7 @@ def launch() -> None:
         os.close(write_end)
         os.set_inheritable(read_end, True)
         env[TOKEN_FD] = str(read_end)
+    env[ENV_WRITE] = with_config_dir(env)
     try:
         _enter(env)
     except SandboxError as exc:

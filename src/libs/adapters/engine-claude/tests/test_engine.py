@@ -494,6 +494,7 @@ async def test_the_session_workspace_opens_only_its_own_paths(tmp_path: Path) ->
     assert str(data / "snapshots" / ("a" * 40)) not in write
     for path in (data / "repo.git", data / "worktrees" / session, data / "tmp" / session):
         assert str(path) in write
+    assert str(tmp_path / "scratch") not in write
     assert str(data) not in write
     assert str(data / "worktrees") not in write
 
