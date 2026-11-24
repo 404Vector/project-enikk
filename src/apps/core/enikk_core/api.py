@@ -232,7 +232,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         """Public keys only; the gateway reads them without a token (ADR-0039 §2, I-28).
 
         503 without a key: the gateway reads the keys once when it starts and does not
-        start without them, so it restarts until the key is registered."""
+        start without them, so it restarts until core has its source key."""
         jwks = McpJwks() if services.mcp_tokens is None else services.mcp_tokens.jwks()
         if not jwks.keys:
             return Response(

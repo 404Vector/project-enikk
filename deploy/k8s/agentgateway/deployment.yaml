@@ -25,7 +25,8 @@ spec:
       annotations:
         # The gateway reads its configuration and core's public keys at start, and does
         # not start while core has no key (503). Bump this after changing configmap.yaml
-        # or rotating mcp.token-signing-key so the gateway restarts and reads them.
+        # or the GitHub App private key (the MCP signing key is derived from it) so the
+        # gateway restarts and reads them.
         enikk.dev/revision: "1"
     spec:
       # No Kubernetes API token and no credentials: it holds no secret (I-09, I-28).

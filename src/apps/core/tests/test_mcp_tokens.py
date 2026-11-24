@@ -16,7 +16,7 @@ from enikk_contracts.agents import McpToolGrant, ToolPolicy
 from enikk_contracts.mcp import McpJwks
 from enikk_contracts.routes import MCP_JWKS
 from enikk_core.api import create_app
-from enikk_core.mcp_tokens import McpTokenIssuer, granted_tools
+from enikk_core.mcp_tokens import McpTokenIssuer, derive_signing_key, granted_tools, key_id
 from enikk_core_domain.testing import T0, agent
 
 if TYPE_CHECKING:
@@ -108,15 +108,12 @@ def test_signature_does_not_verify_with_another_key() -> None:
     raise AssertionError("verified with the wrong key")
 
 
-def test_no_token_without_grants_or_key() -> None:
+def test_no_token_without_grants_or_source_key() -> None:
     key = ec.generate_private_key(ec.SECP256R1())
     granted = with_mcp(McpToolGrant(server="scheduler", allow=("list_schedules",)))
 
     assert issue(McpTokenIssuer(lambda: pem(key)), agent("enikk")) is None
     assert issue(McpTokenIssuer(lambda: None), granted) is None
-    assert issue(McpTokenIssuer(lambda: SecretStr("not a key")), granted) is None
-    rsa_like = ec.generate_private_key(ec.SECP384R1())
-    assert issue(McpTokenIssuer(lambda: pem(rsa_like)), granted) is None
     assert McpTokenIssuer(lambda: None).jwks() == McpJwks()
 
 
@@ -152,3 +149,20 @@ async def test_jwks_is_unavailable_without_a_key(harness: Harness) -> None:
     ) as client:
         response = await client.get(MCP_JWKS)
     assert response.status_code == 503
+
+
+def test_signing_key_is_derived_the_same_way_every_time() -> None:
+    source = pem(ec.generate_private_key(ec.SECP256R1()))
+    first = McpTokenIssuer(lambda: source).jwks()
+    again = McpTokenIssuer(lambda: source).jwks()
+    other = McpTokenIssuer(lambda: SecretStr("another source")).jwks()
+
+    assert first == again
+    assert first.keys[0].kid != other.keys[0].kid
+
+
+def test_signing_key_is_not_the_source_key() -> None:
+    source = ec.generate_private_key(ec.SECP256R1())
+    (jwk,) = McpTokenIssuer(lambda: pem(source)).jwks().keys
+    assert jwk.kid != key_id(source.public_key())
+    assert derive_signing_key(b"x").private_numbers() != derive_signing_key(b"y").private_numbers()

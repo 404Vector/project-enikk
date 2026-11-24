@@ -5,6 +5,11 @@ the MCP tools the definition grants (``<server>:<tool>``). The gateway checks th
 signature with the public keys from ``/v1/mcp/jwks``, shows and allows only the named
 tools, and hands the task and lease to the MCP server, which asks core whether the
 lease is still alive.
+
+The signing key is derived from core's GitHub App private key (HKDF-SHA256 with a
+purpose label), so it needs no registration and stays the same across restarts. The
+derivation is one-way: the signing key does not reveal the GitHub key. Changing the
+GitHub key changes the signing key; the gateway then needs a restart (ADR-0039 S3).
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from typing import TYPE_CHECKING, Final
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import BaseModel, SecretStr
 
 from enikk_contracts.mcp import TOKEN_AUDIENCE, TOKEN_ISSUER, McpJwk, McpJwks
@@ -31,6 +37,11 @@ if TYPE_CHECKING:
 TOKEN_MARGIN_SECONDS: Final = 300
 """How long a token outlives the task's own time limit."""
 _COORDINATE_BYTES: Final = 32
+DERIVATION_LABEL: Final = b"enikk mcp token signing key v1"
+"""Separates this key from any other use of the source key."""
+_P256_ORDER: Final = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_DERIVED_BYTES: Final = 48
+"""More than the curve order's 32 bytes, so the reduction below is close to uniform."""
 
 _log = logging.getLogger(__name__)
 
@@ -60,10 +71,12 @@ def granted_tools(definition: AgentDefinition) -> tuple[str, ...]:
 
 
 class McpTokenIssuer:
-    """Signs the tasks' MCP tokens with the key from core's credentials."""
+    """Signs the tasks' MCP tokens with a key derived from one of core's credentials."""
 
-    def __init__(self, key: Callable[[], SecretStr | None]) -> None:
-        self._key = key
+    def __init__(self, source: Callable[[], SecretStr | None]) -> None:
+        """``source`` reads the secret the signing key is derived from."""
+        self._source = source
+        self._cached: tuple[bytes, ec.EllipticCurvePrivateKey] | None = None
 
     def issue(
         self,
@@ -74,13 +87,13 @@ class McpTokenIssuer:
         definition: AgentDefinition,
         now: datetime,
     ) -> SecretStr | None:
-        """``None`` when the definition grants no MCP tool or there is no key."""
+        """``None`` when the definition grants no MCP tool or there is no source key."""
         tools = granted_tools(definition)
         if not tools:
             return None
         key = self._private_key()
         if key is None:
-            _log.warning("task %s: no MCP signing key; the task runs without MCP tools", task_id)
+            _log.warning("task %s: no key to sign MCP tokens; it runs without MCP tools", task_id)
             return None
         issued = int(now.timestamp())
         claims = _Claims(
@@ -105,18 +118,23 @@ class McpTokenIssuer:
         return McpJwks() if key is None else McpJwks(keys=(public_jwk(key.public_key()),))
 
     def _private_key(self) -> ec.EllipticCurvePrivateKey | None:
-        value = self._key()
+        value = self._source()
         if value is None:
             return None
-        try:
-            key = serialization.load_pem_private_key(value.get_secret_value().encode(), None)
-        except (ValueError, TypeError):
-            _log.error("the MCP signing key is not a PEM private key")
-            return None
-        if not isinstance(key, ec.EllipticCurvePrivateKey) or key.curve.name != "secp256r1":
-            _log.error("the MCP signing key must be an EC P-256 key")
-            return None
-        return key
+        source = value.get_secret_value().encode()
+        digest = hashlib.sha256(source).digest()
+        if self._cached is None or self._cached[0] != digest:
+            self._cached = (digest, derive_signing_key(source))
+        return self._cached[1]
+
+
+def derive_signing_key(source: bytes) -> ec.EllipticCurvePrivateKey:
+    """The P-256 key for MCP tokens, derived one-way from ``source``."""
+    material = HKDF(
+        algorithm=hashes.SHA256(), length=_DERIVED_BYTES, salt=None, info=DERIVATION_LABEL
+    ).derive(source)
+    scalar = int.from_bytes(material, "big") % (_P256_ORDER - 1) + 1
+    return ec.derive_private_key(scalar, ec.SECP256R1())
 
 
 def public_jwk(key: ec.EllipticCurvePublicKey) -> McpJwk:
