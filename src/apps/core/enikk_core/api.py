@@ -229,9 +229,16 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
 
     @app.get(routes.MCP_JWKS, responses={200: {"model": McpJwks}})
     async def mcp_jwks() -> Response:
-        """Public keys only; the gateway reads them without a token (ADR-0039 §2, I-28)."""
-        tokens = services.mcp_tokens
-        return _json(McpJwks() if tokens is None else tokens.jwks())
+        """Public keys only; the gateway reads them without a token (ADR-0039 §2, I-28).
+
+        503 without a key: the gateway reads the keys once when it starts and does not
+        start without them, so it restarts until the key is registered."""
+        jwks = McpJwks() if services.mcp_tokens is None else services.mcp_tokens.jwks()
+        if not jwks.keys:
+            return Response(
+                '{"error":"no MCP signing key"}', status_code=503, media_type="application/json"
+            )
+        return _json(jwks)
 
     @app.post(routes.EVENTS, responses={200: {"model": EventAccepted}})
     @requires("connector")

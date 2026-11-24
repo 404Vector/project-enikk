@@ -141,3 +141,14 @@ async def test_jwks_is_served_without_a_token(harness: Harness) -> None:
     jwks = McpJwks.model_validate_json(response.content)
     assert len(jwks.keys) == 1
     assert '"d":' not in response.text
+
+
+@pytest.mark.anyio
+async def test_jwks_is_unavailable_without_a_key(harness: Harness) -> None:
+    harness.services.mcp_tokens = McpTokenIssuer(lambda: None)
+    app = create_app(harness.services, run_reaper=False)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://core.test"
+    ) as client:
+        response = await client.get(MCP_JWKS)
+    assert response.status_code == 503
