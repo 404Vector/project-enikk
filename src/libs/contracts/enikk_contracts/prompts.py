@@ -18,6 +18,9 @@ from enikk_contracts.skills import Capability, SkillDescription
 
 MAX_PROMPT_CHARS: Final = 100_000
 MAX_DIFF_CHARS: Final = 200_000
+BASE_PROMPT: Final = "enikk"
+"""The base prompt every session of enikk loads (ADR-0037 §1). Candidates may be made
+for it before any agent definition uses it."""
 
 PromptName = Annotated[str, StringConstraints(min_length=1, max_length=200)]
 Version = Annotated[int, Field(ge=1)]

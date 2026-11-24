@@ -14,6 +14,7 @@ from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import (
+    BASE_PROMPT,
     PromotionAction,
     PromotionDecision,
     PromotionPosted,
@@ -529,6 +530,48 @@ async def test_read_prompt_needs_the_grant_and_the_lease(
         await claude.read_prompt(
             lease.task_id, PromptReadRequest(lease_id=lease.lease_id, prompt="assistant")
         )
+
+
+# ---------------------------------------------------------------- base prompt (ADR-0037 §1)
+
+
+async def test_the_base_prompt_can_be_proposed_before_any_role_uses_it(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _request(
+        lease.lease_id,
+        prompt=BASE_PROMPT,
+        config=PromptConfigChange(model="claude-a", effort="high"),
+    )
+    created = await claude.propose_prompt(lease.task_id, request)
+    assert (created.production_version, created.candidate_version) == (None, 1)
+    stored = langfuse.versions[BASE_PROMPT][0]
+    assert stored.labels == (CANDIDATE,)
+    assert stored.config == {"model": "claude-a", "effort": "high"}
+    assert langfuse.production_moves == []
+    [notice] = harness.db.notices.values()
+    assert isinstance(notice.body, PromotionRequested)
+    assert (notice.body.prompt, notice.body.roles) == (BASE_PROMPT, ())
+    read = await claude.read_prompt(
+        lease.task_id,
+        PromptReadRequest(lease_id=lease.lease_id, prompt=BASE_PROMPT, label=CANDIDATE),
+    )
+    assert read.text == TEXT
+
+
+async def test_the_base_prompt_takes_no_skill_config(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _request(
+        lease.lease_id,
+        prompt=BASE_PROMPT,
+        config=PromptConfigChange(model="claude-a", description="d"),
+    )
+    with pytest.raises(CoreApiError, match="only for skill prompts"):
+        await claude.propose_prompt(lease.task_id, request)
+    assert langfuse.created == []
 
 
 # ---------------------------------------------------------------- skills (ADR-0037 §2)
