@@ -28,6 +28,12 @@ RUN if [ "${PACKAGE}" = "enikk-runtime-claude" ] || [ "${PACKAGE}" = "enikk-core
       && apt-get install --yes --no-install-recommends git ca-certificates \
       && rm -rf /var/lib/apt/lists/*; \
     fi
+# The Claude runtime also gets uv, so a session can run the project checks in its
+# worktree (ADR-0037 4a). The check tools come from uv.lock there, not from this image.
+RUN --mount=type=bind,from=uv,source=/uv,target=/mnt/uv \
+    if [ "${PACKAGE}" = "enikk-runtime-claude" ]; then \
+      install -m 0755 /mnt/uv /usr/local/bin/uv; \
+    fi
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home app
 COPY --from=build /app/.venv /app/.venv

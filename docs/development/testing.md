@@ -41,6 +41,23 @@ ENIKK_TEST_POSTGRES_DSN=postgresql://enikk@127.0.0.1:5432/postgres uv run pytest
 개발 이미지(`deploy/docker/dev-agent.Dockerfile`)에 Postgres 18 서버가 들어 있고 `ENIKK_TEST_POSTGRES_BIN` 이 설정돼 있다.
 개발 역할은 PC 와 같은 명령(`uv run pytest`)만 실행하면 된다. Docker 는 필요 없다.
 
+### 에닉 세션에서 (runtime, 스레드 worktree)
+
+runtime 이미지에는 `uv` 만 있고 Postgres 도 Docker 도 없다(ADR-0037 4a). 그래서 영속성 통합 테스트는 이 환경에서 돌리지 않고 CI 에 맡긴다. 그 밖의 검사는 AGENTS.md 와 같다.
+
+```bash
+uv sync --all-packages
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy
+uv run lint-imports
+uv run pytest --ignore=src/libs/adapters/persistence-sql/tests
+```
+
+- 픽스처는 그대로다. 이 디렉터리를 빼지 않으면 testcontainers 가 Docker 를 찾다 오류로 끝난다.
+- 영속성 코드(`persistence-sql`, 마이그레이션)를 바꿨으면 PR 본문에 "영속성 테스트는 CI 에서만 확인"이라고 적고, 소유자는 CI 결과를 보고 승인한다.
+- uv 캐시는 `UV_CACHE_DIR=/data/tmp/<스레드>/uv-cache` 처럼 그 스레드의 tmp 에 둔다. 기본 위치(그 실행의 홈)는 runtime 의 `/tmp` emptyDir(1Gi 한도, 두 칸이 함께 씀) 아래라, 넘치면 Pod 가 축출된다. 다른 스레드와 캐시를 함께 쓰지 않는다.
+
 ## 비밀 파일 권한 테스트
 
 `src/apps/ops-cli/tests/test_secrets.py` 는 비밀 파일이 정확히 0600, 그 디렉터리의 권한 비트가 0700 인지 확인한다.
