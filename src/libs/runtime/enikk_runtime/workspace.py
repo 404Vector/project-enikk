@@ -13,7 +13,7 @@ Layout under the volume root::
 resets the base repository's config and hooks to known values, fetches main when the
 last fetch is old enough, writes a snapshot of it, clears stale git locks, prunes
 worktrees, deletes workspaces idle for ``idle_days`` and makes (or reuses) the
-session's worktree. Nothing runs in between: there is no sidecar (ADR-0037 §7).
+session's worktree, moving its branch to main when its work is already there. Nothing runs in between: there is no sidecar (ADR-0037 §7).
 
 Sessions may write the base repository (their commits go there), so its config and
 hooks are not trusted. Every git command here runs with the system and global config
@@ -308,6 +308,7 @@ class SessionWorkspaces:
     def _worktree(self, session_id: uuid.UUID, commit: str) -> Path | None:
         path = self._config.worktrees_dir / str(session_id)
         if (path / ".git").is_file():
+            self._catch_up(session_id, path, commit)
             return path
         free = shutil.disk_usage(self._config.root).free
         if free < self._config.min_free_bytes:
@@ -317,6 +318,40 @@ class SessionWorkspaces:
         branch = f"{BRANCH_PREFIX}{session_id}"
         made = self._git("worktree", "add", "--quiet", "-B", branch, str(path), commit, check=False)
         return path if made is not None and (path / ".git").is_file() else None
+
+    def _catch_up(self, session_id: uuid.UUID, path: Path, commit: str) -> None:
+        """Move the session's branch to ``commit`` when nothing would be lost: the
+        worktree is clean, on its own branch, and every file the branch changed since
+        main is already the same in ``commit`` (e.g. its PR was squash-merged)."""
+        branch = f"refs/heads/{BRANCH_PREFIX}{session_id}"
+        admin = self._config.repo_dir / "worktrees" / str(session_id)
+        if not admin.is_dir():
+            return
+        head = (self._git("rev-parse", "--verify", "--quiet", branch, check=False) or "").strip()
+        if not _COMMIT.match(head) or head == commit:
+            return
+        base = (self._git("merge-base", commit, head, check=False) or "").strip()
+        if not _COMMIT.match(base):
+            return
+        if base != head:
+            own = self._changed(base, head)
+            differ = self._changed(head, commit)
+            if own is None or differ is None or own & differ:
+                return
+        on = self._git_in(admin, path, "symbolic-ref", "--quiet", "HEAD", check=False)
+        if on is None or on.strip() != branch:
+            return
+        status = self._git_in(admin, path, "status", "--porcelain", check=False)
+        if status is None or status.strip():
+            return
+        if self._git_in(admin, path, "reset", "--quiet", "--hard", commit, check=False) is None:
+            return
+        _log.info("moved session %s from %s to main %s", session_id, head[:12], commit[:12])
+
+    def _changed(self, old: str, new: str) -> set[str] | None:
+        """Paths that differ between two commits, or ``None`` when git failed."""
+        out = self._git("diff", "--name-only", "--no-renames", "-z", old, new, check=False)
+        return None if out is None else {p for p in out.split("\0") if p}
 
     def _remove_idle(self, keep: uuid.UUID) -> None:
         cutoff = self._clock.now() - timedelta(days=self._config.idle_days)
@@ -379,22 +414,13 @@ class SessionWorkspaces:
 
     def _git(self, *args: str, check: bool = True) -> str | None:
         """Run git on the base repository. ``None`` when it failed and ``check`` is off."""
-        hardened = [
-            "env",
-            "GIT_CONFIG_NOSYSTEM=1",
-            "GIT_CONFIG_GLOBAL=/dev/null",
-            "GIT_TERMINAL_PROMPT=0",
-            "git",
-            f"--git-dir={self._config.repo_dir}",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "protocol.ext.allow=never",
-            *args,
-        ]
-        return self._run(hardened, check=check)
+        return self._run(_hardened([f"--git-dir={self._config.repo_dir}"], args), check=check)
+
+    def _git_in(self, admin: Path, worktree: Path, *args: str, check: bool = True) -> str | None:
+        """Run git on a session's worktree through its admin folder in the base
+        repository, not the worktree's own ``.git`` file (the session can change it)."""
+        argv = _hardened([f"--git-dir={admin}", f"--work-tree={worktree}"], args)
+        return self._run(argv, check=check)
 
     def _run(self, argv: list[str], *, check: bool = True) -> str | None:
         limited = ["timeout", "--kill-after=5", str(self._config.git_timeout_seconds), *argv]
@@ -407,6 +433,25 @@ class SessionWorkspaces:
             raise WorkspaceError(f"{argv[-1]} failed ({result.returncode}): {detail}")
         _log.warning("git %s failed (%d): %s", " ".join(argv[-3:]), result.returncode, detail)
         return None
+
+
+def _hardened(where: Sequence[str], args: Sequence[str]) -> list[str]:
+    """git at ``where`` with the system and global config ignored, hooks and fsmonitor off."""
+    return [
+        "env",
+        "GIT_CONFIG_NOSYSTEM=1",
+        "GIT_CONFIG_GLOBAL=/dev/null",
+        "GIT_TERMINAL_PROMPT=0",
+        "git",
+        *where,
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "protocol.ext.allow=never",
+        *args,
+    ]
 
 
 def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
