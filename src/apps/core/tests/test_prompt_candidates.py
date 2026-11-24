@@ -12,6 +12,7 @@ import pytest
 from enikk_contracts.agents import PlatformTool, ToolPolicy
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
+from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import (
     PromotionAction,
     PromotionDecision,
@@ -171,7 +172,7 @@ def _request(lease: uuid.UUID, **changes: object) -> PromptCandidateRequest:
 
 
 async def _outbox(harness: Harness) -> list[str]:
-    return [m.text for m in harness.db.outbox.values()]
+    return [m.text for m in harness.db.outbox.values() if m.kind is not OutboundKind.STARTED]
 
 
 # ---------------------------------------------------------------- candidates

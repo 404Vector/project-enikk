@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from enikk_connector_slack.routing import Router
 
 RECEIVED: Final = "eyes"
+"""Shown while the task runs."""
+WAITING: Final = "hourglass_flowing_sand"
+"""Shown from acceptance until a worker takes the task (ADR-0037 3b)."""
 
 _log = logging.getLogger(__name__)
 
@@ -64,4 +67,4 @@ class InboundHandler:
     async def mark_received(self, decision: Decision) -> None:
         """Runs after the acknowledgement, so Slack's 3-second limit does not include it."""
         if decision.received is not None:
-            await self._slack.react(decision.received, RECEIVED)
+            await self._slack.react(decision.received, WAITING)

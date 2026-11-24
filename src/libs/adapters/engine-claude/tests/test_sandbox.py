@@ -507,3 +507,34 @@ async def test_a_failing_web_search_is_a_tool_error_not_a_failed_task(
     assert "web search is not available" in output
     logged = [r.getMessage() for r in caplog.records]
     assert f"tool WebSearch role assistant task {job.task_id}: enikk weather" in logged
+
+
+@needs_landlock
+def test_the_launcher_opens_the_run_config_dir_and_not_its_neighbours(
+    tmp_path: Path, secret: Path
+) -> None:
+    (tmp_path / "work").mkdir()
+    scratch = tmp_path / "scratch"
+    mine, other = scratch / "claude-resume-mine", scratch / "claude-other"
+    mine.mkdir(parents=True)
+    other.mkdir()
+    fake_cli = tmp_path / "work" / "fake-cli"
+    fake_cli.write_text(
+        "#!/bin/sh\n"
+        f"touch {mine}/ok 2>/dev/null && echo MINE_WRITTEN || echo MINE_DENIED\n"
+        f"touch {other}/x 2>/dev/null && echo OTHER_WRITTEN || echo OTHER_DENIED\n"
+    )
+    fake_cli.chmod(0o755)
+    env = _env(tmp_path, secret, **{sandbox.ENV_CLI: str(fake_cli), sandbox.CONFIG_DIR: str(mine)})
+    done = _run([str(BIN / "enikk-claude-launch")], env)
+    assert done.returncode == 0, done.stderr
+    assert "MINE_WRITTEN" in done.stdout
+    assert "OTHER_DENIED" in done.stdout
+
+
+def test_the_config_dir_is_added_to_the_writable_paths_once() -> None:
+    env = {sandbox.ENV_WRITE: os.pathsep.join(["/w", "/c"]), sandbox.CONFIG_DIR: "/c"}
+    assert sandbox.with_config_dir(env) == os.pathsep.join(["/w", "/c"])
+    env[sandbox.CONFIG_DIR] = "/r"
+    assert sandbox.with_config_dir(env) == os.pathsep.join(["/w", "/c", "/r"])
+    assert sandbox.with_config_dir({}) == ""

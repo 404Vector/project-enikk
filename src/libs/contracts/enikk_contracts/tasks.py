@@ -118,6 +118,17 @@ class ResultReport(Contract):
     outcome: Annotated[Succeeded | Failed, Field(discriminator="kind")]
 
 
+class CancelRequest(Contract):
+    """The owner cancels the work of the thread this task belongs to (ADR-0037 3b)."""
+
+
+class CancelResult(Contract):
+    """``cancelled`` is empty when the thread had nothing queued or running."""
+
+    task_id: uuid.UUID
+    cancelled: tuple[uuid.UUID, ...]
+
+
 class ResultAccepted(Contract):
     task_id: uuid.UUID
     status: TaskStatus

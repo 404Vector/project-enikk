@@ -27,6 +27,8 @@ from enikk_contracts.prompts import (
 )
 from enikk_contracts.pulls import PullSubmitted
 from enikk_contracts.tasks import (
+    CancelRequest,
+    CancelResult,
     ClaimRequest,
     DelegationAccepted,
     LeaseExtended,
@@ -152,6 +154,11 @@ class CoreClient:
 
     async def ack_outbox(self, ack: OutboxAck) -> OutboxAcked:
         return _parse(OutboxAcked, await self._post(routes.OUTBOX_ACK, ack))
+
+    async def cancel_task(self, task_id: uuid.UUID) -> CancelResult:
+        """Slack connector only: cancel the queued and running work of the task's thread."""
+        path = routes.TASK_CANCEL.format(task_id=task_id)
+        return _parse(CancelResult, await self._post(path, CancelRequest()))
 
     async def append_transcript(
         self, task_id: uuid.UUID, request: TranscriptAppend

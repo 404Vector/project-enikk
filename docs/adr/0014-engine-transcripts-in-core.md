@@ -1,8 +1,10 @@
 # ADR-0014: 엔진 대화 이력(트랜스크립트)은 core 가 저장한다
 
-- 상태: 승인
+- 상태: 승인 (transcript 키의 `project_key` 는 ADR-0037 3a 로 부분 대체)
 - 날짜: 2026-11-22
-- 관련: ADR-0010, ADR-0011, ADR-0012, I-11, I-25, I-26, I-27, I-29, I-31, P-13
+- 관련: ADR-0010, ADR-0011, ADR-0012, I-11, I-25, I-26, I-27, I-29, I-31, P-13, ADR-0037
+
+> ADR-0037 3단계가 부분 대체한다. 공유 역할의 작업은 작업마다 다른 디렉터리(`/work/<작업 ID>`)에서 돌므로, `CoreSessionStore` 가 모든 키의 `project_key` 를 `workdir`(`/work`)에서 만든 고정값으로 바꾼다(3a). core 에 저장되는 키는 전과 같다. 세션은 스레드 하나이고, 취소된 작업의 transcript 는 그때까지 쓴 만큼 남는다(3b).
 
 ## 배경
 Claude Agent SDK 는 대화 이력(트랜스크립트)을 실행 중인 머신의 로컬 파일에 쓴다(`~/.claude/projects/<cwd 에서 만든 키>/<세션 ID>.jsonl`).

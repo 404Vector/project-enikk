@@ -11,7 +11,7 @@ import pytest
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.events import InboundEvent
 from enikk_contracts.github import GitHubTokenRequest
-from enikk_contracts.outbox import OutboundKind, OutboxPoll
+from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxBatch, OutboxPoll
 from enikk_contracts.tasks import (
     Heartbeat,
     LeaseRequest,
@@ -21,7 +21,7 @@ from enikk_contracts.tasks import (
 )
 from enikk_core.dispatcher import DevJobDispatcher, DispatchOutcome
 from enikk_core.settings import DevAgentSettings
-from enikk_core_client import CoreConflictError, CoreForbiddenError, CoreNotFoundError
+from enikk_core_client import CoreClient, CoreConflictError, CoreForbiddenError, CoreNotFoundError
 from enikk_github.permissions import TokenPurpose
 from enikk_kernel.ids import RandomIdGenerator
 
@@ -61,7 +61,7 @@ async def test_dev_agent_claims_its_task_and_reports(harness: Harness) -> None:
         report = ResultReport(lease_id=assignment.lease_id, outcome=Succeeded(text="PR #1"))
         result = await dev.report_result(assignment.task_id, report)
         assert result.status is TaskStatus.SUCCEEDED
-        batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
+        batch = await _poll_answers(slack)
         assert [m.text for m in batch.messages] == ["PR #1"]
 
 
@@ -209,7 +209,7 @@ async def test_task_without_a_reporting_worker_is_abandoned(harness: Harness) ->
             assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
             launcher.finish_all()
         assert await dispatcher.dispatch_once() is DispatchOutcome.ABANDONED
-        batch = await slack.poll_outbox(OutboxPoll(wait_seconds=0))
+        batch = await _poll_answers(slack)
     assert [m.kind for m in batch.messages] == [OutboundKind.FAILURE]
     assert batch.messages[0].task_id == accepted.task_id
     assert await dispatcher.dispatch_once() is DispatchOutcome.IDLE
@@ -251,3 +251,14 @@ async def test_concurrency_limit_allows_several_jobs_at_once(harness: Harness) -
     assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
     assert await dispatcher.dispatch_once() is DispatchOutcome.LAUNCHED
     assert await dispatcher.dispatch_once() is DispatchOutcome.BUSY
+
+
+async def _poll_answers(client: CoreClient) -> OutboxBatch:
+    """Poll the outbox, acknowledging and leaving out the "started" notes (ADR-0037 3b)."""
+    batch = await client.poll_outbox(OutboxPoll(wait_seconds=0))
+    started = tuple(m.message_id for m in batch.messages if m.kind is OutboundKind.STARTED)
+    if started:
+        await client.ack_outbox(OutboxAck(message_ids=started))
+    return OutboxBatch(
+        messages=tuple(m for m in batch.messages if m.kind is not OutboundKind.STARTED)
+    )

@@ -191,7 +191,10 @@ class Task(Entity):
 
     def already_reported(self, lease_id: uuid.UUID) -> bool:
         """True when the result for ``lease_id`` was applied before (idempotent retry)."""
-        return self.status is not TaskStatus.LEASED and self.last_lease_id == lease_id
+        return (
+            self.status not in (TaskStatus.LEASED, TaskStatus.CANCELLED)
+            and self.last_lease_id == lease_id
+        )
 
     def succeed(self, *, lease_id: uuid.UUID, text: str, now: datetime) -> Self:
         self._active_lease(lease_id, now)

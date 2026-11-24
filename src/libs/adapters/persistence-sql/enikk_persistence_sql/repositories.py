@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import (
@@ -149,6 +150,18 @@ class SqlTaskRepository:
         )
         return [mappers.task_from_row(row) for row in rows]
 
+    async def active_in_session(self, session_id: uuid.UUID) -> Sequence[Task]:
+        rows = await self._db.scalars(
+            select(TaskRow)
+            .where(
+                TaskRow.session_id == session_id,
+                TaskRow.status.in_((TaskStatus.QUEUED.value, TaskStatus.LEASED.value)),
+            )
+            .order_by(TaskRow.created_at, TaskRow.id)
+            .with_for_update()
+        )
+        return [mappers.task_from_row(row) for row in rows]
+
     async def add(self, task: Task) -> None:
         self._db.add(mappers.task_to_row(task))
         await _flush(self._db, f"task {task.id}")
@@ -181,6 +194,7 @@ class SqlOutboxRepository:
                 OutboxRow.thread == conversation.thread,
                 OutboxRow.created_at > since,
                 TaskRow.session_id != session_id,
+                OutboxRow.kind != OutboundKind.STARTED.value,
             )
             .order_by(OutboxRow.created_at.desc(), OutboxRow.id.desc())
             .limit(limit)

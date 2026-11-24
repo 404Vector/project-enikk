@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         PromotionPosted,
         PromotionResult,
     )
+    from enikk_contracts.tasks import CancelResult
     from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 
 
@@ -57,6 +58,8 @@ class CoreApi(Protocol):
     async def promotion_posted(
         self, promotion_id: uuid.UUID, posted: PromotionPosted
     ) -> PromotionLinked: ...
+
+    async def cancel_task(self, task_id: uuid.UUID) -> CancelResult: ...
 
 
 class SlackDeliveryError(EnikkError):
@@ -91,6 +94,10 @@ class SlackApi(Protocol):
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:
         """Replace a message. Failures are logged, never raised."""
+        ...
+
+    async def delete_message(self, channel: str, ts: str) -> None:
+        """Delete one of the bot's messages. Failures are logged, never raised."""
         ...
 
     async def post_ephemeral(self, channel: str, user: str, text: str) -> None:

@@ -63,6 +63,8 @@ from enikk_contracts.prompts import (
 )
 from enikk_contracts.pulls import PullSubmission, PullSubmitted
 from enikk_contracts.tasks import (
+    CancelRequest,
+    CancelResult,
     ClaimRequest,
     DelegateRequest,
     DelegationAccepted,
@@ -241,6 +243,13 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         role = _connector(await gate.admit(request))
         ack = await _parse(request, OutboxAck)
         return _json(await usecases.ack_outbox(role.connector, ack))
+
+    @app.post(routes.TASK_CANCEL, responses={200: {"model": CancelResult}})
+    @requires("connector")
+    async def cancel_task(task_id: uuid.UUID, request: Request) -> Response:
+        role = _owner_channel(await gate.admit(request))
+        await _parse(request, CancelRequest)
+        return _json(await usecases.cancel_task(role.connector, task_id))
 
     @app.post(routes.TASK_LEASE, responses={200: {"model": LeaseResponse}})
     @requires("runtime")

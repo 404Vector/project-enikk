@@ -17,6 +17,7 @@ from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, 
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromotionStatus
+from enikk_contracts.tasks import CancelResult
 from enikk_contracts.threads import ReviewThreadLinked
 from enikk_core_client import CoreNotFoundError
 
@@ -66,6 +67,8 @@ class FakeCore:
             detail="반영: assistant 역할은 최대 60초 안에",
         )
         self.promotions_posted: list[tuple[uuid.UUID, PromotionPosted]] = []
+        self.cancels: list[uuid.UUID] = []
+        self.cancel_finds_nothing = False
 
     async def submit_event(self, event: InboundEvent) -> EventAccepted:
         if self.fail_with is not None:
@@ -130,6 +133,13 @@ class FakeCore:
         self.promotions_posted.append((promotion_id, posted))
         return PromotionLinked(told_origin=True)
 
+    async def cancel_task(self, task_id: uuid.UUID) -> CancelResult:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.cancels.append(task_id)
+        cancelled = () if self.cancel_finds_nothing else (task_id,)
+        return CancelResult(task_id=task_id, cancelled=cancelled)
+
 
 class FakeSlack:
     def __init__(self) -> None:
@@ -143,6 +153,7 @@ class FakeSlack:
         self.updates: list[tuple[str, str, list[dict[str, JsonValue]]]] = []
         self.no_permalinks = False
         self.ephemerals: list[tuple[str, str, str]] = []
+        self.deleted: list[tuple[str, str]] = []
         self.fail_channels: dict[str, Exception] = {}
 
     async def post_reply(self, channel: str, thread: str, text: str) -> None:
@@ -175,6 +186,9 @@ class FakeSlack:
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:
         self.updates.append((channel, ts, blocks))
+
+    async def delete_message(self, channel: str, ts: str) -> None:
+        self.deleted.append((channel, ts))
 
     async def post_ephemeral(self, channel: str, user: str, text: str) -> None:
         self.ephemerals.append((channel, user, text))
