@@ -97,6 +97,9 @@ roleBindings:
     role: runtime
     engine: gemini
   - namespace: enikk
+    service_account: enikk-scheduler
+    role: scheduler
+  - namespace: enikk
     service_account: enikk-smoke
     role: connector
     connector: smoke

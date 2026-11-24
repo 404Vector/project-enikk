@@ -36,6 +36,7 @@ src/
 │  ├─ connector-slack/ enikk_connector_slack Slack Socket Mode 커넥터
 │  ├─ runtime-claude/  enikk_runtime_claude 런타임 프레임워크 + Claude 엔진 조립
 │  ├─ runtime-gemini/  enikk_runtime_gemini 런타임 프레임워크 + Gemini 엔진 조립
+│  ├─ scheduler/       enikk_scheduler      스케줄러: 시계와 스케줄 MCP 도구 (ADR-0039)
 │  ├─ ops-cli/         enikk_ops            부트스트랩, 로컬 개발 도구
 │  └─ mcp-<name>/      enikk_mcp_<name>     자체 MCP 서버 (필요해질 때 추가)
 │

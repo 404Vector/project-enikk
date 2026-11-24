@@ -1,0 +1,5 @@
+apiVersion: v2
+name: enikk-scheduler
+description: Scheduler for enikk's agents, with schedules as MCP tools (ADR-0039)
+type: application
+version: 0.1.0

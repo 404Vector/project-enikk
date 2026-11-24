@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (S1 구현. 남은 단위 S2~S7 은 아래 "이행 순서")
+- 상태: 승인 (S1·S2 구현. 남은 단위 S3~S7 은 아래 "이행 순서")
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -94,6 +94,10 @@
    - 범위 밖 변경은 `pending` 으로만 저장한다. 승인 카드와 변경 알림은 S4 에서 붙인다. `enikk-scheduler` 의 역할 바인딩(core values `roleBindings`)은 서비스가 생기는 S2 에서 더한다.
    - 최소 주기는 cron 의 하루 안 실행 시각 간격과 자정을 넘는 간격 중 가장 짧은 것으로 본다. 다음 날이 허용되지 않아도 허용된다고 보므로 실제보다 짧게 나올 수는 있어도 길게 나오지는 않는다.
 2. **S2**: 스케줄러 서비스 골격(조회 도구), 이미지. 소유자가 workflow matrix 에 한 줄을 더한다.
+   - 구현: 앱 `src/apps/scheduler`(`enikk_scheduler`). 시계도 이 서비스에 들어가므로 `mcp-<name>` 이 아닌 `scheduler` 로 이름 지었다. MCP 공식 Python SDK 의 streamable HTTP(상태 없음, JSON 응답)로 `/mcp` 에 조회 도구 3개를 둔다. `/healthz` 는 프로브용이다.
+   - 호출자 신원은 요청 헤더 `x-enikk-task-id`·`x-enikk-lease-id` 로 받아 core 에 그대로 넘긴다. 확인은 core 가 한다(S1). 헤더를 누가 붙이는지(runtime·gateway)는 S3 에서 정한다.
+   - Host 헤더는 서비스 이름만 받는다(DNS rebinding 방어).
+   - 배포: 차트 `deploy/helm/scheduler`(Deployment, Service), Argo 앱, ServiceAccount `enikk-scheduler`, Image Updater 항목, core `roleBindings` 의 `role: scheduler`. 이미지 태그가 없거나 `enabled: false` 이면 복제본 0 이다.
 3. **S3**: agentgateway 배포, 엔진의 `tools.mcp` 연결, 호출자 신원. `agents/enikk.yaml` 에 스케줄러 조회 도구를 허용한다.
 4. **S4**: 변경 도구, 권한 검사, 승인 카드(connector), 변경 알림과 경고.
 5. **S5**: 시계와 실행(스킬 미리 불러오기, 도구 좁히기, 출력 처리기, 재시도), `run_now`.

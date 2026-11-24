@@ -26,6 +26,7 @@ from enikk_contracts.prompts import (
     PromptRead,
 )
 from enikk_contracts.pulls import PullSubmitted
+from enikk_contracts.schedules import RunList, ScheduleList, ScheduleView
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
@@ -69,6 +70,7 @@ if TYPE_CHECKING:
         PromptReadRequest,
     )
     from enikk_contracts.pulls import PullSubmission
+    from enikk_contracts.schedules import RunsQuery, ScheduleQuery
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
@@ -268,6 +270,20 @@ class CoreClient:
         """Read-only diagnostics (ADR-0029)."""
         path = routes.DIAG_PULLS.format(task_id=task_id)
         return _parse(Pulls, await self._post(path, query, 30))
+
+    async def list_schedules(self, query: ScheduleQuery) -> ScheduleList:
+        """Schedules, for the task named in the query. Scheduler only (ADR-0039)."""
+        return _parse(ScheduleList, await self._post(routes.SCHEDULES_LIST, query))
+
+    async def get_schedule(self, name: str, query: ScheduleQuery) -> ScheduleView:
+        """One schedule by name. Scheduler only (ADR-0039)."""
+        path = routes.SCHEDULE_GET.format(name=name)
+        return _parse(ScheduleView, await self._post(path, query))
+
+    async def list_runs(self, name: str, query: RunsQuery) -> RunList:
+        """The latest runs of one schedule. Scheduler only (ADR-0039)."""
+        path = routes.SCHEDULE_RUNS.format(name=name)
+        return _parse(RunList, await self._post(path, query))
 
     async def github_health(self) -> GitHubHealth:
         """Whether core can act through the GitHub App. Smoke identity only."""
