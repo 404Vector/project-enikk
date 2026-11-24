@@ -16,10 +16,14 @@ from enikk_runtime.workspace import WorkspaceConfig
 class WorkerSettings(SettingsModel):
     wait_seconds: int = Field(default=20, ge=0, le=25)
     backoff_max_seconds: float = Field(default=30.0, gt=0)
+    slots: int = Field(default=1, ge=1, le=4)
+    """How many tasks run at the same time (ADR-0037, step 3a)."""
 
     def to_policy(self) -> WorkerPolicy:
         return WorkerPolicy(
-            wait_seconds=self.wait_seconds, backoff_max_seconds=self.backoff_max_seconds
+            wait_seconds=self.wait_seconds,
+            backoff_max_seconds=self.backoff_max_seconds,
+            slots=self.slots,
         )
 
 

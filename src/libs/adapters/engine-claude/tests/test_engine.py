@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -40,7 +41,6 @@ from enikk_runtime.testing import definition
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from claude_agent_sdk import Message
 
@@ -496,3 +496,83 @@ async def test_the_session_workspace_opens_only_its_own_paths(tmp_path: Path) ->
         assert str(path) in write
     assert str(data) not in write
     assert str(data / "worktrees") not in write
+
+
+class _SeesItsDirectory(_Script):
+    """Records whether the working directory existed while the CLI ran."""
+
+    existed: bool = False
+
+    async def __call__(self, *, prompt: str, options: ClaudeAgentOptions) -> AsyncIterator[Message]:
+        self.existed = options.cwd is not None and Path(options.cwd).is_dir()
+        async for message in super().__call__(prompt=prompt, options=options):
+            yield message
+
+
+async def test_each_shared_task_runs_in_its_own_directory_removed_afterwards(
+    tmp_path: Path,
+) -> None:
+    first, second = _job(), _job()
+    cwds: list[Path] = []
+    for job in (first, second):
+        script = _SeesItsDirectory(_init(), _result())
+        await _engine(script, tmp_path).run(job)
+        assert script.options is not None
+        assert script.existed
+        cwd = Path(str(script.options.cwd))
+        assert cwd == tmp_path / "work" / str(job.task_id)
+        write = script.options.env[sandbox.ENV_WRITE].split(os.pathsep)
+        assert str(cwd) in write
+        assert str(tmp_path / "work") not in write
+        cwds.append(cwd)
+
+    assert cwds[0] != cwds[1]
+    assert not any(c.exists() for c in cwds)
+    assert (tmp_path / "work").is_dir()
+
+
+async def test_tasks_at_the_same_time_do_not_remove_each_others_files(tmp_path: Path) -> None:
+    other = tmp_path / "work" / "another-task"
+    other.mkdir(parents=True)
+    (other / "notes.txt").write_text("still running")
+
+    await _engine(_Script(_init(), _result()), tmp_path).run(_job())
+
+    assert (other / "notes.txt").read_text() == "still running"
+
+
+async def test_an_isolated_role_keeps_the_working_directory(tmp_path: Path) -> None:
+    job = _job()
+    isolated = job.definition.model_copy(update={"execution": Execution.ISOLATED})
+    script = _Script(_init(), _result())
+    await _engine(script, tmp_path).run(job.model_copy(update={"definition": isolated}))
+
+    assert script.options is not None
+    assert script.options.cwd == str(tmp_path / "work")
+
+
+async def test_a_session_resumes_from_another_tasks_directory(tmp_path: Path) -> None:
+    transcripts = FakeTranscripts()
+    earlier = _job()
+    project = project_key_for_directory(str(tmp_path / "work" / str(earlier.task_id)))
+    saved = CoreSessionStore(
+        transcripts,
+        earlier.task_id,
+        earlier.lease_id,
+        project_key=project_key_for_directory(str(tmp_path / "work")),
+    )
+    session = str(uuid.uuid4())
+    entries: list[Any] = [{"type": "user", "uuid": "u1", "message": {"content": "hi"}}]
+    await saved.append({"project_key": project, "session_id": session}, entries)
+    script = _Script(_init(), _result())
+
+    await _engine_with(script, tmp_path, transcripts).run(_job(resume=session))
+
+    # The SDK loads the session under the key of the new task's own directory.
+    assert script.options is not None
+    assert script.options.resume == session
+    assert script.options.session_store is not None
+    here = project_key_for_directory(str(script.options.cwd))
+    assert here != project
+    loaded = await script.options.session_store.load({"project_key": here, "session_id": session})
+    assert loaded == entries

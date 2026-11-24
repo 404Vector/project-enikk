@@ -126,8 +126,9 @@ def _bundled_cli() -> Path:
 
 class ClaudeEngineConfig(FrozenModel):
     workdir: Path
-    """Working directory of the Claude CLI. Must be the same path in every pod, because
-    the transcript ``project_key`` is derived from it (ADR-0014)."""
+    """Working directory of the Claude CLI; a shared role runs in a per-task directory
+    under it. Must be the same path in every pod, because the transcript ``project_key``
+    is derived from it, not from the per-task directory (ADR-0014, ADR-0037 3a)."""
     scratch_dir: Path
     """Parent of the per-task ``CLAUDE_CONFIG_DIR``; writable, discarded after each task."""
     client_app: str = Field(default="enikk-runtime-claude/0.1", pattern=r"^[\x21-\x7e]+$")
@@ -208,14 +209,16 @@ class ClaudeEngine:
         return await self._attempt(job, None, with_history(job.input, history))
 
     async def _attempt(self, job: EngineJob, resume: str | None, prompt: str) -> EngineResult:
-        store = CoreSessionStore(self._transcripts, job.task_id, job.lease_id)
+        store = self._store(job)
         self._config.scratch_dir.mkdir(parents=True, exist_ok=True)
         trace = RunTrace()
+        cwd = self._cwd(job)
         with tempfile.TemporaryDirectory(prefix="claude-", dir=self._config.scratch_dir) as home:
             (Path(home) / "tmp").mkdir()
-            options = self._options(job, store, Path(home), resume, trace)
+            cwd.mkdir(parents=True, exist_ok=True)
+            options = self._options(job, store, Path(home), cwd, resume, trace)
             try:
-                with _temp_root(Path(home)):
+                with _temp_root(self._config.scratch_dir):
                     await self._consume(job, self._query(prompt=prompt, options=options), trace)
             except ClaudeSDKError as exc:
                 failure = failure_of_exception(exc, trace)
@@ -227,8 +230,8 @@ class ClaudeEngine:
                 failure = failure_of_result(result, trace)
                 cause = None
             finally:
-                if job.definition.execution is Execution.SHARED and options.tools:
-                    _clear(self._config.workdir)
+                if cwd != self._config.workdir:
+                    shutil.rmtree(cwd, ignore_errors=True)
         _log.warning("task %s: Claude Code failed: %s", job.task_id, failure.detail)
         if resume is not None and not trace.answered and not failure.retryable:
             raise _ResumeRefusedError(failure) from cause
@@ -238,9 +241,9 @@ class ClaudeEngine:
         """The saved transcript of the session that could not be resumed, if core has it."""
         if job.engine_session_id is None:
             return []
-        store = CoreSessionStore(self._transcripts, job.task_id, job.lease_id)
+        store = self._store(job)
         key: SessionKey = {
-            "project_key": project_key_for_directory(str(self._config.workdir)),
+            "project_key": self._project_key(),
             "session_id": job.engine_session_id,
         }
         try:
@@ -250,11 +253,28 @@ class ClaudeEngine:
             return []
         return [dict(e) for e in entries or []]
 
+    def _project_key(self) -> str:
+        """The transcript key of every session: from ``workdir``, whatever the cwd."""
+        return project_key_for_directory(str(self._config.workdir))
+
+    def _store(self, job: EngineJob) -> CoreSessionStore:
+        return CoreSessionStore(
+            self._transcripts, job.task_id, job.lease_id, project_key=self._project_key()
+        )
+
+    def _cwd(self, job: EngineJob) -> Path:
+        """A shared role runs in its own directory under ``workdir``, so tasks running
+        at the same time do not share files; an isolated role runs in ``workdir``."""
+        if job.definition.execution is Execution.SHARED:
+            return self._config.workdir / str(job.task_id)
+        return self._config.workdir
+
     def _options(
         self,
         job: EngineJob,
         store: CoreSessionStore,
         home: Path,
+        cwd: Path,
         resume: str | None,
         trace: RunTrace,
     ) -> ClaudeAgentOptions:
@@ -288,14 +308,14 @@ class ClaudeEngine:
             effort=_effort(effort),
             max_turns=job.definition.limits.max_turns,
             resume=resume,
-            cwd=str(self._config.workdir),
+            cwd=str(cwd),
             session_store=store.as_sdk_store(),
             client_app=self._config.client_app,
             cli_path=self._config.launcher,
             hooks=audit_hooks(job),
             env={
                 **{k: v for k, v in self._config.tool_env.items() if k not in _TOKEN_NAMES},
-                **self._sandbox_env(home, job),
+                **self._sandbox_env(home, cwd, job),
                 sandbox.ENV_TOKEN: self._token.get_secret_value(),
                 "ANTHROPIC_API_KEY": "",
                 "CLAUDE_CONFIG_DIR": str(home),
@@ -317,7 +337,7 @@ class ClaudeEngine:
             return []
         return builtin
 
-    def _sandbox_env(self, home: Path, job: EngineJob) -> dict[str, str]:
+    def _sandbox_env(self, home: Path, cwd: Path, job: EngineJob) -> dict[str, str]:
         config = self._config
         workspace = job.workspace
         code = [Path(sandbox.__file__).parents[1], Path(enikk_kernel.__file__).parents[1]]
@@ -330,7 +350,7 @@ class ClaudeEngine:
             *(workspace.read_paths if workspace else ()),
         ]
         write = [
-            config.workdir,
+            cwd,
             config.scratch_dir,
             home,
             *(Path(p) for p in SANDBOX_WRITE),
@@ -407,28 +427,26 @@ def _stderr(trace: RunTrace, line: str) -> None:
     _log.debug("claude: %s", line)
 
 
+_temp_users = 0
+_temp_previous: str | None = None
+
+
 @contextlib.contextmanager
 def _temp_root(path: Path) -> Iterator[None]:
-    """Make ``path`` the process's temporary directory while the SDK runs: the SDK
-    writes a resumed session there, and the sandboxed CLI must reach it."""
-    previous = tempfile.tempdir
+    """Make ``path`` the process's temporary directory while any run is going: the SDK
+    writes a resumed session there, and the sandboxed CLI must reach it. Runs at the
+    same time share it; the last one to end restores the previous value."""
+    global _temp_users, _temp_previous
+    if _temp_users == 0:
+        _temp_previous = tempfile.tempdir
+    _temp_users += 1
     tempfile.tempdir = str(path)
     try:
         yield
     finally:
-        tempfile.tempdir = previous
-
-
-def _clear(workdir: Path) -> None:
-    """Empty a shared role's working directory, so one conversation's files do not
-    reach the next."""
-    if not workdir.is_dir():
-        return
-    for child in workdir.iterdir():
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child, ignore_errors=True)
-        else:
-            child.unlink(missing_ok=True)
+        _temp_users -= 1
+        if _temp_users == 0:
+            tempfile.tempdir = _temp_previous
 
 
 def _effort(value: object) -> EffortLevel | None:

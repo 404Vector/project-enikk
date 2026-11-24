@@ -1,6 +1,6 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3~5단계는 단계마다 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계는 3a(동시 실행 칸·작업 디렉터리·자원·git 신원, 구현됨)와 3b(취소·대기 표시, 남음)로 나눈다. 4~5단계는 단계마다 따로 구현한다)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
@@ -148,6 +148,16 @@
 - **스킬 `requires` 강제는 하지 않았다**: core 는 세션이 어떤 스킬을 불러왔는지 모른다(`load_skill` 은 runtime 이 Langfuse 에서 직접 읽는다). 강제하려면 "스킬을 불러온 세션만 `pr.write` 를 쓴다"를 core 가 확인할 근거(로드 기록을 core 에 남기거나 core 를 거쳐 로드)가 먼저 필요하다. 지금은 역할 정의의 `pull-requests` 가 권한이다. 3·4단계에서 다시 정한다.
 - **첫 실제 제출 (2026-11-24)**: main `82ea7d4` 배포 뒤, 소유자가 시작한 Slack 스레드의 assistant 세션이 이 줄을 커밋해 이 도구로 처음 제출했다. 실제 push(`http.extraheader` 인증)·PR 생성·승인 채널 게시는 이 제출(PR #75)로 확인했다. 상태 카드는 올라오지 않았다(아래 수정).
 
+### 3a 구현 세부 (2026-11-24)
+3단계 중 동시 실행만 먼저 한다. 취소 버튼·대기 표시와 ADR-0012·0014·0027·0034 의 대체 표시는 3b 에서 한다.
+- **칸**: `WorkerPolicy.slots`(1~4, 코드 기본 1). `TaskWorker.run_forever` 가 칸마다 임대 루프를 하나씩 동시에 돌린다. `stop()` 뒤 모든 칸이 지금 작업을 끝내고 멈춘다. runtime-claude settings `worker.slots` ← `ENIKK_RUNTIME_WORKER__SLOTS` ← Helm `deploy/helm/runtime-claude` 의 `worker.slots`(차트 기본 2). 같은 세션(스레드)의 작업이 두 칸에 동시에 가지 않는 것은 core 의 임대(I-29, `claim_next`)가 보장하므로 runtime 은 따로 막지 않는다.
+- **작업 디렉터리**: 공유 역할은 `/work/<작업 ID>` 를 만들어 CLI 의 cwd 로 쓰고 끝나면 지운다(전에는 `/work` 하나를 매번 비웠다). 샌드박스 쓰기 경로도 `/work` 전체가 아니라 그 하위 디렉터리다. 격리 역할(개발 Job)은 전처럼 `workdir` 에서 돈다.
+- **세션 재개**: SDK 는 cwd 에서 transcript 의 `project_key` 를 만든다. cwd 가 작업마다 달라지므로 `CoreSessionStore` 가 모든 키의 `project_key` 를 `workdir`(`/work`)에서 만든 고정값으로 바꾼다. core 에 저장되는 키는 3a 전과 같아서 기존 세션도 재개되고(ADR-0014·ADR-0034), 다른 작업 디렉터리에서도 재개된다.
+- **임시 디렉터리**: SDK 가 재개할 세션을 쓰는 `tempfile.tempdir` 는 프로세스 전역이다. 실행 중인 작업이 하나라도 있으면 `scratch_dir` 를 가리키고, 마지막 실행이 끝날 때만 원래 값으로 돌린다.
+- **자원**: requests memory 384Mi → 640Mi(실측: claude CLI 약 250MB, Python 약 100MB), limits 1536Mi 유지. `/work` emptyDir 64Mi → 128Mi(작업 파일은 `/data` worktree 에 있어 `/work` 는 거의 비어 있다). `/tmp` scratch 1Gi 는 그대로.
+- **git 신원**: 기준 저장소 config 를 정규화할 때 `user.name = enikk`, `user.email = enikk@users.noreply.github.com` 을 넣는다. 전에는 worktree 의 `git commit` 이 "Author identity unknown" 으로 실패했다. core 가 제출 때 봇 작성자로 다시 쓰므로(2b) 값 자체는 의미가 없다.
+- **되돌리기**: `worker.slots: 1`(한 번에 하나, 3a 전과 같은 직렬 처리).
+
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
 - 권한을 역할 대신 **동작**에 묶으면(6) 스킬은 지시만 담으면 된다. 되돌릴 수 없는 동작은 모두 core 를 거치거나 소유자 승인을 받으므로, 프롬프트 인젝션이 닿는 범위가 넓어져도 결과가 GitHub 이나 운영에 바로 닿지 않는다.
@@ -169,10 +179,11 @@
 |---|---|
 | 인젝션이 닿는 범위가 넓어진다(한 세션이 대화·저장소·웹을 함께 다룬다) | 되돌릴 수 없는 동작은 core 경유(6b)·소유자 승인(6c). 신뢰하지 않는 자료는 `/data/tmp/<스레드>` 에 둔다 |
 | 세션이 기준 저장소의 config·hooks·ref 를 바꾼다 | 매 준비 때 config·hooks 를 다시 쓴다. 커밋은 `state/` 의 기록을 믿는다. runtime 의 git 은 샌드박스 안. core 는 볼륨에서 git 을 실행하지 않는다 |
-| 긴 개발 작업이 대화를 막는다 | 스레드별 처리, 동시 한도 2, 대기 표시(3단계) |
+| 긴 개발 작업이 대화를 막는다 | 스레드별 처리, 동시 한도 2(3a 구현됨), 대기 표시(3b) |
 | 볼륨 손상·용량 부족 | 다시 만들 수 있는 것만 둔다. 7일 정리, 남은 공간 확인, 스냅샷 2개만 |
 | runtime 불안정(무거운 명령) | 명령별 시간·메모리 한도, 실패하면 그 세션만 끝낸다(2~3단계) |
-| 동시 처리 2 에서 한 스레드가 다른 스레드의 `repo.git/worktrees/<다른 스레드>` 를 건드림 | 1단계는 직렬이라 해당 없음. 3단계에서 worktree 메타데이터 보호를 다시 본다 |
+| 동시 처리 2 에서 한 스레드가 다른 스레드의 `repo.git/worktrees/<다른 스레드>` 를 건드림 | **3a 에서 막지 않았다(남은 위험)**. 세션의 쓰기 경로에 `repo.git` 전체가 있어 다른 스레드의 worktree 메타데이터(`HEAD`·`index` 등)를 바꿀 수 있다. 결과는 그 스레드의 작업 공간 손상이고 GitHub·운영에는 core 의 bundle 확인(2b)을 거쳐야 닿는다. 3b 이후 worktree 메타데이터 보호를 다시 본다 |
+| 같은 Pod 에서 동시에 도는 두 작업이 서로의 CLI 홈(`scratch_dir` 아래)을 쓸 수 있다 | 3a 전부터 `scratch_dir` 전체가 쓰기 경로였다. 비밀값은 홈에 없다(토큰은 파이프로 받는다, ADR-0033). 작업별 홈만 열어 주는 것은 다시 본다 |
 
 ### 바뀌는 ADR·불변식 (대체 표시를 다는 단계)
 | 대상 | 무엇이 바뀌나 | 단계 |
@@ -192,12 +203,12 @@
 각 단계는 따로 배포할 수 있고, 4단계 전까지는 이전 방식(위임, 개발 Job)이 그대로 동작한다.
 1. 공유 볼륨·기준 저장소·worktree. runtime 이 저장소 원문을 읽는다. **(이 PR)**
 2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(bundle → core 전용 clone → push·PR). **(구현됨)**
-3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정.
+3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정. 3a: 동시 실행 칸·작업 디렉터리·자원·git 신원 **(구현됨)**. 3b: 취소·대기 표시.
 4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv·검사 도구, 테스트 DB 이전, 관련 ADR·불변식 대체 표시.
 5. conversation-summary 스킬로 전환, 스케줄러 정리.
 
 ### 되돌리기
-- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다. 2b 는 같은 차트의 `pulls.enabled: false`(도구가 빠진다)와 `deploy/helm/core` 의 `submissions.enabled: false`(core 가 제출을 거부한다). 이미 연 PR 은 GitHub 에 남으므로 소유자가 거절하거나 닫는다.
+- 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다. 2b 는 같은 차트의 `pulls.enabled: false`(도구가 빠진다)와 `deploy/helm/core` 의 `submissions.enabled: false`(core 가 제출을 거부한다). 이미 연 PR 은 GitHub 에 남으므로 소유자가 거절하거나 닫는다. 3a 는 같은 차트의 `worker.slots: 1`.
 - 4단계부터: 이전 이미지와 이전 매니페스트로 되돌린다(ADR-0023 의 되돌리기).
 
 ## 재검토 조건

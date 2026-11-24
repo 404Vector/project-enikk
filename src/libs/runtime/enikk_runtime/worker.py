@@ -52,10 +52,12 @@ class WorkerPolicy(FrozenModel):
     report_attempts: int = Field(default=3, ge=1, le=10)
     timeout_cap_seconds: float | None = Field(default=None, gt=0)
     """Upper bound on every run, on top of the agent's own ``timeout_seconds``."""
+    slots: int = Field(default=1, ge=1, le=4)
+    """How many tasks are leased and run at the same time."""
 
 
 class TaskWorker:
-    """Leases one task at a time from core and runs it on ``engine``."""
+    """Leases tasks from core and runs them on ``engine``, ``policy.slots`` at a time."""
 
     def __init__(
         self,
@@ -82,21 +84,27 @@ class TaskWorker:
         self._stopping = asyncio.Event()
 
     def stop(self) -> None:
-        """Finish the current task, then stop leasing."""
+        """Every slot finishes its current task, then stops leasing."""
         self._stopping.set()
 
     async def run_forever(self) -> None:
+        """Run one lease loop per slot until ``stop``."""
+        async with asyncio.TaskGroup() as group:
+            for slot in range(self._policy.slots):
+                group.create_task(self._lease_loop(slot))
+        _log.info("worker stopped")
+
+    async def _lease_loop(self, slot: int) -> None:
         backoff = self._policy.backoff_initial_seconds
         while not self._stopping.is_set():
             try:
                 await self.run_once()
             except CoreUnavailableError as exc:
-                _log.warning("core unavailable, retrying in %.0fs: %s", backoff, exc)
+                _log.warning("slot %d: core unavailable, retrying in %.0fs: %s", slot, backoff, exc)
                 await self._sleep(backoff)
                 backoff = min(backoff * 2, self._policy.backoff_max_seconds)
             else:
                 backoff = self._policy.backoff_initial_seconds
-        _log.info("worker stopped")
 
     async def run_once(self) -> bool:
         """Lease and handle at most one task. Returns whether a task was handled."""
