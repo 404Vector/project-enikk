@@ -316,7 +316,10 @@ class UnitOfWorkFactory(Protocol):
 
 
 class AgentCatalog(Protocol):
-    def get(self, name: str) -> AgentDefinition | None: ...
+    def get(self, name: str) -> AgentDefinition | None:
+        """The definition named ``name`` or having it as an alias (a former name)."""
+        ...
+
     def names(self) -> tuple[str, ...]: ...
 
 

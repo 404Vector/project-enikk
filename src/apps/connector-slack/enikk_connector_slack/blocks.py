@@ -415,7 +415,7 @@ def revert_requested(result: RevertResult, by: str) -> Context:
     if result.detail:
         text += f"\n> {_escape(result.detail)}"
     if result.outcome is RevertOutcome.REFUSED:
-        text += "\nassistant 에게 이 커밋을 되돌려 달라고 요청할 수 있습니다."
+        text += "\n에닉에게 이 커밋을 되돌려 달라고 요청할 수 있습니다."
     return Context(elements=(Text(text=text[:SECTION_LIMIT]),))
 
 

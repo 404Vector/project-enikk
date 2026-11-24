@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     )
     from enikk_core.github import GitHubAppApi
     from enikk_core_domain.model import Session, Task
-    from enikk_core_domain.ports import UnitOfWork, UnitOfWorkFactory
+    from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_github.app import InstallationToken
     from enikk_github.vault import VaultFile
     from enikk_kernel.clock import Clock
@@ -61,6 +61,8 @@ _UNSAFE_NAME: Final = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]+')
 FOLDER_OF: Final = {NoteKind.PREFERENCE: "선호", NoteKind.FACT: "사실", NoteKind.WORK: "진행 중"}
 WORK_DAYS: Final = 14
 CONVERSATION_FOLDER: Final = "대화"
+CONVERSATIONS_BY: Final = "enikk"
+"""The author of the daily conversation notes: enikk, whatever made the summary."""
 
 
 class VaultApi(Protocol):
@@ -143,8 +145,10 @@ class MemoryService:
         clock: Clock,
         writer: VaultWriteApi | None = None,
         ids: IdGenerator | None = None,
+        agents: AgentCatalog | None = None,
     ) -> None:
         self._uow = uow
+        self._agents = agents
         self._app = app
         self._vault = vault
         self._policy = policy
@@ -155,6 +159,11 @@ class MemoryService:
     @property
     def layout(self) -> MemoryLayout:
         return self._policy.layout
+
+    def _by(self, task: Task) -> str:
+        """The agent that wrote a note: its current name, also for a former name."""
+        definition = None if self._agents is None else self._agents.get(task.agent)
+        return task.agent if definition is None else definition.name
 
     async def sync_once(self) -> int:
         """Bring the index up to date with the vault. Returns how many notes changed."""
@@ -213,7 +222,7 @@ class MemoryService:
             updated=today,
             expires=today + timedelta(days=WORK_DAYS) if request.kind is NoteKind.WORK else None,
             source=_source(session),
-            by=task.agent,
+            by=self._by(task),
         )
         await self._write(path, text, f"memory: remember {name}")
         await self._tell(task, session, f"기억했습니다: {request.title} ({self._short(path)})")
@@ -233,7 +242,7 @@ class MemoryService:
             updated=today,
             expires=today + timedelta(days=WORK_DAYS) if kind is NoteKind.WORK else None,
             source=_source(session),
-            by=task.agent,
+            by=self._by(task),
         )
         await self._write(current.path, text, f"memory: update {current.title}")
         await self._tell(
@@ -275,7 +284,7 @@ class MemoryService:
             updated=today,
             expires=None,
             source=f"enikk 대화 기록 ({sources}개 스레드)",
-            by="summarizer",
+            by=CONVERSATIONS_BY,
         )
         await self._write(path, text, f"memory: conversations of {day.isoformat()}")
         return path

@@ -24,7 +24,7 @@ NONE: Final = "- 지금 쓸 수 있는 스킬이 없다."
 
 def uses_skills(definition: AgentDefinition) -> bool:
     """Whether a role's sessions get the skill list and ``load_skill``: shared roles with
-    built-in tools and the default platform tools (today the assistant)."""
+    built-in tools and the default platform tools (today enikk)."""
     return (
         definition.execution is Execution.SHARED
         and bool(definition.tools.builtin)

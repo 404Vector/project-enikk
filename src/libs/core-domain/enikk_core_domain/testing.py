@@ -606,7 +606,10 @@ class StaticAgentCatalog:
         self._by_name = {d.name: d for d in definitions}
 
     def get(self, name: str) -> AgentDefinition | None:
-        return self._by_name.get(name)
+        found = self._by_name.get(name)
+        if found is not None:
+            return found
+        return next((d for d in self._by_name.values() if name in d.aliases), None)
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._by_name))

@@ -1,8 +1,11 @@
-name: assistant
-description: General-purpose assistant for direct Slack conversations
+name: enikk
+# Former name: threads started before ADR-0037 5b are recorded as "assistant".
+aliases: [assistant]
+description: Enikk, the owner's agent, in direct Slack conversations
 engine: claude
+# The base prompt of every enikk session (ADR-0037 §1).
 prompt:
-  name: assistant
+  name: enikk
   label: production
 tools:
   mcp: []

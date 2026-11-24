@@ -58,8 +58,8 @@ def build_services(settings: CoreSettings) -> CoreServices:
     engine = create_engine(settings.database.to_config())
     uow = SqlUnitOfWorkFactory(create_session_factory(engine))
     store = DirectoryCredentialStore(settings.credentials_dir)
-    memory = _memory(settings, store, clock, uow, ids)
     catalog = YamlAgentCatalog.load(settings.agents_dir)
+    memory = _memory(settings, store, clock, uow, ids, catalog)
     usecases = CoreUseCases(
         uow=uow,
         catalog=catalog,
@@ -232,6 +232,7 @@ def _memory(
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
+    catalog: YamlAgentCatalog,
 ) -> MemoryService | None:
     config = settings.github.to_config()
     if config is None or not settings.memory.enabled:
@@ -248,6 +249,7 @@ def _memory(
         vault=VaultReader(app),
         writer=VaultWriter(app),
         ids=ids,
+        agents=catalog,
         policy=MemoryPolicy(
             repository=m.repository,
             branch=m.branch,

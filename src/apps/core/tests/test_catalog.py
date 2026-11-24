@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from enikk_contracts.common import Engine
 from enikk_core.catalog import YamlAgentCatalog
@@ -21,10 +22,37 @@ prompt: {{name: {name}, label: production}}
 
 def test_repository_agent_definitions_are_valid() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    assert "assistant" in catalog.names()
-    assistant = catalog.get("assistant")
-    assert assistant is not None
-    assert assistant.engine is Engine.CLAUDE
+    assert "enikk" in catalog.names()
+    enikk = catalog.get("enikk")
+    assert enikk is not None
+    assert enikk.engine is Engine.CLAUDE
+    assert enikk.prompt.name == "enikk"
+
+
+def test_threads_of_the_former_name_run_as_enikk() -> None:
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    assert "assistant" not in catalog.names()
+    assert catalog.get("assistant") is catalog.get("enikk")
+
+
+def test_routes_name_an_agent() -> None:
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    routes = yaml.safe_load((REPO_ROOT / "config" / "slack.yaml").read_text())["routes"]
+    for agent in routes.values():
+        assert agent in catalog.names(), agent
+
+
+def test_aliases_may_not_clash(tmp_path: Path) -> None:
+    (tmp_path / "one.yaml").write_text(VALID.format(name="one") + "aliases: [old]\n")
+    (tmp_path / "two.yaml").write_text(VALID.format(name="two") + "aliases: [old]\n")
+    with pytest.raises(ConfigurationError, match="alias 'old'"):
+        YamlAgentCatalog.load(tmp_path)
+    (tmp_path / "two.yaml").write_text(VALID.format(name="two") + "aliases: [one]\n")
+    with pytest.raises(ConfigurationError, match="alias 'one'"):
+        YamlAgentCatalog.load(tmp_path)
+    (tmp_path / "two.yaml").write_text(VALID.format(name="two") + "aliases: [two]\n")
+    with pytest.raises(ConfigurationError, match="aliases must differ"):
+        YamlAgentCatalog.load(tmp_path)
 
 
 # The owner's decision (ADR-0033): every role has the SDK's file, search, command,
@@ -58,7 +86,7 @@ WITHOUT_TOOLS: frozenset[str] = frozenset({"summarizer"})
 
 def test_every_role_is_granted_the_sdk_tools() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    assert set(catalog.names()) >= {"assistant", *WITHOUT_TOOLS}
+    assert set(catalog.names()) >= {"enikk", *WITHOUT_TOOLS}
     for name in set(catalog.names()) - WITHOUT_TOOLS:
         definition = catalog.get(name)
         assert definition is not None
