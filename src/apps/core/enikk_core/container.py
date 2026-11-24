@@ -21,6 +21,7 @@ from enikk_core.github import (
 )
 from enikk_core.memory import MemoryPolicy, MemoryService
 from enikk_core.prompts import PromptService, load_owner
+from enikk_core.schedules import ScheduleService
 from enikk_core.security import Gatekeeper
 from enikk_core.submissions import PullSubmissions, SubmissionPolicy
 from enikk_core.threads import ReviewLinks, ThreadNotes
@@ -97,6 +98,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         digests=_digests(settings, memory, catalog, clock, uow, ids),
         digest_interval_seconds=settings.digests.interval_seconds,
         submissions=_submissions(settings, store, catalog, clock, uow),
+        schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids),
     )
 
 

@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (구현 전. 단위 S1~S7 은 아래 "이행 순서")
+- 상태: 승인 (S1 구현. 남은 단위 S2~S7 은 아래 "이행 순서")
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -89,6 +89,10 @@
 
 ### 이행 순서 (각 단위 한 시간 안)
 1. **S1**: core 의 스케줄·실행 기록 테이블(expand 마이그레이션), API, 서비스 역할 `scheduler`.
+   - 구현: 마이그레이션 0013(`schedules`, `schedule_runs`), `enikk_contracts.schedules`, `enikk_core_domain.schedules`, `enikk_core.schedules`, `/v1/schedules*` 엔드포인트 7개(`@requires("scheduler")`). I-24 에 예외를 적고 I-39 를 더했다.
+   - 요청마다 호출한 작업 ID 와 임대를 받아 core 가 확인한다(§2 의 호출자 신원 중 core 쪽). 바꾸는 요청은 Slack 세션만 된다.
+   - 범위 밖 변경은 `pending` 으로만 저장한다. 승인 카드와 변경 알림은 S4 에서 붙인다. `enikk-scheduler` 의 역할 바인딩(core values `roleBindings`)은 서비스가 생기는 S2 에서 더한다.
+   - 최소 주기는 cron 의 하루 안 실행 시각 간격과 자정을 넘는 간격 중 가장 짧은 것으로 본다. 다음 날이 허용되지 않아도 허용된다고 보므로 실제보다 짧게 나올 수는 있어도 길게 나오지는 않는다.
 2. **S2**: 스케줄러 서비스 골격(조회 도구), 이미지. 소유자가 workflow matrix 에 한 줄을 더한다.
 3. **S3**: agentgateway 배포, 엔진의 `tools.mcp` 연결, 호출자 신원. `agents/enikk.yaml` 에 스케줄러 조회 도구를 허용한다.
 4. **S4**: 변경 도구, 권한 검사, 승인 카드(connector), 변경 알림과 경고.

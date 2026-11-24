@@ -15,6 +15,7 @@ from enikk_core_domain.auth import (
     Role,
     RoleBinding,
     RuntimeRole,
+    SchedulerRole,
     ServiceIdentity,
 )
 from enikk_github.app import GitHubAppConfig
@@ -47,7 +48,7 @@ class DatabaseSettings(SettingsModel):
 class RoleBindingSettings(SettingsModel):
     namespace: str
     service_account: str
-    role: Literal["connector", "runtime"]
+    role: Literal["connector", "runtime", "scheduler"]
     connector: ConnectorKind | None = None
     engine: Engine | None = None
     credentials: tuple[CredentialName, ...] = ()
@@ -69,6 +70,8 @@ class RoleBindingSettings(SettingsModel):
             role = ConnectorRole(connector=self.connector)
         elif self.engine is not None:
             role = RuntimeRole(engine=self.engine)
+        elif self.role == "scheduler":
+            role = SchedulerRole()
         else:
             raise ConfigurationError(f"role binding {self.service_account} has no role")
         identity = ServiceIdentity(namespace=self.namespace, name=self.service_account)

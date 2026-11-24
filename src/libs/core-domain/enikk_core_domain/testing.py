@@ -16,6 +16,16 @@ from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.digests import DigestStatus
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
+from enikk_contracts.schedules import (
+    InputKind,
+    OutputKind,
+    RunStatus,
+    ScheduleInput,
+    ScheduleOutput,
+    ScheduleSpec,
+    ScheduleState,
+    Timing,
+)
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
@@ -35,6 +45,7 @@ from enikk_core_domain.model import (
     Task,
 )
 from enikk_core_domain.prompts import PromptPromotion
+from enikk_core_domain.schedules import Schedule, ScheduleRun
 from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 
 if TYPE_CHECKING:
@@ -130,6 +141,8 @@ class InMemoryDatabase:
         self.status_cards: dict[tuple[str, int], ReviewMessageRef] = {}
         self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
         self.digests: dict[date, ConversationDigest] = {}
+        self.schedules: dict[uuid.UUID, Schedule] = {}
+        self.schedule_runs: dict[tuple[uuid.UUID, datetime], ScheduleRun] = {}
         self.locks: dict[uuid.UUID, object] = {}
 
     def unit_of_work(self) -> InMemoryUnitOfWork:
@@ -151,6 +164,8 @@ class _Staged:
         self.status_cards = dict(db.status_cards)
         self.prompt_promotions = dict(db.prompt_promotions)
         self.digests = dict(db.digests)
+        self.schedules = dict(db.schedules)
+        self.schedule_runs = dict(db.schedule_runs)
 
 
 class _Digests:
@@ -174,6 +189,50 @@ class _Digests:
 
 def _by_day(digest: ConversationDigest) -> date:
     return digest.day
+
+
+class _Schedules:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def get_for_update(self, name: str) -> Schedule | None:
+        return next((s for s in self._s.schedules.values() if s.name == name), None)
+
+    async def all(self, limit: int) -> Sequence[Schedule]:
+        return sorted(self._s.schedules.values(), key=lambda s: s.name)[:limit]
+
+    async def add(self, schedule: Schedule) -> None:
+        if any(s.name == schedule.name for s in self._s.schedules.values()):
+            raise ConcurrentUpdateError(f"schedule {schedule.name} already exists")
+        self._s.schedules[schedule.id] = schedule
+
+    async def update(self, schedule: Schedule) -> None:
+        self._s.schedules[schedule.id] = schedule
+
+    async def delete(self, schedule_id: uuid.UUID) -> None:
+        self._s.schedules.pop(schedule_id, None)
+        for key in [k for k in self._s.schedule_runs if k[0] == schedule_id]:
+            del self._s.schedule_runs[key]
+
+
+class _ScheduleRuns:
+    def __init__(self, staged: _Staged) -> None:
+        self._s = staged
+
+    async def get_for_update(self, schedule_id: uuid.UUID, slot: datetime) -> ScheduleRun | None:
+        return self._s.schedule_runs.get((schedule_id, slot))
+
+    async def add(self, run: ScheduleRun) -> None:
+        if (run.schedule_id, run.slot) in self._s.schedule_runs:
+            raise ConcurrentUpdateError(f"the run at {run.slot} already exists")
+        self._s.schedule_runs[(run.schedule_id, run.slot)] = run
+
+    async def update(self, run: ScheduleRun) -> None:
+        self._s.schedule_runs[(run.schedule_id, run.slot)] = run
+
+    async def latest(self, schedule_id: uuid.UUID, limit: int) -> Sequence[ScheduleRun]:
+        runs = [r for r in self._s.schedule_runs.values() if r.schedule_id == schedule_id]
+        return sorted(runs, key=lambda r: r.slot, reverse=True)[:limit]
 
 
 class _ReviewMessages:
@@ -553,6 +612,8 @@ class InMemoryUnitOfWork:
         self.status_cards = _StatusCards(self._staged)
         self.prompt_promotions = _PromptPromotions(self._staged)
         self.digests = _Digests(self._staged)
+        self.schedules = _Schedules(self._staged)
+        self.schedule_runs = _ScheduleRuns(self._staged)
         self.queue = _Queue(db, self._staged, self._owner)
         self.commits = 0
 
@@ -583,6 +644,8 @@ class InMemoryUnitOfWork:
         self._db.status_cards = dict(self._staged.status_cards)
         self._db.prompt_promotions = dict(self._staged.prompt_promotions)
         self._db.digests = dict(self._staged.digests)
+        self._db.schedules = dict(self._staged.schedules)
+        self._db.schedule_runs = dict(self._staged.schedule_runs)
         self.commits += 1
 
     def _check_unique(self) -> None:
@@ -1184,6 +1247,68 @@ async def check_digests_and_day_ranges(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.digests.get_for_update(date(2020, 1, 1)) is None, "missing day")
 
 
+def schedule_spec(*, cron: str = "0 7 * * *", agent: str = "enikk") -> ScheduleSpec:
+    return ScheduleSpec(
+        description="morning news",
+        timing=Timing(cron=cron),
+        agent=agent,
+        skill="skill-news",
+        input=ScheduleInput(kind=InputKind.TEXT, text="summarize the news"),
+        output=ScheduleOutput(kind=OutputKind.VAULT_NOTE, folder="뉴스"),
+    )
+
+
+async def check_schedules(new_uow: UnitOfWorkFactory) -> None:
+    owner = session(thread="schedules")
+    news = Schedule.create(
+        schedule_id=uuid.uuid4(),
+        name="news",
+        spec=schedule_spec(),
+        owner_agent="enikk",
+        origin=owner.conversation,
+        approval=False,
+        now=T0,
+    )
+    other = news.model_copy(update={"id": uuid.uuid4(), "name": "another"})
+    first = ScheduleRun(
+        schedule_id=news.id, slot=T0, status=RunStatus.RUNNING, started_at=T0, updated_at=T0
+    )
+    second = first.model_copy(update={"slot": T0 + timedelta(days=1)})
+    async with new_uow() as uow:
+        await uow.schedules.add(news)
+        await uow.schedules.add(other)
+        await uow.schedule_runs.add(first)
+        await uow.schedule_runs.add(second)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.schedules.get_for_update("news") == news, "schedule round trip")
+        _expect([s.name for s in await uow.schedules.all(10)] == ["another", "news"], "by name")
+        _expect(list(await uow.schedule_runs.latest(news.id, 10)) == [second, first], "newest")
+        _expect(await uow.schedule_runs.get_for_update(news.id, T0) == first, "run round trip")
+        await uow.schedules.update(news.pause(T0 + timedelta(minutes=1)))
+        await uow.schedule_runs.update(first.model_copy(update={"status": RunStatus.SUCCEEDED}))
+        await uow.commit()
+    async with new_uow() as uow:
+        stored = await uow.schedules.get_for_update("news")
+        _expect(stored is not None and stored.state is ScheduleState.PAUSED, "schedule update")
+        run = await uow.schedule_runs.get_for_update(news.id, T0)
+        _expect(run is not None and run.status is RunStatus.SUCCEEDED, "run update")
+        await uow.schedules.delete(news.id)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.schedules.get_for_update("news") is None, "deleted")
+        _expect(not await uow.schedule_runs.latest(news.id, 10), "runs deleted with it")
+        _expect(await uow.schedules.get_for_update("another") is not None, "others kept")
+    duplicate = news.model_copy(update={"id": uuid.uuid4(), "name": "another"})
+    try:
+        async with new_uow() as uow:
+            await uow.schedules.add(duplicate)
+            await uow.commit()
+    except ConcurrentUpdateError:
+        return
+    raise AssertionError("schedule names are unique")
+
+
 async def check_active_in_session(new_uow: UnitOfWorkFactory) -> None:
     owner, other = session(), session(thread="2.0")
     running = task(owner, now=T0)
@@ -1231,4 +1356,5 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_prompt_promotions,
     check_held_tasks,
     check_digests_and_day_ranges,
+    check_schedules,
 )

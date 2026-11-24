@@ -62,6 +62,17 @@ from enikk_contracts.prompts import (
     PromptReadRequest,
 )
 from enikk_contracts.pulls import PullSubmission, PullSubmitted
+from enikk_contracts.schedules import (
+    RunList,
+    RunsQuery,
+    ScheduleCreate,
+    ScheduleDeleted,
+    ScheduleList,
+    SchedulePause,
+    ScheduleQuery,
+    ScheduleUpdate,
+    ScheduleView,
+)
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
@@ -82,7 +93,7 @@ from enikk_contracts.transcripts import (
     TranscriptSubpaths,
 )
 from enikk_core.security import declared_roles, requires
-from enikk_core_domain.auth import ConnectorRole, RuntimeRole
+from enikk_core_domain.auth import ConnectorRole, RuntimeRole, SchedulerRole
 from enikk_core_domain.errors import (
     AuthenticationError,
     ConflictError,
@@ -107,6 +118,7 @@ if TYPE_CHECKING:
     from enikk_core.github import GitHubHealthCheck
     from enikk_core.memory import MemoryService
     from enikk_core.prompts import PromptService
+    from enikk_core.schedules import ScheduleService
     from enikk_core.security import Gatekeeper
     from enikk_core.submissions import PullSubmissions
     from enikk_core.threads import ReviewLinks
@@ -154,6 +166,7 @@ class CoreServices:
         digests: DigestService | None = None,
         digest_interval_seconds: float = 300.0,
         submissions: PullSubmissions | None = None,
+        schedules: ScheduleService | None = None,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -173,6 +186,7 @@ class CoreServices:
         self.digests = digests
         self.digest_interval_seconds = digest_interval_seconds
         self.submissions = submissions
+        self.schedules = schedules
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -451,6 +465,55 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, DecisionRequest)
         return _json(await _approvals(services).decide(approval_id, body))
 
+    @app.post(routes.SCHEDULES_LIST, responses={200: {"model": ScheduleList}})
+    @requires("scheduler")
+    async def list_schedules(request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, ScheduleQuery)
+        return _json(await _schedules(services).list(body))
+
+    @app.post(routes.SCHEDULES, responses={200: {"model": ScheduleView}})
+    @requires("scheduler")
+    async def create_schedule(request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, ScheduleCreate)
+        return _json(await _schedules(services).create(body))
+
+    @app.post(routes.SCHEDULE_GET, responses={200: {"model": ScheduleView}})
+    @requires("scheduler")
+    async def get_schedule(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, ScheduleQuery)
+        return _json(await _schedules(services).get(name, body))
+
+    @app.post(routes.SCHEDULE_UPDATE, responses={200: {"model": ScheduleView}})
+    @requires("scheduler")
+    async def update_schedule(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, ScheduleUpdate)
+        return _json(await _schedules(services).update(name, body))
+
+    @app.post(routes.SCHEDULE_PAUSE, responses={200: {"model": ScheduleView}})
+    @requires("scheduler")
+    async def pause_schedule(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, SchedulePause)
+        return _json(await _schedules(services).pause(name, body))
+
+    @app.post(routes.SCHEDULE_DELETE, responses={200: {"model": ScheduleDeleted}})
+    @requires("scheduler")
+    async def delete_schedule(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, ScheduleQuery)
+        return _json(await _schedules(services).delete(name, body))
+
+    @app.post(routes.SCHEDULE_RUNS, responses={200: {"model": RunList}})
+    @requires("scheduler")
+    async def schedule_runs(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, RunsQuery)
+        return _json(await _schedules(services).runs(name, body))
+
     verify_declared_roles(app)
     return app
 
@@ -495,6 +558,12 @@ def _runtime(principal: Principal) -> RuntimeRole:
     return principal.role
 
 
+def _scheduler(principal: Principal) -> SchedulerRole:
+    if not isinstance(principal.role, SchedulerRole):
+        raise PermissionDeniedError("scheduler role required")
+    return principal.role
+
+
 def _owner_channel(principal: Principal) -> ConnectorRole:
     """The owner's DM (approvals) is reached through the Slack connector only (ADR-0020)."""
     role = _connector(principal)
@@ -531,6 +600,12 @@ def _digests(services: CoreServices) -> DigestService:
     if services.digests is None:
         raise DependencyUnavailableError("conversation summaries are not enabled")
     return services.digests
+
+
+def _schedules(services: CoreServices) -> ScheduleService:
+    if services.schedules is None:
+        raise DependencyUnavailableError("schedules are not enabled")
+    return services.schedules
 
 
 def _deployments(services: CoreServices) -> DeploymentService:

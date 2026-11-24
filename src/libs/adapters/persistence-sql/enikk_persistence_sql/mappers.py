@@ -16,6 +16,7 @@ from enikk_contracts.digests import DigestStatus
 from enikk_contracts.memory import NoteKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
+from enikk_contracts.schedules import RunStatus, ScheduleSpec, ScheduleState
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.deployments import DeploymentWatch
 from enikk_core_domain.digests import ConversationDigest
@@ -33,6 +34,7 @@ from enikk_core_domain.model import (
     Task,
 )
 from enikk_core_domain.prompts import PromptPromotion
+from enikk_core_domain.schedules import Schedule, ScheduleRun
 from enikk_persistence_sql.tables import (
     ApprovalRow,
     ConversationDigestRow,
@@ -41,6 +43,8 @@ from enikk_persistence_sql.tables import (
     NoticeRow,
     OutboxRow,
     PromptPromotionRow,
+    ScheduleRow,
+    ScheduleRunRow,
     SessionRow,
     TaskRow,
     VaultNoteRow,
@@ -313,5 +317,60 @@ def digest_from_row(row: ConversationDigestRow) -> ConversationDigest:
         manual=row.manual,
         started_at=row.started_at,
         detail=row.detail,
+        updated_at=row.updated_at,
+    )
+
+
+def schedule_to_row(schedule: Schedule, row: ScheduleRow | None = None) -> ScheduleRow:
+    row = row or ScheduleRow(id=schedule.id)
+    row.name = schedule.name
+    row.spec = schedule.spec.model_dump(mode="json")
+    row.state = schedule.state.value
+    row.owner_agent = schedule.owner_agent
+    row.origin_connector = schedule.origin.connector.value
+    row.origin_channel = schedule.origin.channel
+    row.origin_thread = schedule.origin.thread
+    row.created_at = schedule.created_at
+    row.updated_at = schedule.updated_at
+    return row
+
+
+def schedule_from_row(row: ScheduleRow) -> Schedule:
+    return Schedule(
+        id=row.id,
+        name=row.name,
+        spec=ScheduleSpec.model_validate_json(pydantic_core.to_json(row.spec)),
+        state=ScheduleState(row.state),
+        owner_agent=row.owner_agent,
+        origin=ConversationRef(
+            connector=ConnectorKind(row.origin_connector),
+            channel=row.origin_channel,
+            thread=row.origin_thread,
+        ),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def schedule_run_to_row(run: ScheduleRun, row: ScheduleRunRow | None = None) -> ScheduleRunRow:
+    row = row or ScheduleRunRow(schedule_id=run.schedule_id, slot=run.slot)
+    row.status = run.status.value
+    row.task_id = run.task_id
+    row.attempts = run.attempts
+    row.detail = run.detail
+    row.started_at = run.started_at
+    row.updated_at = run.updated_at
+    return row
+
+
+def schedule_run_from_row(row: ScheduleRunRow) -> ScheduleRun:
+    return ScheduleRun(
+        schedule_id=row.schedule_id,
+        slot=row.slot,
+        status=RunStatus(row.status),
+        task_id=row.task_id,
+        attempts=row.attempts,
+        detail=row.detail,
+        started_at=row.started_at,
         updated_at=row.updated_at,
     )
