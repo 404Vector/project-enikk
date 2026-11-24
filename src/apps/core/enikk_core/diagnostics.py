@@ -23,7 +23,7 @@ from enikk_contracts.diagnostics import (
     TaskDetail,
     TaskSummary,
 )
-from enikk_core_domain.errors import DependencyUnavailableError, InvalidRequestError, NotFoundError
+from enikk_core_domain.errors import DependencyUnavailableError, NotFoundError
 from enikk_core_domain.redaction import redact
 from enikk_github.permissions import TokenPurpose
 from enikk_kernel.models import FrozenModel
@@ -54,7 +54,6 @@ class LogApi(Protocol):
 
 class DiagnosticsPolicy(FrozenModel):
     namespace: str = "enikk"
-    dev_namespace: str = "enikk-dev"
     apps: tuple[str, ...] = ()
     repository: str = "project-enikk"
 
@@ -165,14 +164,8 @@ class DiagnosticsService:
     async def logs(self, query: LogsQuery) -> LogLines:
         if self._logs is None:
             raise DependencyUnavailableError("log reading is not configured")
-        if query.service is Service.DEV_JOB:
-            if query.task_id is None:
-                raise InvalidRequestError("dev-job logs need task_id")
-            namespace = self._policy.dev_namespace
-            selector = f"batch.kubernetes.io/job-name=enikk-dev-{query.task_id}"
-        else:
-            namespace = self._policy.namespace
-            selector = SELECTORS[query.service]
+        namespace = self._policy.namespace
+        selector = SELECTORS[query.service]
         pods = await self._logs.pods(namespace, selector)
         lines: list[str] = []
         for pod in pods[:3]:

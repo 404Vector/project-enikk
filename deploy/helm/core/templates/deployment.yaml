@@ -22,8 +22,8 @@ spec:
         {{- include "enikk-core.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: enikk-core
-      # core's Kubernetes API token: TokenReview, dev agent Jobs in enikk-dev and
-      # reading the Argo CD Applications it reports on (I-28).
+      # core's Kubernetes API token: TokenReview, reading the Argo CD Applications it
+      # reports on and the Pods and logs of enikk's services (I-28).
       automountServiceAccountToken: true
       # Service links inject ENIKK_CORE_PORT=tcp://... and collide with settings.
       enableServiceLinks: false
@@ -101,16 +101,6 @@ spec:
               value: {{ .Values.submissions.enabled | quote }}
             - name: ENIKK_CORE_SUBMISSIONS__CLONE_DIR
               value: /var/lib/enikk/clone
-            - name: ENIKK_CORE_DEV_AGENT__ENABLED
-              value: {{ .Values.devAgent.enabled | quote }}
-            - name: ENIKK_CORE_DEV_AGENT__NAMESPACE
-              value: {{ .Values.devAgent.namespace | quote }}
-            - name: ENIKK_CORE_DEV_AGENT__MAX_CONCURRENT
-              value: {{ .Values.devAgent.maxConcurrent | quote }}
-            {{- with .Values.devAgent.dailyLimit }}
-            - name: ENIKK_CORE_DEV_AGENT__DAILY_LIMIT
-              value: {{ . | quote }}
-            {{- end }}
             {{- include "enikk-core.databaseEnv" . | nindent 12 }}
           volumeMounts:
             - name: credentials

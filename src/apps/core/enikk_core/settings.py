@@ -164,7 +164,6 @@ class DiagnosticsSettings(SettingsModel):
 
     enabled: bool = False
     namespace: str = "enikk"
-    dev_namespace: str = "enikk-dev"
     api_url: str = "https://kubernetes.default.svc"
 
 

@@ -214,7 +214,6 @@ def _diagnostics(
         clock=clock,
         policy=DiagnosticsPolicy(
             namespace=d.namespace,
-            dev_namespace=d.dev_namespace,
             apps=settings.deployments.apps,
             repository=settings.github.self_repository,
         ),

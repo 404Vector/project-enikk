@@ -506,7 +506,7 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
     @tool(
         "service_logs",
         "Recent log lines of one of enikk's services: core, runtime-claude, "
-        "connector-slack, or dev-job (a developer Job; give task_id). minutes (default "
+        "or connector-slack. minutes (default "
         "30, at most 180) and contains (a word to filter lines) are optional. At most 200 "
         "lines; secrets are masked. " + DIAGNOSTICS_NOTE,
         {
@@ -516,7 +516,6 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
                     "type": "string",
                     "enum": [s.value for s in Service],
                 },
-                "task_id": {"type": "string"},
                 "minutes": {"type": "integer"},
                 "contains": {"type": "string"},
             },
@@ -528,7 +527,6 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
             query = LogsQuery(
                 lease_id=job.lease_id,
                 service=Service(str(args.get("service", ""))),
-                task_id=uuid.UUID(str(args["task_id"])) if args.get("task_id") else None,
                 minutes=int(args.get("minutes") or 30),
                 contains=str(args["contains"]) if args.get("contains") else None,
             )

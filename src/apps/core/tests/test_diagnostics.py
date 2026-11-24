@@ -18,7 +18,6 @@ from enikk_contracts.diagnostics import (
 )
 from enikk_contracts.tasks import TaskStatus
 from enikk_core.diagnostics import DiagnosticsPolicy, DiagnosticsService
-from enikk_core_domain.errors import InvalidRequestError
 from enikk_core_domain.model import Notice
 from enikk_core_domain.redaction import MASK, looks_secret, redact
 from enikk_core_domain.testing import session, task
@@ -94,11 +93,6 @@ async def test_logs_are_masked_and_filtered(diag: DiagnosticsService, logs: Fake
     found = await diag.logs(LogsQuery(lease_id=LEASE, service=Service.CORE, contains="token"))
     assert found.lines == (f"pod-a: token {MASK} rejected",)
     assert logs.asked == [("enikk", "app.kubernetes.io/name=enikk-core")]
-    task_id = uuid.uuid4()
-    await diag.logs(LogsQuery(lease_id=LEASE, service=Service.DEV_JOB, task_id=task_id))
-    assert logs.asked[-1] == ("enikk-dev", f"batch.kubernetes.io/job-name=enikk-dev-{task_id}")
-    with pytest.raises(InvalidRequestError):
-        await diag.logs(LogsQuery(lease_id=LEASE, service=Service.DEV_JOB))
 
 
 async def test_deployments_come_from_the_notices(
