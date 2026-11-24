@@ -12,6 +12,7 @@ on:
       - "agents/**"
       - "config/**"
       - "deploy/docker/**"
+      - "deploy/images.yaml"
       - "pyproject.toml"
       - "uv.lock"
       - ".python-version"
@@ -26,6 +27,7 @@ on:
       - "agents/**"
       - "config/**"
       - "deploy/docker/**"
+      - "deploy/images.yaml"
       - "pyproject.toml"
       - "uv.lock"
       - ".python-version"
@@ -40,8 +42,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The apps to build come from deploy/images.yaml (ADR-0040).
+  apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      apps: ${{ steps.list.outputs.apps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: list
+        run: |
+          apps="$(yq -o=json -I=0 '.apps' deploy/images.yaml)"
+          echo "${apps}" | jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and test("^[a-z][a-z0-9-]{0,40}$"))' > /dev/null
+          echo "apps=${apps}" >> "${GITHUB_OUTPUT}"
+
   verify:
     if: github.event_name == 'pull_request'
+    needs: apps
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
     permissions:
@@ -49,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack]
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
         platform:
           - { arch: amd64, runner: ubuntu-latest }
           - { arch: arm64, runner: ubuntu-24.04-arm }
@@ -71,6 +93,7 @@ jobs:
 
   # Pushes each architecture's image by digest only; no tag exists until merge.
   build:
+    needs: apps
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 20
@@ -80,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack]
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
         platform:
           - { arch: amd64, runner: ubuntu-latest }
           - { arch: arm64, runner: ubuntu-24.04-arm }
@@ -129,7 +152,7 @@ jobs:
 
   # Joins the architectures into the one immutable tag Image Updater looks for.
   publish:
-    needs: build
+    needs: [apps, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -138,7 +161,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [core, runtime-claude, connector-slack]
+        app: ${{ fromJSON(needs.apps.outputs.apps) }}
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
     steps:
