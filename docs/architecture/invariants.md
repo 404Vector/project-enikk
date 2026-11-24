@@ -13,7 +13,7 @@
 | I-02 | Claude 구독 토큰은 Claude 엔진 프로세스의 환경에만 주입한다. 게이트웨이, 다른 앱, 로그, 트레이스에 노출하지 않는다. 단, enikk-core 는 이 토큰을 전달하기 위해서만 보관하며 사용하거나 기록하지 않는다. | ADR-0002, ADR-0013 |
 | I-03 | Claude 모델 호출은 Claude Code / Claude Agent SDK 경로로만 하고, Anthropic API 로 직접 보낸다(게이트웨이 경유 없음). | ADR-0002, ADR-0004 |
 | I-04 | Claude 인증 방식(구독 토큰 ↔ API 키)은 코드 변경 없이 설정으로 전환할 수 있어야 한다. | ADR-0002 |
-| I-05 | 엔진은 MCP 도구에 agentgateway 를 통해서만 접근한다. 엔진은 개별 MCP 서버 주소를 모른다. 런타임이 직접 제공하고 core API 만 호출하는 플랫폼 도구(위임)는 MCP 도구가 아니다. | ADR-0004, ADR-0022 |
+| I-05 | 엔진은 MCP 도구에 agentgateway 를 통해서만 접근한다. 엔진은 개별 MCP 서버 주소를 모른다. MCP 요청은 core 가 작업마다 서명한 토큰을 지니며, gateway 는 그 토큰을 확인하고 토큰이 허용한 도구만 보이고 허용한다. 토큰은 CLI 인자와 도구의 셸에 나타나지 않는다. 런타임이 직접 제공하고 core API 만 호출하는 플랫폼 도구(위임)는 MCP 도구가 아니다. | ADR-0004, ADR-0022, ADR-0039 |
 | I-06 | 관측 데이터는 OpenTelemetry 로 계측한다. Langfuse SDK 에 직접 의존하는 코드는 관측 통합 패키지 안에만 있다. | ADR-0001 |
 | I-07 | 비밀값(토큰, API 키)은 git, 명령 인자, 로그, 트레이스에 남기지 않는다. 클러스터에서는 core 전용 Secret 에만 있고, 다른 서비스는 core 의 비밀값 API 로만 받는다. | ADR-0001, ADR-0002, ADR-0013 |
 | I-08 | 도메인 코어는 특정 모델 공급사(Anthropic, Google)의 SDK 나 타입을 import 하지 않는다. | ADR-0003 |
@@ -36,7 +36,7 @@
 | I-25 | 엔진 런타임은 상태를 갖지 않는다. 작업·세션 상태는 enikk-core 와 그 저장소에만 있다. 예외로 런타임의 공유 볼륨에는 다시 만들 수 있는 것(저장소 사본, 스냅샷, 스레드별 worktree·임시 자료)만 두며, 비밀값과 자격 증명은 두지 않는다. | ADR-0010, ADR-0037 |
 | I-26 | 데이터베이스에는 enikk-core 만 접근하며, core 안에서도 레포지토리·Unit of Work 포트를 통해서만 접근한다. 스키마 변경은 마이그레이션으로만 한다. | ADR-0011 |
 | I-27 | 서비스 경계를 넘는 데이터(API, 큐 메시지, 이벤트)는 공용 계약 패키지의 pydantic 모델로만 표현한다. 원시 JSON·`dict` 로 주고받지 않는다. 유일한 예외는 엔진 대화 이력 항목이며, JSON 값으로만 검증하고 core 는 해석하지 않는다. | ADR-0011, ADR-0014 |
-| I-28 | core API 의 모든 요청은 audience=`enikk-core` ServiceAccount 토큰으로 인증되고, API 별로 선언된 역할만 허용된다. 인증 없는 엔드포인트는 상태 확인(health)뿐이다. core 를 제외한 자체 서비스 Pod 는 Kubernetes API 토큰을 받지 않으며, core 는 TokenReview 권한, `argocd` 네임스페이스의 Application 읽기 권한, `enikk` 의 Pod 와 Pod 로그 읽기 권한만 갖는다(`enikk-dev` 의 Job·Pod 권한은 ADR-0037 4e 에서 없앴다). | ADR-0011, ADR-0021, ADR-0023, ADR-0029, ADR-0037 |
+| I-28 | core API 의 모든 요청은 audience=`enikk-core` ServiceAccount 토큰으로 인증되고, API 별로 선언된 역할만 허용된다. 인증 없는 엔드포인트는 상태 확인(health)과 MCP 토큰의 공개 키(`/v1/mcp/jwks`, ADR-0039 S3)뿐이다. core 를 제외한 자체 서비스 Pod 는 Kubernetes API 토큰을 받지 않으며, core 는 TokenReview 권한, `argocd` 네임스페이스의 Application 읽기 권한, `enikk` 의 Pod 와 Pod 로그 읽기 권한만 갖는다(`enikk-dev` 의 Job·Pod 권한은 ADR-0037 4e 에서 없앴다). | ADR-0011, ADR-0021, ADR-0023, ADR-0029, ADR-0037, ADR-0039 |
 | I-29 | 한 세션(스레드)에서 동시에 실행되는 작업은 최대 1개다. 같은 세션의 작업은 접수 순서대로 배정된다. 서로 다른 세션은 runtime 의 칸 수만큼 동시에 돈다. 소유자만 스레드의 [취소] 버튼으로 그 세션의 대기·실행 중 작업을 취소할 수 있고, 취소된 작업의 heartbeat·결과는 거부된다. | ADR-0012, ADR-0037 |
 | I-30 | 비밀값의 원본은 소유자 PC 의 파일이며 `enikk-ops secret` 으로만 관리한다. core 는 역할 바인딩에 허용된 비밀값만 그 호출자에게 내주고, 서비스는 받은 값을 메모리에만 둔다. | ADR-0013 |
 | I-31 | 엔진 대화 이력은 core 의 저장소에만 영속한다. 런타임은 활성 임대를 가진 작업의 세션 이력에만 접근할 수 있다. | ADR-0014 |
