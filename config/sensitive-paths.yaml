@@ -13,6 +13,8 @@ paths:
   - config/sensitive-paths.yaml
   - config/github.yaml
   - deploy/github/
+  # Which apps CI builds and publishes; the workflow reads it (ADR-0040).
+  - deploy/images.yaml
   - deploy/helm/core/
   - deploy/k8s/identities/
   - src/apps/core/enikk_core/approval/

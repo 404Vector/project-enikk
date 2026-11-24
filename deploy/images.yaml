@@ -1,0 +1,8 @@
+# Apps the images workflow builds and publishes (ADR-0040).
+# Each name is an app under src/apps/<name> whose package is enikk-<name>; the image
+# is ghcr.io/404vector/enikk-<name>. Every chart in deploy/helm/ must be listed.
+apps:
+  - core
+  - runtime-claude
+  - connector-slack
+  - scheduler
