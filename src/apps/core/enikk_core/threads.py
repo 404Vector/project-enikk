@@ -88,20 +88,19 @@ class ThreadNotes:
         detail: str = "",
     ) -> bool:
         """Queue the PR's status card for the thread behind ``branch``, posted once and
-        then updated. False if there is no such thread."""
+        then updated: the delegating thread, or the Slack thread whose own commits core
+        pushed (ADR-0037 §6b). False if there is no such thread."""
         found = await self.origin(uow, branch)
         if found is None:
             return False
         session, _ = found
-        if session.reply_to is None:
-            return False
         try:
             body = PullStatusCard(
                 repository=repository,
                 number=number,
                 url=url[:500],
                 title=title[:300],
-                origin=session.reply_to,
+                origin=session.outbox_conversation,
                 stage=stage,
                 commit=commit,
                 detail=detail[:MAX_NOTE],
@@ -166,10 +165,10 @@ class ReviewLinks:
                 return ReviewThreadLinked()
             session, latest = found
             if review.updated:
-                return ReviewThreadLinked(origin=session.reply_to)
+                return ReviewThreadLinked(origin=session.outbox_conversation)
         _log.info("linked the review thread of %s#%d", review.repository, review.number)
         report = latest.output if latest.status is TaskStatus.SUCCEEDED else None
-        return ReviewThreadLinked(origin=session.reply_to, report=report)
+        return ReviewThreadLinked(origin=session.outbox_conversation, report=report)
 
 
 def delegated_status(agent: str, output: str) -> str:
