@@ -33,8 +33,14 @@ class RuntimeRole(FrozenModel):
     engine: Engine
 
 
-Role = Annotated[ConnectorRole | RuntimeRole, Field(discriminator="kind")]
-RoleKind = Literal["connector", "runtime"]
+class SchedulerRole(FrozenModel):
+    """The scheduler service (ADR-0039): reads and changes schedules for a calling task."""
+
+    kind: Literal["scheduler"] = "scheduler"
+
+
+Role = Annotated[ConnectorRole | RuntimeRole | SchedulerRole, Field(discriminator="kind")]
+RoleKind = Literal["connector", "runtime", "scheduler"]
 
 
 class Principal(FrozenModel):

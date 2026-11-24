@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from enikk_core_domain.testing import T0, outbox_message, session, task
+from enikk_contracts.schedules import RunStatus
+from enikk_core_domain.schedules import Schedule, ScheduleRun
+from enikk_core_domain.testing import T0, outbox_message, schedule_spec, session, task
 from enikk_persistence_sql import mappers
 
 
@@ -24,3 +26,26 @@ def test_updating_a_row_keeps_its_identity() -> None:
     assert mappers.task_to_row(leased, row) is row
     assert row.lease_id == lease_id
     assert row.status == "leased"
+
+
+def test_schedules_round_trip_through_rows() -> None:
+    news = Schedule.create(
+        schedule_id=uuid.uuid4(),
+        name="news",
+        spec=schedule_spec(),
+        owner_agent="enikk",
+        origin=session().conversation,
+        approval=True,
+        now=T0,
+    )
+    run = ScheduleRun(
+        schedule_id=news.id,
+        slot=T0,
+        status=RunStatus.FAILED,
+        attempts=2,
+        detail="timeout",
+        started_at=T0,
+        updated_at=T0,
+    )
+    assert mappers.schedule_from_row(mappers.schedule_to_row(news)) == news
+    assert mappers.schedule_run_from_row(mappers.schedule_run_to_row(run)) == run

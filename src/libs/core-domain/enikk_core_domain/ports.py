@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         Task,
     )
     from enikk_core_domain.prompts import PromptPromotion
+    from enikk_core_domain.schedules import Schedule, ScheduleRun
 
 
 class SessionRepository(Protocol):
@@ -268,6 +269,40 @@ class DigestRepository(Protocol):
         ...
 
 
+class ScheduleRepository(Protocol):
+    """Schedules, owned by core (ADR-0039 §1). Names are unique."""
+
+    async def get_for_update(self, name: str) -> Schedule | None:
+        """Load a schedule by name and lock it until the unit of work ends."""
+        ...
+
+    async def all(self, limit: int) -> Sequence[Schedule]:
+        """Schedules ordered by name."""
+        ...
+
+    async def add(self, schedule: Schedule) -> None: ...
+    async def update(self, schedule: Schedule) -> None: ...
+
+    async def delete(self, schedule_id: uuid.UUID) -> None:
+        """Remove a schedule and its runs."""
+        ...
+
+
+class ScheduleRunRepository(Protocol):
+    """One record per (schedule, due time) (ADR-0039 §6)."""
+
+    async def get_for_update(
+        self, schedule_id: uuid.UUID, slot: datetime
+    ) -> ScheduleRun | None: ...
+
+    async def add(self, run: ScheduleRun) -> None: ...
+    async def update(self, run: ScheduleRun) -> None: ...
+
+    async def latest(self, schedule_id: uuid.UUID, limit: int) -> Sequence[ScheduleRun]:
+        """The schedule's runs, newest due time first."""
+        ...
+
+
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""
 
@@ -287,6 +322,10 @@ class UnitOfWork(Protocol):
     def prompt_promotions(self) -> PromptPromotionRepository: ...
     @property
     def digests(self) -> DigestRepository: ...
+    @property
+    def schedules(self) -> ScheduleRepository: ...
+    @property
+    def schedule_runs(self) -> ScheduleRunRepository: ...
 
     @property
     def sessions(self) -> SessionRepository: ...
