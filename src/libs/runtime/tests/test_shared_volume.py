@@ -394,3 +394,77 @@ def test_the_sessions_commits_are_bundled_after_main(tmp_path: Path, origin: Ori
     assert not list((tmp_path / "data" / "state" / "bundles").iterdir())
     with pytest.raises(WorkspaceError, match="no branch"):
         workspaces.bundle(OTHER)
+
+
+def _in_worktree(path: Path) -> Origin:
+    worktree = Origin.__new__(Origin)
+    worktree.path = path
+    worktree._run = SubprocessRunner()
+    return worktree
+
+
+def test_a_merged_session_branch_moves_to_the_new_main(tmp_path: Path, origin: Origin) -> None:
+    origin.commit("README.md", "hello\n")
+    clock = _clock()
+    workspaces = _workspaces(tmp_path, origin, clock)
+    ws = workspaces.prepare(SESSION)
+    assert ws.worktree_dir is not None
+    _in_worktree(ws.worktree_dir).commit("docs/a.md", "a\n")
+
+    # Squash merge: the same file lands on main as a different commit, then main moves on.
+    origin.commit("docs/a.md", "a\n")
+    main = origin.commit("b.txt", "b\n")
+    clock.advance(timedelta(minutes=5))
+    again = workspaces.prepare(SESSION)
+
+    assert again.commit == main
+    worktree = _in_worktree(ws.worktree_dir)
+    assert worktree.git("rev-parse", "HEAD") == main
+    assert worktree.git("symbolic-ref", "HEAD") == f"refs/heads/session/{SESSION}"
+    assert (ws.worktree_dir / "b.txt").read_text() == "b\n"
+
+
+def test_a_clean_session_without_commits_follows_main(tmp_path: Path, origin: Origin) -> None:
+    origin.commit("README.md", "hello\n")
+    clock = _clock()
+    workspaces = _workspaces(tmp_path, origin, clock)
+    ws = workspaces.prepare(SESSION)
+    assert ws.worktree_dir is not None
+
+    main = origin.commit("b.txt", "b\n")
+    clock.advance(timedelta(minutes=5))
+    workspaces.prepare(SESSION)
+
+    assert _in_worktree(ws.worktree_dir).git("rev-parse", "HEAD") == main
+
+
+def test_unmerged_commits_stay_where_they_are(tmp_path: Path, origin: Origin) -> None:
+    origin.commit("README.md", "hello\n")
+    clock = _clock()
+    workspaces = _workspaces(tmp_path, origin, clock)
+    ws = workspaces.prepare(SESSION)
+    assert ws.worktree_dir is not None
+    mine = _in_worktree(ws.worktree_dir).commit("docs/a.md", "mine\n")
+
+    origin.commit("docs/a.md", "theirs\n")
+    clock.advance(timedelta(minutes=5))
+    workspaces.prepare(SESSION)
+
+    assert _in_worktree(ws.worktree_dir).git("rev-parse", "HEAD") == mine
+    assert (ws.worktree_dir / "docs" / "a.md").read_text() == "mine\n"
+
+
+def test_uncommitted_changes_keep_the_branch_in_place(tmp_path: Path, origin: Origin) -> None:
+    first = origin.commit("README.md", "hello\n")
+    clock = _clock()
+    workspaces = _workspaces(tmp_path, origin, clock)
+    ws = workspaces.prepare(SESSION)
+    assert ws.worktree_dir is not None
+    (ws.worktree_dir / "README.md").write_text("edited\n")
+
+    origin.commit("b.txt", "b\n")
+    clock.advance(timedelta(minutes=5))
+    workspaces.prepare(SESSION)
+
+    assert _in_worktree(ws.worktree_dir).git("rev-parse", "HEAD") == first
+    assert (ws.worktree_dir / "README.md").read_text() == "edited\n"
