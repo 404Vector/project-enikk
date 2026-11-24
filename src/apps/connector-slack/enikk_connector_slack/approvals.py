@@ -251,13 +251,13 @@ class NoticeRelay:
     async def _deliver_status_card(
         self, notice: OwnerNotice, card: PullStatusCard
     ) -> StatusCardPosted | None:
-        """Update the PR's card in the asking thread, or post it the first time.
-        Failures also get a new line, so the thread notifies (ADR-0036)."""
+        """Update the PR's one line in the asking thread, or post it the first time
+        (ADR-0036). Nothing else goes to that thread."""
         origin = card.origin
         review_link = None
         if card.review is not None:
             review_link = await self._slack.permalink(card.review.channel, card.review.ts)
-        message = blocks.status_card(card, review_link, self._deploy_channel)
+        message = blocks.status_card(card, review_link)
         posted = None
         if card.card is not None:
             await self._slack.update_message(
@@ -277,12 +277,6 @@ class NoticeRelay:
                     channel=made.channel,
                     ts=made.ts,
                 )
-        alert = blocks.status_alert(card, self._deploy_channel)
-        if alert is not None:
-            try:
-                await self._slack.post_message(origin.channel, alert, thread=origin.thread)
-            except SlackDeliveryError as exc:
-                _log.warning("could not alert the thread of PR #%d: %s", card.number, exc)
         return posted
 
     async def _link_threads(

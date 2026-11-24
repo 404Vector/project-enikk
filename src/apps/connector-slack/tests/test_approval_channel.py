@@ -196,34 +196,52 @@ async def test_in_the_channel_only_the_owner_can_approve() -> None:
 # ---------------------------------------------------------------- status card
 
 
-async def test_the_first_card_is_posted_in_the_asking_thread_without_buttons() -> None:
+async def test_the_first_card_is_one_line_linking_the_approval_thread() -> None:
     core, slack = FakeCore(), FakeSlack()
     review = ReviewMessage(channel=APPROVALS, ts="5.0")
-    core.notices.append(_notice(_card(PullStage.AWAITING_APPROVAL, commit=SHA, review=review)))
+    core.notices.append(
+        _notice(_card(PullStage.AWAITING_APPROVAL, commit=SHA, review=review, detail="lint"))
+    )
     assert await _relay(core, slack) == 1
 
     assert slack.messages == []
     [(channel, thread, card)] = slack.replies
     assert (channel, thread) == (ORIGIN.channel, ORIGIN.thread)
-    assert not any(isinstance(b, Actions) for b in card.blocks)
+    assert _types(card.payload()) == ["context"]
     shown = str(card.payload())
-    assert "승인 대기" in shown
-    assert "1111111" in shown
-    # The card links to the approval message: the asking thread → the approval channel.
+    assert URL in shown
+    # The card links to the approval thread: the asking thread → the approval channel.
     assert f"https://slack.test/archives/{APPROVALS}/p50" in shown
+    # Nothing else: no stage, commit, details or buttons (the owner's decision).
+    assert "승인 대기" not in shown
+    assert "1111111" not in shown
+    assert "lint" not in shown
+    assert "feat: x" not in shown
     assert slack.posts == []
     assert slack.updates == []
-    # Core learns where the card is, so later stages update it.
+    # Core learns where the card is, so the outcome updates it.
     [posted] = core.acks[-1].cards
     assert (posted.repository, posted.number) == (REPO, 7)
     assert (posted.channel, posted.ts) == (ORIGIN.channel, f"{ORIGIN.thread}.1")
 
 
-@pytest.mark.parametrize("stage", [PullStage.MERGED, PullStage.DEPLOYED, PullStage.CLOSED])
-async def test_later_stages_update_the_card_without_new_messages(stage: PullStage) -> None:
+@pytest.mark.parametrize(
+    ("stage", "shown_as"),
+    [
+        (PullStage.MERGED, "머지됨"),
+        (PullStage.DEPLOYED, "머지됨"),
+        (PullStage.DEPLOY_FAILED, "머지됨"),
+        (PullStage.BUILD_FAILED, "머지됨"),
+        (PullStage.ROLLED_BACK, "머지됨"),
+        (PullStage.ROLLBACK_FAILED, "머지됨"),
+        (PullStage.REJECTED, "반려됨"),
+        (PullStage.CLOSED, "닫힘"),
+    ],
+)
+async def test_only_the_outcome_is_recorded_on_the_card(stage: PullStage, shown_as: str) -> None:
     core, slack = FakeCore(), FakeSlack()
     existing = ReviewMessage(channel=ORIGIN.channel, ts="1700.2")
-    core.notices.append(_notice(_card(stage, commit=SHA, card=existing)))
+    core.notices.append(_notice(_card(stage, commit=SHA, card=existing, detail="enikk-core")))
     assert await _relay(core, slack) == 1
 
     assert slack.messages == []
@@ -231,51 +249,27 @@ async def test_later_stages_update_the_card_without_new_messages(stage: PullStag
     assert slack.posts == []
     [(channel, ts, blocks)] = slack.updates
     assert (channel, ts) == (ORIGIN.channel, "1700.2")
-    assert "actions" not in _types(blocks)
+    assert _types(blocks) == ["context"]
+    shown = str(blocks)
+    assert shown_as in shown
+    assert "enikk-core" not in shown
+    assert f"<#{RELEASE}>" not in shown
     assert core.acks[-1].cards == ()
 
 
-@pytest.mark.parametrize(
-    ("stage", "where"),
-    [
-        (PullStage.DEPLOY_FAILED, RELEASE),
-        (PullStage.BUILD_FAILED, RELEASE),
-        (PullStage.ROLLED_BACK, RELEASE),
-        (PullStage.ROLLBACK_FAILED, RELEASE),
-        (PullStage.CHECKS_FAILED, None),
-        (PullStage.BLOCKED, None),
-    ],
-)
-async def test_failures_update_the_card_and_add_one_line(stage: PullStage, where: str) -> None:
+@pytest.mark.parametrize("stage", [PullStage.CHECKING, PullStage.CHECKS_FAILED, PullStage.BLOCKED])
+async def test_other_stages_add_nothing_to_the_asking_thread(stage: PullStage) -> None:
     core, slack = FakeCore(), FakeSlack()
     existing = ReviewMessage(channel=ORIGIN.channel, ts="1700.2")
-    core.notices.append(_notice(_card(stage, commit=SHA, card=existing, detail="enikk-core")))
+    core.notices.append(_notice(_card(stage, commit=SHA, card=existing, detail="tests")))
     assert await _relay(core, slack) == 1
 
-    [(channel, ts, blocks)] = slack.updates
-    assert (channel, ts) == (ORIGIN.channel, "1700.2")
-    [(channel, thread, alert)] = slack.replies
-    assert (channel, thread) == (ORIGIN.channel, ORIGIN.thread)
-    shown = str(alert.payload())
-    assert "PR #7" in shown
-    assert "enikk-core" in shown
-    assert not any(isinstance(b, Actions) for b in alert.blocks)
-    if where is not None:
-        assert f"<#{where}>" in shown
-        assert f"<#{where}>" in str(blocks)
+    assert slack.replies == []
     assert slack.messages == []
-
-
-async def test_deployment_details_stay_in_the_deployment_channel() -> None:
-    core, slack = FakeCore(), FakeSlack()
-    existing = ReviewMessage(channel=ORIGIN.channel, ts="1700.2")
-    core.notices.append(_notice(_card(PullStage.DEPLOYED, commit=SHA, card=existing)))
-    await _relay(core, slack)
     [(_, _, blocks)] = slack.updates
     shown = str(blocks)
-    assert "배포됨" in shown
-    assert f"<#{RELEASE}>" in shown
-    assert "enikk-runtime-claude" not in shown
+    for word in ("머지됨", "반려됨", "닫힘", "tests"):
+        assert word not in shown
 
 
 async def test_a_card_that_cannot_be_posted_is_dropped_unless_transient(
