@@ -21,6 +21,7 @@ from enikk_contracts.agents import Execution, PlatformTool
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import (
+    BASE_PROMPT,
     MAX_DIFF_CHARS,
     PromotionAction,
     PromotionLinked,
@@ -122,17 +123,18 @@ class PromptService:
         self, task_id: uuid.UUID, prompt: str
     ) -> tuple[Task, Session, tuple[str, ...]]:
         """The task, its session and the roles using ``prompt``; refuse unless the task's
-        role may handle prompts and ``prompt`` is a role's prompt or a skill (ADR-0037 §2)."""
+        role may handle prompts and ``prompt`` is a role's prompt, the base prompt or a
+        skill (ADR-0037 §1, §2)."""
         task, session = await self._origin(task_id)
         definition = self._catalog.get(task.agent)
         if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
             raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
         roles = roles_using(prompt, self._definitions())
-        if not roles and not is_skill(prompt):
+        if not roles and not is_skill(prompt) and prompt != BASE_PROMPT:
             known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
             raise InvalidRequestError(
-                f"'{prompt}' is not the prompt of any role nor a skill (skill-*); "
-                f"roles use: {known}"
+                f"'{prompt}' is not the prompt of any role, the base prompt "
+                f"({BASE_PROMPT}) nor a skill (skill-*); roles use: {known}"
             )
         return task, session, roles
 
