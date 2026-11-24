@@ -123,11 +123,12 @@ def test_a_delegated_answer_with_a_pull_request_becomes_a_status_line() -> None:
     url = "https://github.com/404Vector/project-enikk/pull/7"
     report = f"PR 을 만들었습니다: {url}\n- src/a.py 수정\n```py\nx = 1\n```\n다시 {url}"
     status = delegated_status("developer", report)
-    assert status.count(url) == 1
+    # No GitHub link in the asking thread: the approval thread link follows (2026-11-24).
+    assert "github.com" not in status
+    assert status.count("#7") == 1
     assert "src/a.py" not in status
     assert "x = 1" not in status
-    assert "승인 채널" in status
-    assert "상태 카드" in status
+    assert "승인 채널 스레드" in status
     assert status.startswith("에닉의 developer 역할이 작업을 마쳤습니다.")  # ADR-0031
 
 
