@@ -146,6 +146,7 @@
 - **이미지**: 공용 Dockerfile 이 `enikk-core` 에도 git 을 설치한다.
 - **기능 플래그 (양쪽)**: runtime `ENIKK_RUNTIME_PULLS__ENABLED`(Helm `deploy/helm/runtime-claude` 의 `pulls.enabled`)는 도구를 주는지, core `ENIKK_CORE_SUBMISSIONS__ENABLED`(Helm `deploy/helm/core` 의 `submissions.enabled`)는 요청을 받는지 정한다. 둘을 따로 두는 이유: runtime 만 끄면 모델에게 도구가 보이지 않고, core 만 끄면 오래된 runtime 이나 다른 호출이 와도 거부된다. 둘 다 코드 기본값은 꺼짐, 차트 기본값은 켜짐이다.
 - **스킬 `requires` 강제는 하지 않았다**: core 는 세션이 어떤 스킬을 불러왔는지 모른다(`load_skill` 은 runtime 이 Langfuse 에서 직접 읽는다). 강제하려면 "스킬을 불러온 세션만 `pr.write` 를 쓴다"를 core 가 확인할 근거(로드 기록을 core 에 남기거나 core 를 거쳐 로드)가 먼저 필요하다. 지금은 역할 정의의 `pull-requests` 가 권한이다. 3·4단계에서 다시 정한다.
+- **첫 실제 제출 (2026-11-24)**: main `82ea7d4` 배포 뒤, 소유자가 시작한 Slack 스레드의 assistant 세션이 이 줄을 커밋해 이 도구로 처음 제출했다. 실제 push(`http.extraheader` 인증)·PR 생성·승인 채널 게시·상태 카드는 이 제출로 확인한다.
 
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
