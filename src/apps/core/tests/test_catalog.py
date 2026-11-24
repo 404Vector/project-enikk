@@ -139,3 +139,14 @@ def test_role_bindings_parse_from_environment(monkeypatch: pytest.MonkeyPatch) -
 def test_role_binding_requires_matching_fields() -> None:
     with pytest.raises(ValueError, match="engine"):
         RoleBindingSettings(namespace="enikk", service_account="x", role="runtime")
+
+
+def test_scheduler_role_binding_has_no_connector_or_engine() -> None:
+    binding = RoleBindingSettings(
+        namespace="enikk", service_account="enikk-scheduler", role="scheduler"
+    ).to_binding()
+    assert binding.role.kind == "scheduler"
+    with pytest.raises(ValueError, match="engine"):
+        RoleBindingSettings(
+            namespace="enikk", service_account="x", role="scheduler", engine=Engine.CLAUDE
+        )

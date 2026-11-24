@@ -17,6 +17,8 @@ from enikk_persistence_sql.repositories import (
     SqlOutboxRepository,
     SqlPromptPromotionRepository,
     SqlReviewMessageRepository,
+    SqlScheduleRepository,
+    SqlScheduleRunRepository,
     SqlSessionRepository,
     SqlStatusCardRepository,
     SqlTaskRepository,
@@ -46,6 +48,8 @@ class SqlUnitOfWork:
         self.status_cards = SqlStatusCardRepository(self._db)
         self.prompt_promotions = SqlPromptPromotionRepository(self._db)
         self.digests = SqlDigestRepository(self._db)
+        self.schedules = SqlScheduleRepository(self._db)
+        self.schedule_runs = SqlScheduleRunRepository(self._db)
         self.queue = SqlJobQueue(self._db)
 
     async def __aenter__(self) -> Self:

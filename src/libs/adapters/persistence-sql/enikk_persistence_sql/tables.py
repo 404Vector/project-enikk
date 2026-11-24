@@ -204,6 +204,40 @@ class ConversationDigestRow(Base):
     updated_at: Mapped[datetime]
 
 
+class ScheduleRow(Base):
+    """A schedule (ADR-0039). ``spec`` is a ``ScheduleSpec`` as JSON."""
+
+    __tablename__ = "schedules"
+    __table_args__ = (UniqueConstraint("name", name="uq_schedules_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(63))
+    spec: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    state: Mapped[str] = mapped_column(String(16))
+    owner_agent: Mapped[str] = mapped_column(String(63))
+    origin_connector: Mapped[str] = mapped_column(String(32))
+    origin_channel: Mapped[str] = mapped_column(String(255))
+    origin_thread: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class ScheduleRunRow(Base):
+    """One run of a schedule for one due time (ADR-0039 §6)."""
+
+    __tablename__ = "schedule_runs"
+    __table_args__ = (Index("ix_schedule_runs_status", "status", "slot"),)
+
+    schedule_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("schedules.id"), primary_key=True)
+    slot: Mapped[datetime] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id"))
+    attempts: Mapped[int] = mapped_column(Integer)
+    detail: Mapped[str] = mapped_column(String(500))
+    started_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
 class OutboxRow(Base):
     __tablename__ = "outbox"
     __table_args__ = (

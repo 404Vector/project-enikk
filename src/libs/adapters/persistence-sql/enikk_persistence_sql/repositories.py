@@ -29,6 +29,8 @@ from enikk_persistence_sql.tables import (
     OutboxRow,
     PromptPromotionRow,
     ReviewMessageRow,
+    ScheduleRow,
+    ScheduleRunRow,
     SessionRow,
     StatusCardRow,
     TaskRow,
@@ -59,6 +61,7 @@ if TYPE_CHECKING:
         Task,
     )
     from enikk_core_domain.prompts import PromptPromotion
+    from enikk_core_domain.schedules import Schedule, ScheduleRun
 
 
 async def _flush(db: AsyncSession, what: str) -> None:
@@ -515,6 +518,75 @@ class SqlDigestRepository:
             .order_by(ConversationDigestRow.day)
         )
         return [mappers.digest_from_row(row) for row in rows]
+
+
+class SqlScheduleRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_for_update(self, name: str) -> Schedule | None:
+        row = await self._db.scalar(
+            select(ScheduleRow)
+            .where(ScheduleRow.name == name)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.schedule_from_row(row) if row else None
+
+    async def all(self, limit: int) -> Sequence[Schedule]:
+        rows = await self._db.scalars(select(ScheduleRow).order_by(ScheduleRow.name).limit(limit))
+        return [mappers.schedule_from_row(row) for row in rows]
+
+    async def add(self, schedule: Schedule) -> None:
+        self._db.add(mappers.schedule_to_row(schedule))
+        await _flush(self._db, f"schedule {schedule.name}")
+
+    async def update(self, schedule: Schedule) -> None:
+        row = await self._db.get(ScheduleRow, schedule.id)
+        if row is None:
+            raise NotFoundError(f"schedule {schedule.name} does not exist")
+        mappers.schedule_to_row(schedule, row)
+        await _flush(self._db, f"schedule {schedule.name}")
+
+    async def delete(self, schedule_id: uuid.UUID) -> None:
+        await self._db.execute(
+            delete(ScheduleRunRow).where(ScheduleRunRow.schedule_id == schedule_id)
+        )
+        await self._db.execute(delete(ScheduleRow).where(ScheduleRow.id == schedule_id))
+
+
+class SqlScheduleRunRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def get_for_update(self, schedule_id: uuid.UUID, slot: datetime) -> ScheduleRun | None:
+        row = await self._db.scalar(
+            select(ScheduleRunRow)
+            .where(ScheduleRunRow.schedule_id == schedule_id, ScheduleRunRow.slot == slot)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.schedule_run_from_row(row) if row else None
+
+    async def add(self, run: ScheduleRun) -> None:
+        self._db.add(mappers.schedule_run_to_row(run))
+        await _flush(self._db, f"run of {run.schedule_id} at {run.slot}")
+
+    async def update(self, run: ScheduleRun) -> None:
+        row = await self._db.get(ScheduleRunRow, (run.schedule_id, run.slot))
+        if row is None:
+            raise NotFoundError(f"run of {run.schedule_id} at {run.slot} does not exist")
+        mappers.schedule_run_to_row(run, row)
+        await _flush(self._db, f"run of {run.schedule_id} at {run.slot}")
+
+    async def latest(self, schedule_id: uuid.UUID, limit: int) -> Sequence[ScheduleRun]:
+        rows = await self._db.scalars(
+            select(ScheduleRunRow)
+            .where(ScheduleRunRow.schedule_id == schedule_id)
+            .order_by(ScheduleRunRow.slot.desc())
+            .limit(limit)
+        )
+        return [mappers.schedule_run_from_row(row) for row in rows]
 
 
 class SqlVaultIndexRepository:
