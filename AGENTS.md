@@ -52,6 +52,7 @@ uv run pytest                    # 영속성 통합 테스트는 Postgres 를 �
 ## 배포 자산
 
 - Dockerfile: `deploy/docker/python-app.Dockerfile` (빌드 인자 `PACKAGE`)
+- 이미지를 만들 앱 목록: `deploy/images.yaml`. 새 앱은 여기에 더한다. 워크플로는 이 파일을 읽는다(ADR-0040).
 - Helm 차트: `deploy/helm/`, 그 외 매니페스트: `deploy/k8s/`
 - Argo CD Application: `deploy/argocd/` (클러스터는 `main` 의 이 디렉토리를 따른다)
 - 대상 클러스터: kube context `docker-desktop`
