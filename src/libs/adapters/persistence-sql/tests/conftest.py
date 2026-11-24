@@ -29,19 +29,7 @@ from testcontainers.community.postgres import PostgresContainer
 from enikk_kernel.process import SubprocessRunner
 from enikk_persistence_sql.engine import DatabaseConfig, create_engine, create_session_factory
 from enikk_persistence_sql.migrate import upgrade
-from enikk_persistence_sql.tables import (
-    ApprovalRow,
-    DeploymentWatchRow,
-    DispatchRow,
-    NoticeRow,
-    OutboxRow,
-    PromptPromotionRow,
-    ReviewMessageRow,
-    SessionRow,
-    TaskRow,
-    TranscriptEntryRow,
-    VaultNoteRow,
-)
+from enikk_persistence_sql.tables import Base
 from enikk_persistence_sql.uow import SqlUnitOfWorkFactory
 
 if TYPE_CHECKING:
@@ -184,19 +172,8 @@ def database(server: DatabaseConfig) -> Iterator[DatabaseConfig]:
 async def uow_factory(database: DatabaseConfig) -> AsyncIterator[SqlUnitOfWorkFactory]:
     engine = create_engine(database)
     async with engine.begin() as connection:
-        for table in (
-            TranscriptEntryRow,
-            OutboxRow,
-            PromptPromotionRow,
-            DispatchRow,
-            ApprovalRow,
-            NoticeRow,
-            DeploymentWatchRow,
-            TaskRow,
-            SessionRow,
-            VaultNoteRow,
-            ReviewMessageRow,
-        ):
+        # Children before parents, so foreign keys never block; new tables are included.
+        for table in reversed(Base.metadata.sorted_tables):
             await connection.execute(delete(table))
     try:
         yield SqlUnitOfWorkFactory(create_session_factory(engine))
