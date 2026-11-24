@@ -257,7 +257,7 @@ class NoticeRelay:
         review_link = None
         if card.review is not None:
             review_link = await self._slack.permalink(card.review.channel, card.review.ts)
-        message = blocks.status_card(card, review_link)
+        message = blocks.status_card(card, review_link, self._approval_channel)
         posted = None
         if card.card is not None:
             await self._slack.update_message(

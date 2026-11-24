@@ -121,7 +121,8 @@ async def test_the_asking_thread_sees_status_and_the_review_thread_the_report(
         await _finish(dev, work, REPORT)
         [handed, status] = (await slack.poll_outbox(OutboxPoll(wait_seconds=0))).messages
         assert status.conversation == THREAD
-        assert "https://github.com/404Vector/project-enikk/pull/7" in status.text
+        assert "#7" in status.text
+        assert "github.com" not in status.text
         assert "secret_plan" not in status.text
         assert "diff" not in status.text
         await slack.ack_outbox(OutboxAck(message_ids=(handed.message_id, status.message_id)))

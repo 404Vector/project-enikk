@@ -174,14 +174,17 @@ class ReviewLinks:
 def delegated_status(agent: str, output: str) -> str:
     """What the asking thread sees of a delegated agent's answer.
 
-    An answer that opened or updated a pull request becomes a status line with its link;
-    the full answer goes to the owner's review thread. Other answers are kept as they are.
+    An answer that opened or updated a pull request becomes one status line with the PR
+    numbers only: the asking thread gets no GitHub links and no details, and the link to
+    the PR's approval thread follows as its status card (ADR-0036, the owner's decision
+    of 2026-11-24). The full answer goes to the owner's review thread. Other answers are
+    kept as they are.
     """
     links = list(dict.fromkeys(PULL_URL.findall(output)))[:MAX_PULL_LINKS]
     if not links:
         return output
+    numbers = ", ".join(f"#{link.rsplit('/', 1)[1]}" for link in links)
     return (
-        f"에닉의 {agent} 역할이 작업을 마쳤습니다. PR: {' '.join(links)}\n"
-        "검사가 끝나면 승인 채널에 승인 요청이 올라가고, 이 스레드에는 PR 상태 카드가 생깁니다. "
-        "바뀐 내용과 상세는 승인 채널의 스레드에 있습니다."
+        f"에닉의 {agent} 역할이 작업을 마쳤습니다. PR {numbers}\n"
+        "승인 채널 스레드 링크가 곧 이 스레드에 올라옵니다."
     )

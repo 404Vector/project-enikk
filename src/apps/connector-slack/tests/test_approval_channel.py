@@ -209,9 +209,10 @@ async def test_the_first_card_is_one_line_linking_the_approval_thread() -> None:
     assert (channel, thread) == (ORIGIN.channel, ORIGIN.thread)
     assert _types(card.payload()) == ["context"]
     shown = str(card.payload())
-    assert URL in shown
-    # The card links to the approval thread: the asking thread → the approval channel.
+    # The card links to the approval thread only, not to GitHub (the owner's decision).
     assert f"https://slack.test/archives/{APPROVALS}/p50" in shown
+    assert URL not in shown
+    assert "github.com" not in shown
     # Nothing else: no stage, commit, details or buttons (the owner's decision).
     assert "승인 대기" not in shown
     assert "1111111" not in shown
@@ -223,6 +224,16 @@ async def test_the_first_card_is_one_line_linking_the_approval_thread() -> None:
     [posted] = core.acks[-1].cards
     assert (posted.repository, posted.number) == (REPO, 7)
     assert (posted.channel, posted.ts) == (ORIGIN.channel, f"{ORIGIN.thread}.1")
+
+
+async def test_without_the_approval_thread_the_card_points_to_the_channel() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.notices.append(_notice(_card(PullStage.AWAITING_APPROVAL)))
+    assert await _relay(core, slack) == 1
+    [(_, _, card)] = slack.replies
+    shown = str(card.payload())
+    assert f"<#{APPROVALS}>" in shown
+    assert "github.com" not in shown
 
 
 @pytest.mark.parametrize(
@@ -252,6 +263,7 @@ async def test_only_the_outcome_is_recorded_on_the_card(stage: PullStage, shown_
     assert _types(blocks) == ["context"]
     shown = str(blocks)
     assert shown_as in shown
+    assert "github.com" not in shown
     assert "enikk-core" not in shown
     assert f"<#{RELEASE}>" not in shown
     assert core.acks[-1].cards == ()

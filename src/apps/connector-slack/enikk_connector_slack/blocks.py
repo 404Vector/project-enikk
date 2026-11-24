@@ -416,13 +416,14 @@ CLOSED_TEXT: Final = {
 }
 
 
-def status_card(card: PullStatusCard, review_link: str | None) -> Message:
-    """The PR's one line in the asking thread: a link to its approval thread, and only
-    whether it was merged or rejected. Checks, approval and deployment stay in their
-    channels; no buttons, no details (the owner's decision, 2026-11-24)."""
-    line = f"PR <{card.url}|#{card.number}>"
+def status_card(card: PullStatusCard, review_link: str | None, approval_channel: str) -> Message:
+    """The PR's one line in the asking thread: a link to its approval thread only (not to
+    GitHub), and only whether it was merged or rejected. Checks, approval and deployment
+    stay in their channels; no buttons, no details (the owner's decision, 2026-11-24)."""
     if review_link is not None:
-        line += f" · <{review_link}|승인 채널 스레드>"
+        line = f"<{review_link}|PR #{card.number} 승인 스레드>"
+    else:
+        line = f"PR #{card.number} · <#{approval_channel}>"
     outcome = _outcome(card.stage)
     if outcome is not None:
         line += f" · {outcome}"
