@@ -1,0 +1,28 @@
+[project]
+name = "enikk-scheduler"
+version = "0.1.0"
+description = "enikk-scheduler: schedules as MCP tools for the agents (ADR-0039)"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
+    "mcp>=2.3",
+    "starlette>=0.40",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+enikk-scheduler = "enikk_scheduler.main:main"
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_scheduler"]

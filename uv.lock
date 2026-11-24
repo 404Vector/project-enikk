@@ -25,6 +25,7 @@ members = [
     "enikk-platform",
     "enikk-runtime",
     "enikk-runtime-claude",
+    "enikk-scheduler",
     "project-enikk",
 ]
 
@@ -967,6 +968,29 @@ requires-dist = [
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-langfuse", editable = "src/libs/adapters/langfuse" },
     { name = "enikk-runtime", editable = "src/libs/runtime" },
+]
+
+[[package]]
+name = "enikk-scheduler"
+version = "0.1.0"
+source = { editable = "src/apps/scheduler" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-core-client" },
+    { name = "enikk-kernel" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-client", editable = "src/libs/core-client" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "mcp", specifier = ">=2.3" },
+    { name = "starlette", specifier = ">=0.40" },
+    { name = "uvicorn", specifier = ">=0.32" },
 ]
 
 [[package]]
