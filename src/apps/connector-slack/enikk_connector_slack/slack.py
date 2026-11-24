@@ -101,6 +101,15 @@ class SlackWebApi:
         except (aiohttp.ClientError, TimeoutError) as exc:
             _log.warning("could not update message %s: %r", ts, exc)
 
+    async def delete_message(self, channel: str, ts: str) -> None:
+        try:
+            await self._web.chat_delete(channel=channel, ts=ts)
+        except SlackApiError as exc:
+            if _error_code(exc) != "message_not_found":
+                _log.warning("could not delete message %s: %s", ts, _error_code(exc))
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not delete message %s: %r", ts, exc)
+
     async def post_ephemeral(self, channel: str, user: str, text: str) -> None:
         try:
             await self._web.chat_postEphemeral(channel=channel, user=user, text=text)

@@ -339,6 +339,9 @@ class ApprovalActions:
             )
             return
         for action in actions.actions:
+            if action.action_id == blocks.CANCEL_ACTION:
+                await self._cancel(actions, action.value)
+                continue
             if action.action_id == blocks.REVERT_ACTION:
                 await self._revert(actions, action.value)
                 continue
@@ -377,6 +380,28 @@ class ApprovalActions:
             actions.message_text,
             [*kept, footer.model_dump()],
         )
+
+    async def _cancel(self, actions: BlockActions, value: str) -> None:
+        """Cancel the thread's work and remove the button (ADR-0037 3b)."""
+        try:
+            task_id = uuid.UUID(value)
+        except ValueError:
+            return
+        try:
+            result = await self._core.cancel_task(task_id)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("cancelling task %s failed: %s", task_id, exc)
+            await self._slack.post_ephemeral(
+                actions.channel_id,
+                actions.user.id,
+                f":warning: 취소하지 못했습니다. 잠시 뒤 다시 눌러 주세요. ({exc})",
+            )
+            return
+        await self._slack.delete_message(actions.channel_id, actions.message_ts)
+        if not result.cancelled:
+            await self._slack.post_ephemeral(
+                actions.channel_id, actions.user.id, blocks.ALREADY_FINISHED_TEXT
+            )
 
     async def _promote(self, actions: BlockActions, value: str, action: PromotionAction) -> None:
         try:

@@ -42,6 +42,7 @@ REVERT_ACTION: Final = "enikk.revert"
 PROMOTE_PROMPT_ACTION: Final = "enikk.prompt.promote"
 REJECT_PROMPT_ACTION: Final = "enikk.prompt.reject"
 REVERT_PROMPT_ACTION: Final = "enikk.prompt.revert"
+CANCEL_ACTION: Final = "enikk.cancel"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
 SUMMARY_LIMIT: Final = 200
@@ -80,6 +81,7 @@ class Text(_Block):
 class Section(_Block):
     type: Literal["section"] = "section"
     text: Text
+    accessory: Button | None = None
 
 
 class Context(_Block):
@@ -265,6 +267,26 @@ def sent_to_dm_instead(message: Message, channel: str) -> Message:
 
 
 NOT_OWNER_TEXT: Final = "이 버튼은 소유자만 누를 수 있습니다. 아무것도 바뀌지 않았습니다."
+RUNNING_TEXT: Final = ":hourglass: 작업 중"
+ALREADY_FINISHED_TEXT: Final = "이미 끝난 작업입니다. 아무것도 바뀌지 않았습니다."
+
+
+def running(task_id: str) -> Message:
+    """One line in the thread while a task runs, with the owner's [취소] button (ADR-0037 3b)."""
+    return Message(
+        text=RUNNING_TEXT,
+        blocks=(
+            Section(
+                text=Text(text=RUNNING_TEXT),
+                accessory=Button(
+                    text=Text(type="plain_text", text="취소"),
+                    action_id=CANCEL_ACTION,
+                    value=task_id,
+                    style="danger",
+                ),
+            ),
+        ),
+    )
 
 
 def outdated(notice: ApprovalOutdated) -> Message:

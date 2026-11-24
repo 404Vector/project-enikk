@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Final
 
+from enikk_connector_slack import blocks
 from enikk_connector_slack.events import MessageRef
 from enikk_connector_slack.inbound import RECEIVED
 from enikk_connector_slack.ports import SlackDeliveryError
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Awaitable, Callable
 
+    from enikk_connector_slack.events import PostedMessage
     from enikk_connector_slack.ports import CoreApi, SlackApi
     from enikk_contracts.outbox import OutboundMessage
 
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 
 REPLIED: Final = "white_check_mark"
 FAILED: Final = "x"
+CANCELLED: Final = "no_entry_sign"
 FAILURE_PREFIX: Final = ":warning: 요청을 처리하지 못했습니다.\n"
 
 _log = logging.getLogger(__name__)
@@ -52,6 +55,8 @@ class OutboxRelay:
         self._slack = slack
         self._policy = policy
         self._sleep = sleep
+        self._buttons: dict[uuid.UUID, PostedMessage] = {}
+        """[취소] messages of running tasks; lost on restart, then the press says "finished"."""
 
     async def run(self, stop: asyncio.Event) -> None:
         delay = 1.0
@@ -80,6 +85,9 @@ class OutboxRelay:
         return len(settled)
 
     async def _deliver(self, message: OutboundMessage) -> None:
+        if message.kind is OutboundKind.STARTED:
+            await self._started(message)
+            return
         conversation = message.conversation
         replied = message.kind is OutboundKind.REPLY
         try:
@@ -91,10 +99,37 @@ class OutboxRelay:
                 "dropped message %s for task %s: %s", message.message_id, message.task_id, exc
             )
             replied = False
+        button = self._buttons.pop(message.task_id, None)
+        if button is not None:
+            await self._slack.delete_message(button.channel, button.ts)
         source = MessageRef.parse(message.source_event_id)
         if source is not None:
             await self._slack.unreact(source, RECEIVED)
-            await self._slack.react(source, REPLIED if replied else FAILED)
+            await self._slack.react(source, _mark(message.kind, replied=replied))
+
+    async def _started(self, message: OutboundMessage) -> None:
+        """Show the running task with its [취소] button (ADR-0037 3b)."""
+        if message.task_id in self._buttons:
+            return
+        conversation = message.conversation
+        try:
+            posted = await self._slack.post_message(
+                conversation.channel,
+                blocks.running(str(message.task_id)),
+                thread=conversation.thread,
+            )
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.warning("no cancel button for task %s: %s", message.task_id, exc)
+            return
+        self._buttons[message.task_id] = posted
+
+
+def _mark(kind: OutboundKind, *, replied: bool) -> str:
+    if kind is OutboundKind.CANCELLED:
+        return CANCELLED
+    return REPLIED if replied else FAILED
 
 
 def _text(message: OutboundMessage) -> str:
