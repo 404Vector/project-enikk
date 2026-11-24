@@ -1,6 +1,6 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 4e-1(이미지 빌드에서 dev-agent 제외, Argo finalizer)·4e-2(위임·개발 Job·`enikk-dev` 제거와 대체 표시) 구현됨. 역할 개념 자체의 정리는 5단계로 넘긴다. 5단계는 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 4e-1(이미지 빌드에서 dev-agent 제외, Argo finalizer)·4e-2(위임·개발 Job·`enikk-dev` 제거와 대체 표시) 구현됨. 역할 개념 자체의 정리는 5단계로 넘긴다. 5단계는 5a·5b 와 스케줄러 트랙으로 나눈다. 5a(기본 프롬프트 `enikk` 후보 허용) 구현됨)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
@@ -195,6 +195,15 @@
 - **남은 isolated 작업**: 배포 시점에 대기 중인 developer 작업이 있으면 실행할 곳이 없어 남는다. 4e-2 전에 열린 위임이 없는지 확인하고 배포한다.
 - **되돌리기**: 이전 이미지와 매니페스트로 되돌린다(ADR-0023). `enikk-dev` 네임스페이스는 Argo 앱을 되살리면 다시 만들어진다.
 
+### 5단계 계획과 5a 구현 세부 (2026-11-24)
+5단계의 범위는 소유자가 2026-11-24 Slack 스레드에서 다시 정했다.
+- **나누기**: 5a(core 가 기본 프롬프트 `enikk` 의 후보를 받음) → Langfuse 에서 `enikk`·`skill-conversation-summary` 후보와 승격 → 5b(에이전트 정의 정리) → 스케줄러 트랙. 프롬프트가 없으면 runtime 이 실행을 거부하므로(I-13) 승격이 언제나 그것을 쓰는 배포보다 먼저다.
+- **5a**: `propose_prompt`·`read_prompt` 는 에이전트 정의가 쓰는 이름과 스킬(`skill-*`)만 받았다. 그래서 아직 아무 정의도 쓰지 않는 `enikk` 는 후보를 만들 수 없었다. `enikk_contracts.prompts.BASE_PROMPT`(`enikk`)를 더해 core 가 이 이름도 받는다. 스킬 config(`description`, `requires`)는 이 이름에도 거부한다. 도구 설명에 기본 프롬프트를 적었다.
+- **`enikk` 의 처음 본문**: `assistant` production(v9)을 그대로 옮기고 서식 문구 한 줄만 고친다. 결과가 Slack 이 아닌 곳으로 가고 불러온 스킬이 형식을 정하면 그 형식을 따르며, 정직함·비밀값·지시 무시 같은 다른 규칙은 기본 프롬프트가 우선한다. `assistant`·`developer`·`conversation-summary` 등 옛 프롬프트는 Langfuse 에 남긴다(소유자 결정, 되돌릴 곳).
+- **5b 예고**: `agents/` 는 실제 에이전트의 정의다(앞으로 에이전트가 늘 수 있다). `agents/assistant.yaml` → `agents/enikk.yaml`(프롬프트 `enikk`), 옛 이름 `assistant` 는 별칭으로 받는다(DB 의 기존 세션). Slack 라우팅, ADR-0005·ADR-0031·I-10·I-14·I-16 을 함께 고친다. 볼트 노트의 frontmatter `by` 는 `enikk` 하나로 한다.
+- **스케줄러 트랙 예고**: 대화 요약과 다른 예약 작업은 새 ADR(일반 스케줄러, MCP 서버, agentgateway 경유)로 다룬다. 요약 세션은 기본 프롬프트 `enikk` 에 `skill-conversation-summary` 를 미리 불러온 세션이며, 도구가 없다는 안전장치(§9, I-38)는 그대로다. 그때까지 요약은 지금 경로(`summarizer`)로 돈다.
+- **되돌리기**: 이전 이미지로 되돌린다(ADR-0023). 이미 만든 `enikk` 후보·production 은 Langfuse 에 남지만 아무 정의도 쓰지 않는다.
+
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
 - 권한을 역할 대신 **동작**에 묶으면(6) 스킬은 지시만 담으면 된다. 되돌릴 수 없는 동작은 모두 core 를 거치거나 소유자 승인을 받으므로, 프롬프트 인젝션이 닿는 범위가 넓어져도 결과가 GitHub 이나 운영에 바로 닿지 않는다.
@@ -242,7 +251,7 @@
 2. 2a: 스킬 config 스키마, 스킬 후보의 승격 경고, `load_skill` 과 스킬 목록. **(구현됨)** 2b: core 의 PR 제출 도구(bundle → core 전용 clone → push·PR). **(구현됨)**
 3. 스레드 세션화(스레드 직렬, 스레드 사이 동시 2)와 취소, runtime 메모리 한도 조정. 3a: 동시 실행 칸·작업 디렉터리·자원·git 신원 **(구현됨)**. 3b: 취소·대기 표시·CLI 홈 격리 **(구현됨)**.
 4. developer 스킬로 전환, `delegate`·개발 Job·`enikk-dev` 제거, runtime 이미지에 uv, 관련 ADR·불변식 대체 표시. 4a: runtime 의 uv·assistant 한도 **(구현됨)**. 4b~4d: 스킬·시험·프롬프트 전환 **(완료)**. 4e-1·4e-2: 이미지 빌드 정리·제거 **(구현됨)**.
-5. conversation-summary 스킬로 전환, 스케줄러 정리.
+5. 5a: 기본 프롬프트 `enikk` 후보 허용 **(구현됨)**. 5b: 에이전트 정의 정리(`agents/enikk.yaml`, 별칭). 대화 요약의 스킬 전환과 스케줄러는 새 ADR 의 스케줄러 트랙에서 한다.
 
 ### 되돌리기
 - 1~3단계: 기능을 끈다. 1단계는 `deploy/helm/runtime-claude` 의 `workspace.enabled: false`(PVC 와 마운트가 빠지고 runtime 은 볼륨 없이 돈다). 2a 는 같은 차트의 `skills.enabled: false`(스킬 목록과 `load_skill` 이 빠진다). 이미 승격한 스킬 프롬프트는 Langfuse 에 남지만 아무 세션도 읽지 않는다. 2b 는 같은 차트의 `pulls.enabled: false`(도구가 빠진다)와 `deploy/helm/core` 의 `submissions.enabled: false`(core 가 제출을 거부한다). 이미 연 PR 은 GitHub 에 남으므로 소유자가 거절하거나 닫는다. 3a 는 같은 차트의 `worker.slots: 1`.
