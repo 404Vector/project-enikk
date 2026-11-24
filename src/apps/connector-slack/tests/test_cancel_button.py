@@ -8,7 +8,8 @@ import pytest
 
 from enikk_connector_slack import blocks
 from enikk_connector_slack.approvals import ApprovalActions
-from enikk_connector_slack.outbound import CANCELLED, OutboxRelay, RelayPolicy
+from enikk_connector_slack.inbound import RECEIVED, WAITING
+from enikk_connector_slack.outbound import CANCELLED, REPLIED, OutboxRelay, RelayPolicy
 from enikk_connector_slack.testing import CONFIG, OWNER, FakeCore, FakeSlack
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.outbox import OutboundKind, OutboundMessage
@@ -114,3 +115,19 @@ async def test_core_down_keeps_the_button_and_says_so_privately() -> None:
     [(_, user, text)] = slack.ephemerals
     assert user == OWNER
     assert "취소하지 못했습니다" in text
+
+
+async def test_the_request_waits_then_runs_then_shows_its_result() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    relay = OutboxRelay(core, slack, POLICY)
+    core.pending.append(_message(OutboundKind.STARTED))
+    await relay.relay_once()
+    core.pending.append(_message(OutboundKind.REPLY))
+    await relay.relay_once()
+    assert slack.reactions == [
+        ("-", "5.0", WAITING),
+        ("+", "5.0", RECEIVED),
+        ("-", "5.0", WAITING),
+        ("-", "5.0", RECEIVED),
+        ("+", "5.0", REPLIED),
+    ]

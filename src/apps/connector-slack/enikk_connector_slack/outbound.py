@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final
 
 from enikk_connector_slack import blocks
 from enikk_connector_slack.events import MessageRef
-from enikk_connector_slack.inbound import RECEIVED
+from enikk_connector_slack.inbound import RECEIVED, WAITING
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
 from enikk_core_client import CoreUnavailableError
@@ -104,13 +104,18 @@ class OutboxRelay:
             await self._slack.delete_message(button.channel, button.ts)
         source = MessageRef.parse(message.source_event_id)
         if source is not None:
+            await self._slack.unreact(source, WAITING)
             await self._slack.unreact(source, RECEIVED)
             await self._slack.react(source, _mark(message.kind, replied=replied))
 
     async def _started(self, message: OutboundMessage) -> None:
-        """Show the running task with its [취소] button (ADR-0037 3b)."""
+        """Mark the request as running and show the [취소] button (ADR-0037 3b)."""
         if message.task_id in self._buttons:
             return
+        source = MessageRef.parse(message.source_event_id)
+        if source is not None:
+            await self._slack.unreact(source, WAITING)
+            await self._slack.react(source, RECEIVED)
         conversation = message.conversation
         try:
             posted = await self._slack.post_message(

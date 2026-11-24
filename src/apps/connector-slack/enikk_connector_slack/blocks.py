@@ -267,7 +267,7 @@ def sent_to_dm_instead(message: Message, channel: str) -> Message:
 
 
 NOT_OWNER_TEXT: Final = "이 버튼은 소유자만 누를 수 있습니다. 아무것도 바뀌지 않았습니다."
-RUNNING_TEXT: Final = ":hourglass: 작업 중"
+RUNNING_TEXT: Final = "작업 중"
 ALREADY_FINISHED_TEXT: Final = "이미 끝난 작업입니다. 아무것도 바뀌지 않았습니다."
 
 

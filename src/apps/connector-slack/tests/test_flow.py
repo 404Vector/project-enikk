@@ -57,7 +57,7 @@ async def test_accepted_message_is_acknowledged_then_marked() -> None:
     assert decision.acknowledge
     assert [e.event_id for e in core.events] == ["slack:D1:5.0"]
     await handler.mark_received(decision)
-    assert slack.reactions == [("+", "5.0", "eyes")]
+    assert slack.reactions == [("+", "5.0", "hourglass_flowing_sand")]
 
 
 async def test_redelivered_message_is_not_marked_again() -> None:
@@ -105,7 +105,11 @@ async def test_relay_posts_in_the_thread_swaps_the_mark_and_acknowledges() -> No
         ("D1", "5.0", "**answer**"),
         ("D1", "5.0", FAILURE_PREFIX + "**answer**"),
     ]
-    assert slack.reactions == [("-", "5.0", "eyes"), ("+", "5.0", "white_check_mark")]
+    assert slack.reactions == [
+        ("-", "5.0", "hourglass_flowing_sand"),
+        ("-", "5.0", "eyes"),
+        ("+", "5.0", "white_check_mark"),
+    ]
     assert core.acked == [reply.message_id, failure.message_id]
 
 
@@ -129,7 +133,11 @@ async def test_transient_post_failure_keeps_the_rest_pending() -> None:
     # The permanently failing message is dropped and marked; the transient one stays.
     assert core.acked == [first.message_id]
     assert core.pending == [second]
-    assert slack.reactions == [("-", "5.0", "eyes"), ("+", "5.0", "x")]
+    assert slack.reactions == [
+        ("-", "5.0", "hourglass_flowing_sand"),
+        ("-", "5.0", "eyes"),
+        ("+", "5.0", "x"),
+    ]
 
 
 async def test_relay_backs_off_until_stopped() -> None:

@@ -53,7 +53,7 @@ async def test_listener_acknowledges_then_marks() -> None:
     client = cast("AsyncBaseSocketModeClient", socket)
     await _listener(core, slack)(client, _request("env-1"))
     assert socket.acknowledged == ["env-1"]
-    assert slack.reactions == [("+", "5.0", "eyes")]
+    assert slack.reactions == [("+", "5.0", "hourglass_flowing_sand")]
 
 
 async def test_listener_withholds_the_acknowledgement_while_core_is_down() -> None:
