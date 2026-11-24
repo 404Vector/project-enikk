@@ -3,6 +3,10 @@ kind: Application
 metadata:
   name: enikk-dev-agent
   namespace: argocd
+  # Deleting this Application also deletes the enikk-dev namespace, its ServiceAccount,
+  # core's Role and the Job template ConfigMap (ADR-0037 4e).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
   annotations:
     # Before enikk-core (wave 10): the namespace, its only ServiceAccount and core's
     # Role exist before core starts dispatching (ADR-0021).

@@ -1,6 +1,6 @@
 # ADR-0037: 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유
 
-- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 5단계는 따로 구현한다)
+- 상태: 승인 (1단계 구현: 이 ADR 과 같은 PR. 2단계는 2a(스킬 config·`load_skill`)와 2b(core 의 PR 제출 도구)로 나눠 구현한다. 2a·2b 구현됨. 3단계 구현됨: 3a(동시 실행 칸·작업 디렉터리·자원·git 신원)와 3b(취소·대기 표시·CLI 홈 격리). 4단계는 4a~4e 로 나눠 구현한다. 4a(runtime 의 uv·한도) 구현됨. 4e-1(이미지 빌드에서 dev-agent 제외, Argo finalizer) 구현됨. 5단계는 따로 구현한다)
 - 날짜: 2026-11-23
 - 관련: ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, ADR-0014, ADR-0017, ADR-0019, ADR-0021, ADR-0022, ADR-0025, ADR-0027, ADR-0030, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, ADR-0036, I-10, I-11, I-12, I-14, I-16, I-17, I-25, I-28, I-29, I-32, I-37, I-38
 
@@ -176,6 +176,13 @@
 - **메모리**: limits 1536Mi 유지(소유자 결정). 두 칸에서 CLI 둘과 mypy·pytest 가 겹치면 넘칠 수 있다. 넘치면 두 작업이 함께 끝나므로 4c 에서 peak 를 본다.
 - **머지된 세션 브랜치 따라가기 (4c 에서 보완)**: PR 이 squash 로 머지되고 `agent/` 브랜치가 지워지면, 같은 스레드의 worktree 는 옛 main 위에 이미 머지된 커밋을 가진 채 남는다. 그대로 다시 제출하면 그 커밋이 또 간다. 그래서 세션 준비(1단계 7번) 때 아래를 모두 만족하면 세션 브랜치를 새 main 으로 옮긴다(`reset --hard`): worktree 가 자기 브랜치에 있고, 커밋하지 않은 변경·추적하지 않는 파일이 없으며(무시 파일 제외), 브랜치가 main 이후 바꾼 파일이 새 main 에서 모두 같은 내용이다. 커밋이 없는 깨끗한 세션도 새 main 을 따라간다. 하나라도 어긋나면 손대지 않는다. git 은 worktree 의 `.git` 파일이 아니라 기준 저장소의 `worktrees/<세션>` 으로 가리켜 실행한다(세션이 `.git` 파일을 바꿀 수 있다).
 - **되돌리기**: 이전 이미지로 되돌리면(ADR-0023) uv 가 빠진다. 한도는 `agents/assistant.yaml` 을 되돌린다.
+
+### 4e-1 구현 세부 (2026-11-24)
+4e 는 4e-1(준비)과 4e-2(제거)로 나눈다. 4e-1 은 4e-2 의 삭제가 다른 것을 깨거나 클러스터에 찌꺼기를 남기지 않게 미리 배포해 두는 변경이다.
+- **이미지 빌드에서 dev-agent 제외**: `.github/workflows/images.yml` 의 `verify`·`build`·`publish` matrix 에서 `dev-agent` 를 빼고 Dockerfile 을 `deploy/docker/python-app.Dockerfile` 로 고정했다. 4e-2 에서 dev-agent 패키지와 Dockerfile 을 지우면 그 빌드가 실패하고, `publish` 가 `needs: build` 라서 모든 앱의 이미지 게시가 멈추기 때문이다. 이 뒤로 dev-agent 이미지는 만들어지지 않고, 운영 중인 dev-agent 는 마지막 이미지로 4e-2 까지 돈다.
+- **Argo finalizer**: `deploy/argocd/apps/enikk-dev-agent.yaml` 에 `resources-finalizer.argocd.argoproj.io` 를 달았다. 없으면 root 앱(`prune: true`)이 이 Application 을 지워도 `enikk-dev` 네임스페이스, ServiceAccount, core 의 Role, Job 템플릿 ConfigMap 이 클러스터에 남는다. finalizer 가 먼저 배포되어 있어야 4e-2 의 삭제가 연쇄된다. 이 단위에서는 Application 을 지우지 않는다.
+- **개발 역할로 낸 이유**: 새 길(`submit_pull_request`, 2b)은 `.github/workflows/` 를 바꿀 수 없다. 그래서 workflow 를 바꾸는 이 단위는 workflow 권한이 있는 개발 역할로 마지막으로 냈다(소유자 지시).
+- **4e-2 예고**: dev-agent 패키지·Dockerfile·Helm 차트·Argo 앱, core 의 디스패처·isolated API·개발 토큰, `delegate`, `agents/developer.yaml` 을 지우고, 위 표의 ADR·불변식에 대체 표시를 단다. 새 길로 낸다.
 
 ## 근거
 - 맥락 손실과 취소 불가는 "다른 실행 환경에 위임한다"는 구조에서 온다. 같은 세션이 대화와 작업을 함께 하면 둘 다 사라진다.
