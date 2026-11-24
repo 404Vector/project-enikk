@@ -99,8 +99,9 @@ def _number(text: str, name: str) -> int:
     return int(text)
 
 
-def check_spec(spec: ScheduleSpec, definition: AgentDefinition | None) -> None:
-    """Raise unless ``spec`` can be stored at all. No approval can widen these (I-16)."""
+def check_spec(spec: ScheduleSpec, definition: AgentDefinition | None) -> AgentDefinition:
+    """Return the definition of ``spec``'s agent, or raise if ``spec`` cannot be stored at
+    all. No approval can widen these (I-16)."""
     if definition is None:
         raise InvalidRequestError(f"agent '{spec.agent}' has no definition")
     try:
@@ -114,6 +115,7 @@ def check_spec(spec: ScheduleSpec, definition: AgentDefinition | None) -> None:
         raise InvalidRequestError(
             f"tools {beyond} are not in the definition of '{definition.name}' (I-16)"
         )
+    return definition
 
 
 def tools_beyond(wanted: ToolPolicy, granted: ToolPolicy) -> list[str]:
