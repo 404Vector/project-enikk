@@ -13,6 +13,7 @@ from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
 from enikk_core.credentials import CredentialIssuer
 from enikk_core.github import GitHubHealthCheck
+from enikk_core.schedules import ScheduleService
 from enikk_core.security import Gatekeeper
 from enikk_core.settings import TaskSettings
 from enikk_core.threads import ReviewLinks, ThreadNotes
@@ -23,6 +24,7 @@ from enikk_core_domain.auth import (
     RoleBinding,
     RoleDirectory,
     RuntimeRole,
+    SchedulerRole,
     ServiceIdentity,
 )
 from enikk_core_domain.repositories import RepositoryPolicy
@@ -48,6 +50,7 @@ CLAUDE = ServiceIdentity(namespace="enikk", name="enikk-runtime-claude")
 GEMINI = ServiceIdentity(namespace="enikk", name="enikk-runtime-gemini")
 STRANGER = ServiceIdentity(namespace="enikk", name="default")
 SMOKE = ServiceIdentity(namespace="enikk", name="enikk-smoke")
+SCHEDULER = ServiceIdentity(namespace="enikk", name="enikk-scheduler")
 
 TOKENS = {
     "slack": SLACK,
@@ -55,6 +58,7 @@ TOKENS = {
     "gemini": GEMINI,
     "stranger": STRANGER,
     "smoke": SMOKE,
+    "scheduler": SCHEDULER,
 }
 
 POLICY = RepositoryPolicy.model_validate_json(
@@ -158,6 +162,7 @@ def harness() -> Harness:
             ),
             RoleBinding(identity=GEMINI, role=RuntimeRole(engine=Engine.GEMINI)),
             RoleBinding(identity=SMOKE, role=ConnectorRole(connector=ConnectorKind.SMOKE)),
+            RoleBinding(identity=SCHEDULER, role=SchedulerRole()),
         )
     )
     store = StaticCredentialStore(
@@ -175,6 +180,9 @@ def harness() -> Harness:
         github=GitHubHealthCheck(github, POLICY, lambda: SecretStr("pem")),
         reaper_interval_seconds=60,
         review_links=ReviewLinks(db.unit_of_work, ThreadNotes(clock, RandomIdGenerator())),
+        schedules=ScheduleService(
+            uow=db.unit_of_work, catalog=catalog, clock=clock, ids=SequentialIds()
+        ),
     )
     return Harness(
         app=create_app(services, run_reaper=False),
