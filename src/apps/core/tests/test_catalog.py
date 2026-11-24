@@ -58,7 +58,7 @@ WITHOUT_TOOLS: frozenset[str] = frozenset({"summarizer"})
 
 def test_every_role_is_granted_the_sdk_tools() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    assert set(catalog.names()) >= {"assistant", "developer", *WITHOUT_TOOLS}
+    assert set(catalog.names()) >= {"assistant", *WITHOUT_TOOLS}
     for name in set(catalog.names()) - WITHOUT_TOOLS:
         definition = catalog.get(name)
         assert definition is not None

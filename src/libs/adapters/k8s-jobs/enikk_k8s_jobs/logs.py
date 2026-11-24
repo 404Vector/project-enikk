@@ -10,7 +10,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from enikk_core_domain.errors import DependencyUnavailableError
-from enikk_k8s_jobs.launcher import SERVICE_ACCOUNT_DIR, FileBearerAuth
+from enikk_k8s_jobs.kube import SERVICE_ACCOUNT_DIR, FileBearerAuth
 from enikk_kernel.models import FrozenModel
 
 MAX_LINES: Final = 200

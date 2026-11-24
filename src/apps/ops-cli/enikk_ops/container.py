@@ -9,7 +9,7 @@ from enikk_kernel.process import SubprocessRunner
 from enikk_ops.bootstrap import ArgoCdService
 from enikk_ops.secrets import CredentialSync, SecretFile
 from enikk_ops.settings import OpsSettings
-from enikk_ops.smoke import ClaudeSmokeTest, CoreSmokeTest, DevSmokeTest
+from enikk_ops.smoke import ClaudeSmokeTest, CoreSmokeTest
 from enikk_platform.adapters import HelmCli, KubectlCli
 
 
@@ -46,12 +46,6 @@ class Container:
     @cached_property
     def core_smoke(self) -> CoreSmokeTest:
         return CoreSmokeTest(
-            self.settings.smoke, self.settings.kube_context, KubectlCli(self.runner)
-        )
-
-    @cached_property
-    def dev_smoke(self) -> DevSmokeTest:
-        return DevSmokeTest(
             self.settings.smoke, self.settings.kube_context, KubectlCli(self.runner)
         )
 

@@ -14,7 +14,6 @@ members = [
     "enikk-core",
     "enikk-core-client",
     "enikk-core-domain",
-    "enikk-dev-agent",
     "enikk-engine-claude",
     "enikk-github",
     "enikk-k8s-auth",
@@ -753,31 +752,6 @@ requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "tzdata", specifier = ">=2026.6" },
-]
-
-[[package]]
-name = "enikk-dev-agent"
-version = "0.1.0"
-source = { editable = "src/apps/dev-agent" }
-dependencies = [
-    { name = "enikk-contracts" },
-    { name = "enikk-core-client" },
-    { name = "enikk-engine-claude" },
-    { name = "enikk-kernel" },
-    { name = "enikk-langfuse" },
-    { name = "enikk-runtime" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "enikk-contracts", editable = "src/libs/contracts" },
-    { name = "enikk-core-client", editable = "src/libs/core-client" },
-    { name = "enikk-engine-claude", editable = "src/libs/adapters/engine-claude" },
-    { name = "enikk-kernel", editable = "src/libs/kernel" },
-    { name = "enikk-langfuse", editable = "src/libs/adapters/langfuse" },
-    { name = "enikk-runtime", editable = "src/libs/runtime" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 
 [[package]]

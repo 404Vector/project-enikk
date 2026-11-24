@@ -30,7 +30,6 @@ class SmokeSettings(SettingsModel):
     runtime_account: str = "enikk-runtime-claude"
     unbound_account: str = "default"
     reply_timeout_seconds: int = Field(default=300, ge=10, le=1800)
-    dev_timeout_seconds: float = Field(default=2400, gt=0)
 
 
 def _default_secret_file() -> Path:

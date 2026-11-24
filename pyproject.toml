@@ -90,7 +90,6 @@ known-first-party = [
     "enikk_ops",
     "enikk_runtime_claude",
     "enikk_connector_slack",
-    "enikk_dev_agent",
 ]
 
 # ---------------------------------------------------------------- mypy
@@ -123,8 +122,6 @@ files = [
     "src/apps/runtime-claude/tests",
     "src/apps/connector-slack/enikk_connector_slack",
     "src/apps/connector-slack/tests",
-    "src/apps/dev-agent/enikk_dev_agent",
-    "src/apps/dev-agent/tests",
 ]
 
 [tool.pydantic-mypy]
@@ -152,7 +149,6 @@ root_packages = [
     "enikk_ops",
     "enikk_runtime_claude",
     "enikk_connector_slack",
-    "enikk_dev_agent",
 ]
 include_external_packages = true
 
@@ -162,7 +158,7 @@ type = "forbidden"
 source_modules = ["enikk_kernel"]
 forbidden_modules = [
     "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql",
-    "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 
 [[tool.importlinter.contracts]]
@@ -171,7 +167,7 @@ type = "forbidden"
 source_modules = ["enikk_contracts"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth",
-    "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 
 [[tool.importlinter.contracts]]
@@ -190,7 +186,7 @@ type = "forbidden"
 source_modules = ["enikk_core_client"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform",
-    "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 
 [[tool.importlinter.contracts]]
@@ -212,7 +208,7 @@ source_modules = [
     "enikk_langfuse", "enikk_engine_claude",
 ]
 forbidden_modules = [
-    "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 
 [[tool.importlinter.contracts]]
@@ -228,7 +224,7 @@ name = "database libraries only in persistence-sql (I-26)"
 type = "forbidden"
 source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_k8s_auth",
-    "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
 allow_indirect_imports = true
@@ -237,7 +233,7 @@ allow_indirect_imports = true
 name = "apps are independent of each other"
 type = "independence"
 modules = [
-    "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 
 [[tool.importlinter.contracts]]
@@ -258,7 +254,7 @@ type = "forbidden"
 source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime",
-    "enikk_langfuse", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_dev_agent",
+    "enikk_langfuse", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
 ]
 forbidden_modules = ["claude_agent_sdk"]
 # The runtime app assembles engine-claude; only direct SDK imports are forbidden.
@@ -271,7 +267,6 @@ source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime",
     "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
-    "enikk_dev_agent",
 ]
 forbidden_modules = ["slack_sdk", "aiohttp"]
 
@@ -283,7 +278,6 @@ source_modules = [
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_runtime",
     "enikk_langfuse", "enikk_engine_claude", "enikk_ops", "enikk_runtime_claude",
     "enikk_connector_slack",
-    "enikk_dev_agent",
 ]
 forbidden_modules = ["enikk_github"]
 
@@ -295,7 +289,6 @@ source_modules = [
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_platform", "enikk_runtime",
     "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
     "enikk_connector_slack",
-    "enikk_dev_agent",
 ]
 forbidden_modules = ["jwt"]
 # The Claude Agent SDK depends on PyJWT; only direct imports are forbidden.

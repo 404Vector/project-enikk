@@ -12,13 +12,13 @@ from enikk_contracts.common import ConnectorKind, Engine
 from enikk_contracts.credentials import CORE_ONLY, CredentialName
 from enikk_core_domain.auth import (
     ConnectorRole,
-    DevAgentRole,
     Role,
     RoleBinding,
     RuntimeRole,
     ServiceIdentity,
 )
 from enikk_github.app import GitHubAppConfig
+from enikk_kernel.errors import ConfigurationError
 from enikk_kernel.settings import ServiceSettings, SettingsModel
 from enikk_persistence_sql.engine import DatabaseConfig
 
@@ -47,7 +47,7 @@ class DatabaseSettings(SettingsModel):
 class RoleBindingSettings(SettingsModel):
     namespace: str
     service_account: str
-    role: Literal["connector", "runtime", "dev-agent"]
+    role: Literal["connector", "runtime"]
     connector: ConnectorKind | None = None
     engine: Engine | None = None
     credentials: tuple[CredentialName, ...] = ()
@@ -70,7 +70,7 @@ class RoleBindingSettings(SettingsModel):
         elif self.engine is not None:
             role = RuntimeRole(engine=self.engine)
         else:
-            role = DevAgentRole()
+            raise ConfigurationError(f"role binding {self.service_account} has no role")
         identity = ServiceIdentity(namespace=self.namespace, name=self.service_account)
         return RoleBinding(identity=identity, role=role, credentials=frozenset(self.credentials))
 
@@ -112,19 +112,6 @@ class GitHubSettings(SettingsModel):
             owner=self.owner,
             api_url=self.api_url,
         )
-
-
-class DevAgentSettings(SettingsModel):
-    """Isolated dev agent Jobs (ADR-0021). Off unless the cluster grants core the Role."""
-
-    enabled: bool = False
-    namespace: str = "enikk-dev"
-    template_configmap: str = "enikk-dev-agent-job"
-    api_url: str = "https://kubernetes.default.svc"
-    max_concurrent: int = Field(default=1, ge=1, le=10)
-    daily_limit: int | None = Field(default=None, ge=1)
-    """Job starts allowed in any 24 hours; None (the default) means no limit."""
-    interval_seconds: float = Field(default=10.0, gt=0, le=300)
 
 
 class ApprovalSettings(SettingsModel):
@@ -214,7 +201,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     tasks: TaskSettings = TaskSettings()
     token_review: TokenReviewSettings = TokenReviewSettings()
     github: GitHubSettings = GitHubSettings()
-    dev_agent: DevAgentSettings = DevAgentSettings()
     approval: ApprovalSettings = ApprovalSettings()
     deployments: DeploymentSettings = DeploymentSettings()
     memory: MemorySettings = MemorySettings()

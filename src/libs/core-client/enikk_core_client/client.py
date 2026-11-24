@@ -15,7 +15,7 @@ from enikk_contracts.diagnostics import Deployments, LogLines, Pulls, RecentTask
 from enikk_contracts.digests import DigestAccepted
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
-from enikk_contracts.github import GitHubHealth, GitHubToken
+from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.memory import MemoryMatches, MemoryWritten
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
@@ -29,7 +29,6 @@ from enikk_contracts.pulls import PullSubmitted
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
-    ClaimRequest,
     LeaseExtended,
     LeaseResponse,
     ResultAccepted,
@@ -56,7 +55,6 @@ if TYPE_CHECKING:
     )
     from enikk_contracts.digests import DigestRequest
     from enikk_contracts.events import InboundEvent
-    from enikk_contracts.github import GitHubTokenRequest
     from enikk_contracts.memory import (
         ForgetRequest,
         MemorySearch,
@@ -127,11 +125,6 @@ class CoreClient:
         timeout = request.wait_seconds + LONG_POLL_MARGIN
         return _parse(LeaseResponse, await self._post(routes.TASK_LEASE, request, timeout))
 
-    async def claim_task(self, task_id: uuid.UUID) -> LeaseResponse:
-        """Isolated workers only: lease the task this Job was started for (ADR-0021)."""
-        path = routes.TASK_CLAIM.format(task_id=task_id)
-        return _parse(LeaseResponse, await self._post(path, ClaimRequest()))
-
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended:
         path = routes.TASK_HEARTBEAT.format(task_id=task_id)
         return _parse(LeaseExtended, await self._post(path, beat))
@@ -171,10 +164,6 @@ class CoreClient:
     async def fetch_credentials(self, request: CredentialRequest) -> Credentials:
         """Credentials granted to this caller. Keep them in memory only (ADR-0013)."""
         return _parse(Credentials, await self._post(routes.CREDENTIALS, request))
-
-    async def github_token(self, request: GitHubTokenRequest) -> GitHubToken:
-        """Isolated workers only: a development token for one repository (I-32)."""
-        return _parse(GitHubToken, await self._post(routes.GITHUB_TOKEN, request))
 
     async def poll_notices(self, poll: NoticePoll) -> NoticeBatch:
         """Slack connector only: messages for the owner's DM (ADR-0020)."""

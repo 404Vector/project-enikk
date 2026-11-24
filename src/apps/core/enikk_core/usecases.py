@@ -65,7 +65,6 @@ class CoreUseCases:
         ids: IdGenerator,
         policy: TaskSettings,
         sleep: Sleep,
-        isolated_daily_limit: int | None = None,
         memory: MemoryService | None = None,
     ) -> None:
         self._uow = uow
@@ -74,7 +73,6 @@ class CoreUseCases:
         self._ids = ids
         self._policy = policy
         self._sleep = sleep
-        self._isolated_daily_limit = isolated_daily_limit
         self._memory = memory
 
     # ------------------------------------------------------------ connector
@@ -246,50 +244,6 @@ class CoreUseCases:
             engine_session_id=session.engine_session_id,
             input=leased.input,
             memories=memories,
-        )
-
-    async def claim_task(self, task_id: uuid.UUID) -> LeaseResponse:
-        """Lease the isolated task a Job was started for (ADR-0021)."""
-        async with self._uow() as uow:
-            queued = await uow.queue.claim_isolated(task_id)
-            if queued is None:
-                raise NotFoundError(f"task {task_id} is not waiting for an isolated worker")
-            session = await self._session_of(uow, queued)
-            now = self._clock.now()
-            leased = queued.grant_lease(
-                lease_id=self._ids.new(), now=now, duration=self._policy.lease_duration
-            )
-            if leased.lease is None or leased.last_lease_id is None:
-                raise RuntimeError("leased task without a lease")
-            definition = self._catalog.get(leased.agent)
-            if definition is None or definition.execution is not Execution.ISOLATED:
-                failed = leased.fail(
-                    lease_id=leased.last_lease_id,
-                    reason=f"agent '{leased.agent}' is no longer an isolated agent",
-                    retryable=False,
-                    now=now,
-                )
-                await uow.tasks.update(failed)
-                await self._publish_outcome(uow, failed)
-                await uow.commit()
-                raise NotFoundError(f"task {task_id} has no isolated agent definition")
-            await uow.tasks.update(leased)
-            await self._publish_started(uow, session, leased)
-            await uow.commit()
-        _log.info("isolated task %s claimed (attempt %d)", leased.id, leased.attempt)
-        memories = await self._memories()
-        return LeaseResponse(
-            assignment=TaskAssignment(
-                task_id=leased.id,
-                lease_id=leased.last_lease_id,
-                lease_expires_at=leased.lease.expires_at,
-                attempt=leased.attempt,
-                definition=definition,
-                session_id=session.id,
-                engine_session_id=session.engine_session_id,
-                input=leased.input,
-                memories=memories,
-            )
         )
 
     async def _memories(self) -> tuple[MemoryNote, ...]:

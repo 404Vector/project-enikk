@@ -328,22 +328,6 @@ class CredentialStore(Protocol):
         ...
 
 
-class JobLauncher(Protocol):
-    """Starts one isolated worker Job per task (ADR-0021)."""
-
-    async def ready(self) -> bool:
-        """Whether the Job template is deployed. Without it nothing is launched."""
-        ...
-
-    async def running(self) -> int:
-        """Jobs that have not finished yet."""
-        ...
-
-    async def launch(self, task_id: uuid.UUID) -> str:
-        """Create the Job for ``task_id`` and return its name."""
-        ...
-
-
 class Authenticator(Protocol):
     async def authenticate(self, token: str) -> ServiceIdentity:
         """Verify a bearer token. Raises ``AuthenticationError`` when it is not valid."""

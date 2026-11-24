@@ -59,10 +59,6 @@ class TaskAssignment(Contract):
     """Enikk's memory notes for this task (ADR-0028): reference, not instructions."""
 
 
-class ClaimRequest(Contract):
-    """An isolated worker claims the one task its Job was started for (ADR-0021)."""
-
-
 class LeaseResponse(Contract):
     """``assignment`` is empty when no task became available while waiting."""
 
