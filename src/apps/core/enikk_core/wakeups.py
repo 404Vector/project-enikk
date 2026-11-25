@@ -108,9 +108,11 @@ class SessionWaker:
             session.reply_to is not None
             or session.conversation.connector is not ConnectorKind.SLACK
         ):
+            _log.info("no wake-up for session %s (%s): not a Slack thread's own", session.id, key)
             return False
         event_id = f"{EVENT_PREFIX}{key}"[:255]
         if await uow.tasks.find_by_source_event(event_id) is not None:
+            _log.info("no wake-up for session %s (%s): already woken", session.id, key)
             return False
         definition = self._catalog.get(session.agent)
         if definition is None:

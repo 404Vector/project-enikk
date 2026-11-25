@@ -1,6 +1,6 @@
 # ADR-0041: 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다
 
-- 상태: 승인 (1단계(민감 경로 축소)·2단계(이벤트 깨우기) 구현. 3·4단계는 아래 "이행 순서")
+- 상태: 승인 (1단계(민감 경로 축소)·2단계(이벤트 깨우기)·3a(세션의 GitHub 토큰) 구현. 3b·3c·4단계는 아래 "이행 순서")
 - 날짜: 2026-11-25
 - 관련: ADR-0004, ADR-0005, ADR-0010, ADR-0014, ADR-0017, ADR-0019, ADR-0024, ADR-0029, ADR-0033, ADR-0037, ADR-0039, I-11, I-12, I-14, I-16, I-17, I-20, I-25, I-28, I-29, I-32, I-37, I-39
 
@@ -92,7 +92,10 @@
 ### 이행 순서 (단계마다 PR 하나)
 1. 이 ADR 과 민감 경로 축소 **(이 PR)**.
 2. 이벤트 깨우기 **(구현됨)**. core 의 `SessionWaker`(`enikk_core/wakeups.py`)가 PR 상태 카드(`ThreadNotes.card`)와 프롬프트 결과 알림(`PromptService._tell`)에서 그 세션에 작업을 넣는다. 깨우는 단계: 검사 실패, 머지, 머지 거부, 반려, 닫힘, 배포 성공·실패, 빌드 실패, 되돌림 성공·실패, 프롬프트 승격·거절·무효·되돌림. 검사 중·승인 대기는 소유자를 기다리므로 깨우지 않는다. 작업의 원본 이벤트 ID 는 `core-event:` 로 시작하고 이벤트마다 하나라 같은 이벤트로 두 번 깨우지 않는다. 위임 세션(4e 전)과 정의가 없어진 에이전트의 세션은 깨우지 않는다. Helm `deploy/helm/core` 의 `wakeups.enabled`(기본 true, 코드 기본 false).
-3. 권한 개방: 정의의 `*`, `requires`·`pending` 삭제, `develop` 토큰과 제출 경로 삭제, 클러스터 읽기.
+3. 권한 개방. 셋으로 나눈다.
+   - 3a. 세션의 GitHub 토큰 **(구현됨)**. 플랫폼 도구 `github` 를 받은 정의의 작업은 임대(`TaskAssignment.github_token`)와 함께 core 가 발급한 `develop` 토큰을 받는다(`enikk_core/github_tokens.py`, 플랫폼 저장소 하나, `workflows` 는 `config/github.yaml` 을 따름, `actions` 읽기 추가). 엔진은 실행의 홈에 git 자격 증명 파일과 `.gitconfig` 의 credential helper, 토큰 파일을 쓰고(`enikk_engine_claude/github_access.py`), 셸의 git 은 github.com 에 그대로 push 한다. `enikk-github METHOD PATH [--data FILE]` 가 같은 토큰으로 GitHub API 를 부른다(PR 열기·닫기·검사 결과). 홈은 실행이 끝나면 지워진다. 발급이 실패해도 작업은 토큰 없이 돈다. core 의 제출 경로(`pull-requests`)는 `skill-developer` 가 직접 push 로 옮겨 간 뒤 3b 에서 없앤다. 같은 단위에서 깨우기를 건너뛴 이유를 로그에 남기고, 배포 결과로 깨우는 테스트를 더했다.
+   - 3b. 정의의 `*`, `requires`·`pending` 삭제, core 제출 경로 삭제.
+   - 3c. 클러스터 읽기. runtime 에 읽기 전용 Kubernetes 권한(Secret 제외)과 `kubectl`. 그 토큰도 샌드박스 안에서 읽히는 예외로 둔다(소유자 결정 2026-11-25).
 4. 세션 유지.
 
 ### 되돌리기

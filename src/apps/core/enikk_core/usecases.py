@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
+    from enikk_core.github_tokens import SessionGitHubTokens
     from enikk_core.mcp_tokens import McpTokenIssuer
     from enikk_core.memory import MemoryService
     from enikk_core.settings import TaskSettings
@@ -71,6 +72,7 @@ class CoreUseCases:
         sleep: Sleep,
         memory: MemoryService | None = None,
         mcp_tokens: McpTokenIssuer | None = None,
+        github_tokens: SessionGitHubTokens | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -80,6 +82,7 @@ class CoreUseCases:
         self._sleep = sleep
         self._memory = memory
         self._mcp_tokens = mcp_tokens
+        self._github_tokens = github_tokens
 
     # ------------------------------------------------------------ connector
 
@@ -240,6 +243,11 @@ class CoreUseCases:
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
         scheduled = session.conversation.connector is ConnectorKind.SCHEDULE
         memories = () if scheduled else await self._memories()
+        github_token = (
+            None
+            if self._github_tokens is None
+            else await self._github_tokens.issue(leased.id, definition)
+        )
         return TaskAssignment(
             task_id=leased.id,
             lease_id=leased.last_lease_id,
@@ -251,6 +259,7 @@ class CoreUseCases:
             input=leased.input,
             memories=memories,
             mcp_token=self._mcp_token(leased.id, leased.last_lease_id, session.id, definition),
+            github_token=github_token,
         )
 
     def _mcp_token(

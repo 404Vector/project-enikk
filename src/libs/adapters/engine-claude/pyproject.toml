@@ -9,6 +9,7 @@ dependencies = [
     "enikk-core-client",
     "enikk-runtime",
     "claude-agent-sdk>=0.2.186",
+    "httpx>=0.28",
 ]
 
 [project.scripts]
@@ -16,6 +17,8 @@ dependencies = [
 # with Landlock before running anything the model asked for.
 enikk-claude-launch = "enikk_engine_claude.sandbox:launch"
 enikk-sandbox-shell = "enikk_engine_claude.sandbox:shell"
+# One GitHub API call with the session's token, from the shell (ADR-0041 §1).
+enikk-github = "enikk_engine_claude.github_access:main"
 
 [tool.uv.sources]
 enikk-kernel = { workspace = true }

@@ -19,6 +19,7 @@ from enikk_core.github import (
     load_repository_policy,
     load_sensitive_paths,
 )
+from enikk_core.github_tokens import SessionGitHubTokens
 from enikk_core.mcp_tokens import McpTokenIssuer
 from enikk_core.memory import MemoryPolicy, MemoryService
 from enikk_core.prompts import PromptService, load_owner
@@ -78,6 +79,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         sleep=asyncio.sleep,
         memory=memory,
         mcp_tokens=mcp_tokens,
+        github_tokens=_github_tokens(settings, store, clock),
     )
     authenticator = TokenReviewAuthenticator.in_cluster(
         TokenReviewConfig(
@@ -109,6 +111,27 @@ def build_services(settings: CoreSettings) -> CoreServices:
         digest_interval_seconds=settings.digests.interval_seconds,
         submissions=_submissions(settings, store, catalog, clock, uow),
         schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids),
+    )
+
+
+def _github_tokens(
+    settings: CoreSettings, store: DirectoryCredentialStore, clock: SystemClock
+) -> SessionGitHubTokens | None:
+    """Tokens for sessions granted ``github`` (ADR-0041 §1); none without the App."""
+    config = settings.github.to_config()
+    if config is None:
+        return None
+    policy = load_repository_policy(
+        settings.github.repositories_file, self_repository=settings.github.self_repository
+    )
+
+    def private_key() -> SecretStr | None:
+        return store.get(CredentialName.GITHUB_APP_PRIVATE_KEY)
+
+    return SessionGitHubTokens(
+        GitHubApp.create(config, private_key, clock),
+        settings.github.self_repository,
+        workflows=policy.own.workflows,
     )
 
 
