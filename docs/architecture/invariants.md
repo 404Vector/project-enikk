@@ -33,7 +33,7 @@
 | I-22 | 커넥터(Slack 등)는 역할을 실행하지 않고 enikk-core 와만 통신한다. 런타임은 core 가 배정한 작업만 실행한다. | ADR-0010 (ADR-0009 대체) |
 | I-23 | enikk-core 는 LLM 호출과 MCP 호출 경로에 있지 않다. 이 호출은 런타임이 직접 한다. | ADR-0010 |
 | I-24 | enikk-core 는 설정의 원본을 갖지 않는다. 역할 정의는 git, 프롬프트는 Langfuse, 배포 상태는 GitOps 가 원본이다. 예외로 스케줄은 설정이 아니라 소유자의 데이터로 보고 core DB 가 원본이다. 스케줄이 할 수 있는 일의 상한은 여전히 git 의 에이전트 정의다(I-39). | ADR-0010, ADR-0039 |
-| I-25 | 엔진 런타임은 상태를 갖지 않는다. 작업·세션 상태는 enikk-core 와 그 저장소에만 있다. 예외로 런타임의 공유 볼륨에는 다시 만들 수 있는 것(저장소 사본, 스냅샷, 스레드별 worktree·임시 자료)만 두며, 비밀값과 자격 증명은 두지 않는다. | ADR-0010, ADR-0037 |
+| I-25 | 엔진 런타임은 상태를 갖지 않는다(예외: 스레드의 Claude 프로세스를 다음 작업까지 메모리에 살려 둘 수 있다. 원본은 core 의 이력이며, 프로세스가 사라지면 거기서 이어받는다, ADR-0041 §3). 작업·세션 상태는 enikk-core 와 그 저장소에만 있다. 예외로 런타임의 공유 볼륨에는 다시 만들 수 있는 것(저장소 사본, 스냅샷, 스레드별 worktree·임시 자료)만 두며, 비밀값과 자격 증명은 두지 않는다. | ADR-0010, ADR-0037, ADR-0041 |
 | I-26 | 데이터베이스에는 enikk-core 만 접근하며, core 안에서도 레포지토리·Unit of Work 포트를 통해서만 접근한다. 스키마 변경은 마이그레이션으로만 한다. | ADR-0011 |
 | I-27 | 서비스 경계를 넘는 데이터(API, 큐 메시지, 이벤트)는 공용 계약 패키지의 pydantic 모델로만 표현한다. 원시 JSON·`dict` 로 주고받지 않는다. 유일한 예외는 엔진 대화 이력 항목이며, JSON 값으로만 검증하고 core 는 해석하지 않는다. | ADR-0011, ADR-0014 |
 | I-28 | core API 의 모든 요청은 audience=`enikk-core` ServiceAccount 토큰으로 인증되고, API 별로 선언된 역할만 허용된다. 인증 없는 엔드포인트는 상태 확인(health)과 MCP 토큰의 공개 키(`/v1/mcp/jwks`, ADR-0039 S3)뿐이다. core 를 제외한 자체 서비스 Pod 는 Kubernetes API 토큰을 받지 않으며(예외: runtime-claude 는 Secret 을 뺀 읽기 전용 ClusterRole 의 토큰을 받아 셸에 준다, ADR-0041 3c), core 는 TokenReview 권한, `argocd` 네임스페이스의 Application 읽기 권한, `enikk` 의 Pod 와 Pod 로그 읽기 권한만 갖는다(`enikk-dev` 의 Job·Pod 권한은 ADR-0037 4e 에서 없앴다). | ADR-0011, ADR-0021, ADR-0023, ADR-0029, ADR-0037, ADR-0039, ADR-0041 |
