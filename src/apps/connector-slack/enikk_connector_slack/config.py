@@ -37,9 +37,6 @@ class SlackConfig(FrozenModel):
     """Channel for deployment, image build and rollback notices (ADR-0026)."""
     approval_channel: SlackChannelId = DEFAULT_APPROVAL_CHANNEL
     """Channel for approval requests: pull requests and prompt promotions (ADR-0036)."""
-    schedule_channels: tuple[str, ...] = ()
-    """Channel names a schedule may post to (output ``channel``, ADR-0039 S6); any other
-    goes to the owner's DM."""
 
     def with_deploy_channel(self, channel: str | None) -> SlackConfig:
         """This config with ``channel`` for deployment notices, if one is given."""

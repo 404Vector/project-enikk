@@ -78,7 +78,6 @@ class NoticeRelay:
         self._owner = config.owner
         self._deploy_channel = config.deploy_notify_channel
         self._approval_channel = config.approval_channel
-        self._schedule_channels = frozenset(config.schedule_channels)
         self._channel_ids: dict[str, str] = {}
         self._policy = policy
         self._sleep = sleep
@@ -211,25 +210,33 @@ class NoticeRelay:
             _log.warning("could not tell the asking thread about %s: %s", body.prompt, exc)
 
     async def _deliver_schedule(self, notice: OwnerNotice, body: ScheduleDelivered) -> None:
-        """A run's answer: in its channel if the config allows it, else the owner's DM."""
+        """A run's answer: in its channel, else the owner's DM (ADR-0039 S6).
+
+        Any channel the bot is a member of may be named: inviting the bot is the owner's
+        permission. A channel the bot cannot find or post in goes to the owner's DM with
+        what to do; a transient failure is raised so the notice is tried again.
+        """
         if body.channel is None:
             await self._deliver_to_owner(notice, blocks.schedule_delivered(body))
-            return
-        if body.channel not in self._schedule_channels:
-            _log.warning("schedule %s: channel %s is not allowed", body.name, body.channel)
-            await self._deliver_to_owner(notice, blocks.schedule_delivered(body, refused=True))
             return
         channel = (
             body.channel
             if _CHANNEL_ID.match(body.channel)
             else self._channel_ids.get(body.channel) or await self._slack.channel_id(body.channel)
         )
-        if channel is None:
+        if channel is not None:
+            self._channel_ids[body.channel] = channel
+            try:
+                await self._slack.post_message(channel, blocks.schedule_delivered(body))
+            except SlackDeliveryError as exc:
+                if exc.transient:
+                    raise
+                _log.warning("schedule %s: could not post in %s: %s", body.name, channel, exc)
+            else:
+                return
+        else:
             _log.warning("schedule %s: no channel %s the bot can see", body.name, body.channel)
-            await self._deliver_to_owner(notice, blocks.schedule_delivered(body, missing=True))
-            return
-        self._channel_ids[body.channel] = channel
-        await self._post_or_dm(notice, channel, blocks.schedule_delivered(body))
+        await self._deliver_to_owner(notice, blocks.schedule_delivered(body, missing=True))
 
     async def _deliver_to_owner(self, notice: OwnerNotice, message: blocks.Message) -> None:
         try:
