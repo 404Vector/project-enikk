@@ -25,8 +25,8 @@ from enikk_core_domain.auth import (
     RoleDirectory,
     RuntimeRole,
     SchedulerRole,
-    ToolRole,
     ServiceIdentity,
+    ToolRole,
 )
 from enikk_core_domain.repositories import RepositoryPolicy
 from enikk_core_domain.testing import (
