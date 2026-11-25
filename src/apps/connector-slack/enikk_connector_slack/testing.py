@@ -155,6 +155,10 @@ class FakeSlack:
         self.ephemerals: list[tuple[str, str, str]] = []
         self.deleted: list[tuple[str, str]] = []
         self.fail_channels: dict[str, Exception] = {}
+        self.channel_ids: dict[str, str] = {}
+
+    async def channel_id(self, name: str) -> str | None:
+        return self.channel_ids.get(name)
 
     async def post_reply(self, channel: str, thread: str, text: str) -> None:
         if self.fail_posts:

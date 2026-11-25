@@ -130,6 +130,30 @@ class SlackWebApi:
         link = response.get("permalink")
         return link if isinstance(link, str) and link else None
 
+    async def channel_id(self, name: str) -> str | None:
+        cursor: str | None = None
+        try:
+            while True:
+                response = await self._web.conversations_list(
+                    types="public_channel,private_channel",
+                    exclude_archived=True,
+                    limit=200,
+                    cursor=cursor,
+                )
+                for channel in response.get("channels") or []:
+                    if isinstance(channel, dict) and channel.get("name") == name:
+                        found = channel.get("id")
+                        return found if isinstance(found, str) else None
+                meta = response.get("response_metadata") or {}
+                cursor = meta.get("next_cursor") if isinstance(meta, dict) else None
+                if not cursor:
+                    return None
+        except SlackApiError as exc:
+            _log.warning("could not look up channel %s: %s", name, _error_code(exc))
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not look up channel %s: %r", name, exc)
+        return None
+
     async def react(self, message: MessageRef, emoji: str) -> None:
         try:
             await self._web.reactions_add(channel=message.channel, timestamp=message.ts, name=emoji)
