@@ -135,7 +135,7 @@ class ApprovalService:
     async def _watch(self, token: InstallationToken) -> None:
         full_name = f"{self._app.owner}/{token.repository}"
         pulls = await self._pulls.open_pulls(token)
-        await self._close_vanished(full_name, {p.number for p in pulls})
+        await self._close_vanished(token, full_name, {p.number for p in pulls})
         for pull in pulls:
             if pull.draft or pull.from_fork:
                 continue
@@ -224,11 +224,23 @@ class ApprovalService:
             await uow.commit()
         _log.info("%s#%d %s: older request retired", full_name, pull.number, pull.head_sha[:7])
 
-    async def _close_vanished(self, full_name: str, open_numbers: set[int]) -> None:
+    async def _close_vanished(
+        self, token: InstallationToken, full_name: str, open_numbers: set[int]
+    ) -> None:
+        """Requests whose PR is no longer open: merged (another way, or by the owner's
+        approval finishing just now) or closed. The request is locked and read again,
+        so a decision that is merging it right now wins."""
         async with self._uow() as uow:
-            for approval in await uow.approvals.in_state(ApprovalState.REQUESTED):
-                if approval.repository == full_name and approval.number not in open_numbers:
-                    await self._resolve(uow, approval, ApprovalState.CLOSED, "")
+            for seen in await uow.approvals.in_state(ApprovalState.REQUESTED):
+                if seen.repository != full_name or seen.number in open_numbers:
+                    continue
+                approval = await uow.approvals.get_for_update(seen.id)
+                if approval is None or approval.state is not ApprovalState.REQUESTED:
+                    continue
+                pull = await self._pulls.get(token, approval.number)
+                merged = pull.merged and pull.head_sha == approval.head_sha
+                state = ApprovalState.MERGED if merged else ApprovalState.CLOSED
+                await self._resolve(uow, approval, state, "")
             await uow.commit()
 
     async def _record(
@@ -421,7 +433,7 @@ class ApprovalService:
         notify: bool = True,
     ) -> None:
         now = self._clock.now()
-        if state is ApprovalState.CLOSED:
+        if state in (ApprovalState.CLOSED, ApprovalState.MERGED):
             await self._card(
                 uow,
                 approval.repository,
@@ -429,7 +441,8 @@ class ApprovalService:
                 approval.url,
                 approval.title,
                 approval.branch,
-                PullStage.CLOSED,
+                PullStage.CLOSED if state is ApprovalState.CLOSED else PullStage.MERGED,
+                commit=approval.head_sha if state is ApprovalState.MERGED else None,
             )
         await uow.approvals.update(approval.resolve(state, now))
         if not notify:

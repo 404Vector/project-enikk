@@ -295,6 +295,23 @@ async def test_requests_for_vanished_pulls_are_closed(
         assert not await uow.approvals.in_state(ApprovalState.REQUESTED)
 
 
+async def test_a_vanished_pull_that_was_merged_is_merged_not_closed(
+    harness: Harness, service: ApprovalService, pulls: FakePulls
+) -> None:
+    """PR #111 (2026-11-25): merged while still requested, it was reported "closed"."""
+    pulls.pulls[7] = _pull()
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    await _notices(service)
+    pulls.pulls[7] = _pull().model_copy(update={"open": False, "merged": True})
+    await service.watch_once()
+    [notice] = await _notices(service)
+    assert isinstance(notice, ApprovalResolved)
+    assert notice.outcome is ResolutionOutcome.MERGED
+    async with harness.db.unit_of_work() as uow:
+        assert not await uow.approvals.in_state(ApprovalState.REQUESTED)
+
+
 async def test_drafts_and_forks_are_ignored(service: ApprovalService, pulls: FakePulls) -> None:
     pulls.pulls[7] = _pull().model_copy(update={"draft": True})
     pulls.pulls[8] = _pull(number=8).model_copy(update={"from_fork": True})
