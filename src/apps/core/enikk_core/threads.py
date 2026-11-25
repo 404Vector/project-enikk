@@ -6,7 +6,8 @@ the thread that delegated to it. Core pushes a Slack thread's own commits to
 thread.
 Older branches were ``agent/<task ID>``; their task leads to the session.
 
-The PR's progress is one status card in that thread, updated in place.
+The PR's progress is one status card in that thread, updated in place. A stage that
+needs the thread's next step also wakes its session (ADR-0041 §4).
 """
 
 from __future__ import annotations
@@ -23,10 +24,12 @@ from enikk_contracts.common import ConnectorKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.threads import ReviewThreadLinked
+from enikk_core.wakeups import PULL_STAGES, pull_event_text
 from enikk_core_domain.model import Notice, OutboxMessage, ReviewMessageRef
 
 if TYPE_CHECKING:
     from enikk_contracts.threads import ReviewThreadOpened
+    from enikk_core.wakeups import SessionWaker
     from enikk_core_domain.model import Session, Task
     from enikk_core_domain.ports import UnitOfWork, UnitOfWorkFactory
     from enikk_kernel.clock import Clock
@@ -51,9 +54,10 @@ def branch_owner(branch: str) -> uuid.UUID | None:
 
 
 class ThreadNotes:
-    def __init__(self, clock: Clock, ids: IdGenerator) -> None:
+    def __init__(self, clock: Clock, ids: IdGenerator, waker: SessionWaker | None = None) -> None:
         self._clock = clock
         self._ids = ids
+        self._waker = waker
 
     async def post(self, uow: UnitOfWork, branch: str, text: str) -> bool:
         """Queue ``text`` for the thread behind ``branch``. False if there is none."""
@@ -109,6 +113,20 @@ class ThreadNotes:
             _log.warning("no status card for %s#%d: %s", repository, number, exc)
             return False
         await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=self._clock.now()))
+        if self._waker is not None and stage in PULL_STAGES:
+            await self._waker.wake(
+                uow,
+                session,
+                key=f"pr:{repository}#{number}:{stage}:{commit or ''}",
+                text=pull_event_text(
+                    repository=repository,
+                    number=number,
+                    title=title,
+                    stage=stage,
+                    commit=commit,
+                    detail=detail,
+                ),
+            )
         return True
 
     async def origin(self, uow: UnitOfWork, branch: str) -> tuple[Session, Task] | None:

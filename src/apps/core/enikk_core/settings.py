@@ -192,6 +192,12 @@ class SubmissionSettings(SettingsModel):
     git_timeout_seconds: int = Field(default=120, ge=1)
 
 
+class WakeupSettings(SettingsModel):
+    """Wake a thread's session when its PR or prompt candidate moves on (ADR-0041 §4)."""
+
+    enabled: bool = False
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -210,5 +216,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
     prompts: PromptSettings = PromptSettings()
     submissions: SubmissionSettings = SubmissionSettings()
+    wakeups: WakeupSettings = WakeupSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

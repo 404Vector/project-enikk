@@ -32,6 +32,7 @@ from enikk_contracts.prompts import (
     PromptRead,
 )
 from enikk_contracts.skills import is_skill
+from enikk_core.wakeups import PROMOTION_STATES, promotion_event_text
 from enikk_core_domain.errors import (
     InvalidRequestError,
     NotFoundError,
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
         PromptCandidateRequest,
         PromptReadRequest,
     )
+    from enikk_core.wakeups import SessionWaker
     from enikk_core_domain.model import Session, Task
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_core_domain.prompts import PromptRegistry
@@ -91,6 +93,7 @@ class PromptService:
         owner: str,
         clock: Clock,
         ids: IdGenerator,
+        waker: SessionWaker | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -98,6 +101,7 @@ class PromptService:
         self._owner = owner
         self._clock = clock
         self._ids = ids
+        self._waker = waker
 
     # ------------------------------------------------------------ reading (ADR-0032 §8)
 
@@ -335,7 +339,8 @@ class PromptService:
         return task, session
 
     async def _tell(self, uow: UnitOfWork, promotion: PromptPromotion, text: str) -> bool:
-        """Post ``text`` in the thread that asked for the candidate."""
+        """Post ``text`` in the thread that asked for the candidate, and wake its session
+        (ADR-0041 §4)."""
         task = await uow.tasks.get_for_update(promotion.task_id)
         session = None if task is None else await uow.sessions.get(task.session_id)
         if task is None or session is None:
@@ -351,6 +356,15 @@ class PromptService:
                 created_at=self._clock.now(),
             )
         )
+        if self._waker is not None and promotion.status in PROMOTION_STATES:
+            await self._waker.wake(
+                uow,
+                session,
+                key=f"prompt:{promotion.id}:{promotion.status}",
+                text=promotion_event_text(
+                    promotion.prompt, promotion.candidate_version, promotion.status, text
+                ),
+            )
         return True
 
 
