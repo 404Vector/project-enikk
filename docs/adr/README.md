@@ -26,7 +26,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0017](0017-claude-engine-runtime.md) | Claude 엔진 런타임 — 도구 차단, 대화 이어 가기, 트레이스 | 승인 (공용 역할의 도구 차단과 토큰 전달 방식은 ADR-0033 으로 부분 대체) | 2026-11-22 |
 | [0018](0018-slack-connector.md) | Slack 커넥터 — 연결 규칙, 중복 처리, 진행 표시 | 승인 | 2026-11-22 |
 | [0019](0019-github-app-scoped-tokens.md) | GitHub App 신원과 용도별로 좁힌 설치 토큰 | 승인 (용도별 토큰에 `submit` 을 ADR-0037 로 추가) | 2026-11-22 |
-| [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 (알림 위치는 ADR-0026, 승인 요청 위치는 ADR-0036 으로 부분 대체) | 2026-11-22 |
+| [0020](0020-slack-approval-and-merge.md) | Slack 승인, 상태 검사 기반 머지, 배포 실패 대응 | 승인 (알림 위치는 ADR-0026, 승인 요청 위치는 ADR-0036 으로 부분 대체. 뒤처진 브랜치의 재승인 §4 추가 2026-11-25) | 2026-11-22 |
 | [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로, push·PR 을 개발 Pod 만 하는 부분은 ADR-0037 로 부분 대체) | 2026-11-22 |
 | [0022](0022-delegation-to-developer.md) | assistant 역할이 개발 역할에 작업을 위임한다 | 승인 | 2026-11-22 |
 | [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 (알림 위치는 ADR-0026 으로 부분 대체) | 2026-11-22 |
