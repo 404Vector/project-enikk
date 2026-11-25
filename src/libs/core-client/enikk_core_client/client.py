@@ -25,7 +25,7 @@ from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptRead,
 )
-from enikk_contracts.schedules import RunList, ScheduleList, ScheduleView
+from enikk_contracts.schedules import RunList, ScheduleDeleted, ScheduleList, ScheduleView
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
@@ -68,7 +68,13 @@ if TYPE_CHECKING:
         PromptCandidateRequest,
         PromptReadRequest,
     )
-    from enikk_contracts.schedules import RunsQuery, ScheduleQuery
+    from enikk_contracts.schedules import (
+        RunsQuery,
+        ScheduleCreate,
+        SchedulePause,
+        ScheduleQuery,
+        ScheduleUpdate,
+    )
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
@@ -272,6 +278,25 @@ class CoreClient:
         """One schedule by name. Scheduler only (ADR-0039)."""
         path = routes.SCHEDULE_GET.format(name=name)
         return _parse(ScheduleView, await self._post(path, query))
+
+    async def create_schedule(self, request: ScheduleCreate) -> ScheduleView:
+        """Create a schedule. Scheduler only (ADR-0039, ADR-0041)."""
+        return _parse(ScheduleView, await self._post(routes.SCHEDULES, request))
+
+    async def update_schedule(self, name: str, request: ScheduleUpdate) -> ScheduleView:
+        """Replace a schedule's spec. Scheduler only."""
+        path = routes.SCHEDULE_UPDATE.format(name=name)
+        return _parse(ScheduleView, await self._post(path, request))
+
+    async def pause_schedule(self, name: str, request: SchedulePause) -> ScheduleView:
+        """Pause or resume a schedule. Scheduler only."""
+        path = routes.SCHEDULE_PAUSE.format(name=name)
+        return _parse(ScheduleView, await self._post(path, request))
+
+    async def delete_schedule(self, name: str, query: ScheduleQuery) -> ScheduleDeleted:
+        """Delete a schedule. Scheduler only."""
+        path = routes.SCHEDULE_DELETE.format(name=name)
+        return _parse(ScheduleDeleted, await self._post(path, query))
 
     async def list_runs(self, name: str, query: RunsQuery) -> RunList:
         """The latest runs of one schedule. Scheduler only (ADR-0039)."""

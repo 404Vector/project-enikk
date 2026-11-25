@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (S1·S2·S3 구현. 남은 단위 S4~S7 은 아래 "이행 순서")
+- 상태: 승인 (S1~S4 구현. §5 의 승인 규칙은 ADR-0041 §1 로 대체. 남은 단위 S5~S7 은 아래 "이행 순서")
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -114,7 +114,7 @@
    - gateway: `deploy/k8s/agentgateway`(업스트림 이미지를 digest 로 고정, 일반 매니페스트, requests 64Mi·limits 128Mi), Argo 앱 `enikk-agentgateway`(wave 30). 서버마다 경로 하나, `mcpAuthentication` → `mcpAuthorization`(gateway 의 상한 `require` + 토큰의 `tools` `allow`) → 토큰의 작업·임대를 `x-enikk-task-id`·`x-enikk-lease-id` 로 넘김. 스케줄러와 core 의 확인은 S2 그대로다. 우리 이미지가 아니므로 `deploy/images.yaml`·Image Updater 에 넣지 않는다(ADR-0040 의 "모든 차트는 우리 앱" 검사 때문에 Helm 차트가 아닌 일반 매니페스트로 둔다).
    - 스케줄러는 gateway 가 넘기는 Host(`enikk-agentgateway…`)도 받는다. 진단 도구(deployments, service_logs)와 배포 알림에 gateway 를 더했다.
    - 민감 경로: `enikk_core/mcp_tokens.py`, `deploy/k8s/agentgateway/`, Argo 앱, `enikk_engine_claude/mcp_gateway.py`.
-4. **S4**: 변경 도구, 권한 검사, 승인 카드(connector), 변경 알림과 경고.
+4. **S4**: 변경 도구 **(구현됨, ADR-0041 로 축소)**. 스케줄러 MCP 에 `create_schedule`·`update_schedule`·`pause_schedule`·`resume_schedule`·`delete_schedule` 을 더하고 gateway 의 상한(`require`)과 `agents/enikk.yaml` 에 허용했다(revision 3). ADR-0041 §1 에 따라 §5 의 승인 규칙(`pending`, 승인 카드, "예약 세션은 조회만")과 변경 알림은 두지 않는다. 남는 규칙은 "스케줄의 도구는 그 에이전트 정의를 넘지 못한다"와 등록된 입력·출력뿐이다. 옛 `pending` 상태와 `needs_approval` 은 지금 쓰이지 않는다.
 5. **S5**: 시계와 실행(스킬 미리 불러오기, 도구 좁히기, 출력 처리기, 재시도), `run_now`.
 6. **S6**: 경제 이슈 요약. 소유자가 대화로 직접 만들어 첫 실사용 시험으로 삼는다.
 7. **S7**: 대화 요약 이전. `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
