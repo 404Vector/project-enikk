@@ -69,7 +69,6 @@ if TYPE_CHECKING:
         PromptProposer,
         SkillLibrary,
     )
-    from enikk_runtime.pulls import SessionPulls
 
     QueryFn = Callable[..., AsyncIterator[Message]]
 
@@ -160,7 +159,6 @@ class ClaudeEngine:
         prompts: PromptProposer | None = None,
         digests: DigestRequester | None = None,
         skills: SkillLibrary | None = None,
-        pulls: SessionPulls | None = None,
         query_fn: QueryFn = query,
         landlock: bool | None = None,
     ) -> None:
@@ -172,7 +170,6 @@ class ClaudeEngine:
         self._prompts = prompts
         self._digests = digests
         self._skills = skills
-        self._pulls = pulls
         self._query = query_fn
         self._landlock = sandbox.available() if landlock is None else landlock
         if not self._landlock:
@@ -303,7 +300,6 @@ class ClaudeEngine:
             self._digests,
             self._skills,
             trace.skills,
-            pulls=self._pulls,
         )
         platform = self._platform(job) if server is not None else []
         mcp = gateway_tools(job, self._config.mcp_gateway, reserved=PLATFORM_SERVER)
@@ -397,7 +393,6 @@ class ClaudeEngine:
             prompts=self._prompts is not None,
             digests=self._digests is not None,
             skills=self._skills is not None,
-            pulls=self._pulls is not None,
         )
 
     async def _consume(

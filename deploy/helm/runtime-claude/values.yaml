@@ -51,11 +51,6 @@ workspace:
 skills:
   enabled: true
 
-# submit_pull_request (ADR-0037 §6b): a role granted pull-requests hands its worktree
-# commits to core, which pushes them and opens the PR. Needs workspace.enabled.
-pulls:
-  enabled: true
-
 # MCP tools through agentgateway (ADR-0039 §2, I-05): each server of a definition's
 # tools.mcp at <gatewayUrl>/mcp/<server>, with core's token for the task. false is the
 # off switch: no MCP server is attached.

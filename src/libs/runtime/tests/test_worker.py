@@ -12,7 +12,7 @@ from enikk_contracts.tasks import Failed, Succeeded
 from enikk_core_client.errors import CoreUnavailableError
 from enikk_kernel.testing import ManualClock
 from enikk_runtime.errors import EngineError
-from enikk_runtime.model import EngineResult, SessionBundle, SessionWorkspace
+from enikk_runtime.model import EngineResult, SessionWorkspace
 from enikk_runtime.testing import (
     FakeCore,
     RecordingObserver,
@@ -340,9 +340,6 @@ class _Workspaces:
             branch=f"session/{session_id}",
             tmp_dir=Path("/data/tmp") / str(session_id),
         )
-
-    def bundle(self, session_id: uuid.UUID) -> SessionBundle:
-        raise AssertionError("the worker never bundles")
 
 
 def _with_tools(execution: Execution = Execution.SHARED) -> AgentDefinition:

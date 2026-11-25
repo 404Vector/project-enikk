@@ -37,12 +37,11 @@ from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import Field, StringConstraints
 
-from enikk_contracts.pulls import MAX_BUNDLE_BYTES
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
 from enikk_runtime.memory import SEPARATOR
-from enikk_runtime.model import SessionBundle, SessionWorkspace
+from enikk_runtime.model import SessionWorkspace
 
 if TYPE_CHECKING:
     import uuid
@@ -151,39 +150,6 @@ class SessionWorkspaces:
             branch=f"{BRANCH_PREFIX}{session_id}" if worktree else None,
             tmp_dir=tmp,
         )
-
-    def bundle(self, session_id: uuid.UUID) -> SessionBundle:
-        """The session's commits after the last fetched main, as a git bundle. The file
-        is written under ``state/`` (sessions cannot reach it) and removed at once."""
-        c = self._config
-        branch = f"refs/heads/{BRANCH_PREFIX}{session_id}"
-        with self._locked():
-            self._reset_repository()
-            main = self._head()
-            if main is None:
-                raise WorkspaceError("main has never been fetched; nothing to compare with")
-            head = (
-                self._git("rev-parse", "--verify", "--quiet", f"{branch}^{{commit}}", check=False)
-                or ""
-            ).strip()
-            if not _COMMIT.match(head):
-                raise WorkspaceError(f"there is no branch {branch.removeprefix('refs/heads/')}")
-            base = (self._git("merge-base", main, head, check=False) or "").strip()
-            if not _COMMIT.match(base):
-                raise WorkspaceError("the session's branch has no common commit with main")
-            if base == head:
-                raise WorkspaceError("there are no commits after main; commit the change first")
-            folder = c.state_dir / "bundles"
-            folder.mkdir(parents=True, exist_ok=True)
-            path = folder / f"{session_id}.bundle"
-            try:
-                self._git("bundle", "create", "--quiet", str(path), branch, f"^{base}")
-                if path.stat().st_size > MAX_BUNDLE_BYTES:
-                    raise WorkspaceError(f"the commits are larger than {MAX_BUNDLE_BYTES} bytes")
-                data = path.read_bytes()
-            finally:
-                path.unlink(missing_ok=True)
-        return SessionBundle(data=data, base=base, head=head)
 
     # ------------------------------------------------------------ the lock
 

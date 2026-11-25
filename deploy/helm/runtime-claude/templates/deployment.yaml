@@ -58,8 +58,6 @@ spec:
               value: /tmp/enikk
             - name: ENIKK_RUNTIME_WORKER__SLOTS
               value: {{ .Values.worker.slots | quote }}
-            - name: ENIKK_RUNTIME_PULLS__ENABLED
-              value: {{ .Values.pulls.enabled | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
               value: {{ .Values.skills.enabled | quote }}
             - name: ENIKK_RUNTIME_KUBE__ENABLED

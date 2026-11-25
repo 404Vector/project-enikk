@@ -28,7 +28,6 @@ from enikk_kernel.process import SubprocessRunner
 from enikk_langfuse.config import LangfuseConfig
 from enikk_langfuse.prompts import LangfusePromptStore
 from enikk_langfuse.tracing import LangfuseTracing
-from enikk_runtime.pulls import SessionPulls
 from enikk_runtime.worker import TaskWorker
 from enikk_runtime.workspace import SessionWorkspaces
 
@@ -85,11 +84,6 @@ class RuntimeClaudeApp:
                 ),
             )
             workspaces = self._workspaces(config, clock)
-            pulls = (
-                SessionPulls(workspaces, core)
-                if workspaces is not None and s.pulls.enabled
-                else None
-            )
             engine = ClaudeEngine(
                 config=config,
                 oauth_token=_value(values, CredentialName.CLAUDE_OAUTH_TOKEN),
@@ -99,7 +93,6 @@ class RuntimeClaudeApp:
                 prompts=core,
                 digests=core,
                 skills=skills,
-                pulls=pulls,
             )
             worker = TaskWorker(
                 core=core,
@@ -116,12 +109,11 @@ class RuntimeClaudeApp:
                 with contextlib.suppress(NotImplementedError):
                     loop.add_signal_handler(stop_signal, worker.stop)
             _log.info(
-                "%s ready: core %s, prompts %s, skills %s, pull requests %s",
+                "%s ready: core %s, prompts %s, skills %s",
                 SERVICE_NAME,
                 s.core_url,
                 s.langfuse_url,
                 "on" if skills is not None else "off",
-                "on" if pulls is not None else "off",
             )
             try:
                 await worker.run_forever()

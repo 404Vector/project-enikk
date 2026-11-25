@@ -318,6 +318,8 @@ class PromptService:
 
     def _effective(self, prompt: str) -> str:
         """When each role using ``prompt`` starts using the new production."""
+        if is_skill(prompt):
+            return f"스킬은 최대 {SHARED_CACHE_SECONDS}초 안에, 다음에 불러올 때부터"
         parts = []
         for definition in self._definitions():
             if definition.prompt.name != prompt:
