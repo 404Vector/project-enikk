@@ -72,6 +72,9 @@ class ApprovalRequested(Contract):
     pull: PullRequestCard
     replaces: ReviewMessage | None = None
     """The PR's earlier message: update it instead of posting a new one."""
+    again: bool = False
+    """An earlier approval of this PR was refused by GitHub (the branch fell behind
+    ``main``); this commit brings it up to date and is asked about again."""
 
 
 class ChecksFailed(Contract):

@@ -552,3 +552,52 @@ async def test_a_new_commit_updates_the_owners_message_instead_of_adding_one(
     )
     assert result.outcome is ResolutionOutcome.SUPERSEDED
     assert pulls.merged == []
+
+
+async def test_a_branch_that_fell_behind_while_waiting_is_asked_about_again(
+    service: ApprovalService, pulls: FakePulls
+) -> None:
+    """PR #116 (2026-11-25): main moved on while the owner was asked; GitHub refused the
+    merge. Core does not update the branch itself: the session merges main in, and the
+    new commit is asked about again in the same message (ADR-0020 §4)."""
+    pulls.pulls[7] = _pull()
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [first] = await _notices(service)
+    assert isinstance(first, ApprovalRequested)
+    assert not first.again
+
+    pulls.pulls[7] = _pull().model_copy(update={"mergeable_state": "behind"})
+    pulls.merge_result = MergeResult(merged=False, detail="2 of 2 required status checks")
+    result = await service.decide(
+        first.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    assert result.outcome is ResolutionOutcome.BLOCKED
+    assert "main 보다 뒤처져" in result.detail
+    await _notices(service)
+    await service.watch_once()
+    assert pulls.updated == []
+
+    pulls.pulls[7] = _pull(sha=SHA2)
+    pulls.runs[SHA2] = _passed("checks")
+    pulls.merge_result = MergeResult(merged=True)
+    await service.watch_once()
+    [second] = [n for n in await _notices(service) if isinstance(n, ApprovalRequested)]
+    assert second.again
+    assert second.pull.head_sha == SHA2
+
+
+async def test_a_refused_merge_of_an_owner_branch_keeps_githubs_reason(
+    service: ApprovalService, pulls: FakePulls
+) -> None:
+    pulls.pulls[8] = _pull(number=8, branch="feat/owner")
+    pulls.runs[SHA1] = _passed("checks")
+    await service.watch_once()
+    [notice] = await _notices(service)
+    assert isinstance(notice, ApprovalRequested)
+    pulls.pulls[8] = pulls.pulls[8].model_copy(update={"mergeable_state": "behind"})
+    pulls.merge_result = MergeResult(merged=False, detail="Head branch is out of date")
+    result = await service.decide(
+        notice.approval_id, DecisionRequest(decision=Decision.APPROVE, decided_by=OWNER)
+    )
+    assert result.detail == "Head branch is out of date"

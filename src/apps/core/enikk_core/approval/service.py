@@ -5,6 +5,9 @@
   they failed. Once per commit. An agent PR's asking thread gets one status card.
 - Approving records ``enikk/owner-approval`` on exactly that commit and squash-merges
   it, only if the PR still points at that commit (I-33). Rejecting closes the PR.
+- An agent branch that fell behind ``main`` while waiting is refused by GitHub. The
+  refusal wakes the PR's session, which merges ``main`` in (resolving any conflict) and
+  pushes; the new commit is asked about again in the same message (ADR-0020 §4).
 - Only this module records approvals; it is called for the owner's Slack actions alone.
 """
 
@@ -61,6 +64,10 @@ AGENT_BRANCH_PREFIX: Final = "agent/"
 MAX_FILES: Final = 100
 SENSITIVE_DIFF_LIMIT: Final = 40_000
 POLL_INTERVAL: Final = timedelta(seconds=1)
+BEHIND_DETAIL: Final = (
+    "브랜치가 main 보다 뒤처져 머지할 수 없습니다. 세션이 main 을 브랜치에 merge 하고"
+    "(충돌이 있으면 해결) 검사한 뒤 push 하면, 이 메시지에서 다시 승인을 요청합니다."
+)
 
 _log = logging.getLogger(__name__)
 
@@ -257,6 +264,10 @@ class ApprovalService:
                     await self._resolve(
                         uow, older, ApprovalState.SUPERSEDED, "new commits", notify=ref is None
                     )
+            again = any(
+                a.repository == full_name and a.number == pull.number
+                for a in await uow.approvals.in_state(ApprovalState.BLOCKED)
+            )
             approval = Approval(
                 id=self._ids.new(),
                 repository=full_name,
@@ -272,7 +283,9 @@ class ApprovalService:
             body: OwnerNoticeBody = (
                 ChecksFailed(pull=card, replaces=replaces)
                 if failed
-                else ApprovalRequested(approval_id=approval.id, pull=card, replaces=replaces)
+                else ApprovalRequested(
+                    approval_id=approval.id, pull=card, replaces=replaces, again=again
+                )
             )
             await uow.notices.add(Notice(id=self._ids.new(), body=body, created_at=now))
             names = ", ".join(c.name for c in card.checks if c.conclusion not in PASSING)
@@ -395,6 +408,8 @@ class ApprovalService:
         merged = await self._pulls.merge(token, pull)
         if merged.merged:
             return ApprovalState.MERGED, ""
+        if pull.branch.startswith(AGENT_BRANCH_PREFIX) and pull.mergeable_state == "behind":
+            return ApprovalState.BLOCKED, BEHIND_DETAIL
         return ApprovalState.BLOCKED, merged.detail
 
     async def _card(

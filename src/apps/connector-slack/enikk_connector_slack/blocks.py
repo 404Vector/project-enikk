@@ -150,10 +150,16 @@ def approval_request(notice: ApprovalRequested) -> Message:
             deny=Text(type="plain_text", text="취소"),
         )
     return Message(
-        text=f"{'민감 경로 변경 ' if pull.sensitive else ''}PR 승인 요청: "
+        text=f"{'민감 경로 변경 ' if pull.sensitive else ''}"
+        f"PR {'다시 ' if notice.again else ''}승인 요청: "
         f"#{pull.number} {pull.title}",
         blocks=(
-            *_headline(pull, heading=":inbox_tray: *승인 요청*"),
+            *_headline(
+                pull,
+                heading=":repeat: *다시 승인 요청* (main 반영, 충돌 해결이 있으면 diff 확인)"
+                if notice.again
+                else ":inbox_tray: *승인 요청*",
+            ),
             *warning,
             Actions(
                 elements=(
