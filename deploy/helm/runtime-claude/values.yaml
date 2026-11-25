@@ -62,3 +62,11 @@ pulls:
 mcp:
   enabled: true
   gatewayUrl: http://enikk-agentgateway.enikk.svc
+
+# Read-only Kubernetes access from the shell (ADR-0041 3c): a ClusterRole that reads
+# workloads, events, logs and Argo CD Applications but no Secrets, and a projected API
+# token the engine copies into each run's home (enikk-kube, ~/.kube/config).
+# false: no role, no token.
+kube:
+  enabled: true
+  tokenSeconds: 3600

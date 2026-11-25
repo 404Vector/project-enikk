@@ -21,6 +21,7 @@ from enikk_engine_claude.engine import (
     ClaudeEngineConfig,
     SandboxConfig,
 )
+from enikk_engine_claude.kube_access import KubeAccess
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.errors import ConfigurationError
 from enikk_kernel.process import SubprocessRunner
@@ -75,6 +76,13 @@ class RuntimeClaudeApp:
                 # The core token must stay out of the model's reach (ADR-0033).
                 sandbox=SandboxConfig(secrets=secrets),
                 mcp_gateway=s.mcp.gateway_url if s.mcp.enabled else None,
+                kube=(
+                    KubeAccess(
+                        token_file=s.kube.token_file, ca_file=s.kube.ca_file, server=s.kube.server
+                    )
+                    if s.kube.enabled
+                    else None
+                ),
             )
             workspaces = self._workspaces(config, clock)
             pulls = (

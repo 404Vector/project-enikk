@@ -1,0 +1,50 @@
+{{- if .Values.kube.enabled }}
+# Read-only cluster access for enikk's shell (ADR-0041 3c, I-28). No Secrets, no writes;
+# changes to the cluster still go through GitOps only (I-18).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: enikk-runtime-claude-reader
+  labels: { app.kubernetes.io/part-of: enikk }
+rules:
+  - apiGroups: [""]
+    resources:
+      [pods, pods/log, services, endpoints, events, configmaps, namespaces, nodes,
+       persistentvolumeclaims, persistentvolumes, serviceaccounts, resourcequotas, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets, daemonsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: enikk-runtime-claude-reader
+  labels: { app.kubernetes.io/part-of: enikk }
+subjects:
+  - kind: ServiceAccount
+    name: enikk-runtime-claude
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: enikk-runtime-claude-reader
+{{- end }}

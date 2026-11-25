@@ -72,6 +72,16 @@ class McpSettings(SettingsModel):
     gateway_url: str = "http://enikk-agentgateway.enikk.svc"
 
 
+class KubeSettings(SettingsModel):
+    """Read-only Kubernetes access from the shell (ADR-0041 3c). The token and CA are
+    mounted outside the sandbox and copied into each run's home."""
+
+    enabled: bool = False
+    token_file: Path = Path("/var/run/secrets/enikk/kube/token")
+    ca_file: Path = Path("/var/run/secrets/enikk/kube/ca.crt")
+    server: str = "https://kubernetes.default.svc"
+
+
 class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     core_url: str = "http://enikk-core.enikk.svc"
     token_file: Path = PROJECTED_TOKEN_FILE
@@ -85,3 +95,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     skills: SkillSettings = SkillSettings()
     pulls: PullSettings = PullSettings()
     mcp: McpSettings = McpSettings()
+    kube: KubeSettings = KubeSettings()

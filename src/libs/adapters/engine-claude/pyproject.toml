@@ -19,6 +19,8 @@ enikk-claude-launch = "enikk_engine_claude.sandbox:launch"
 enikk-sandbox-shell = "enikk_engine_claude.sandbox:shell"
 # One GitHub API call with the session's token, from the shell (ADR-0041 §1).
 enikk-github = "enikk_engine_claude.github_access:main"
+# One read-only Kubernetes API call from the shell (ADR-0041 3c).
+enikk-kube = "enikk_engine_claude.kube_access:main"
 
 [tool.uv.sources]
 enikk-kernel = { workspace = true }

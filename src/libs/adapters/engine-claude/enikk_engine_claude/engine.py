@@ -41,7 +41,7 @@ from pydantic import Field, SecretStr
 import enikk_kernel
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import Engine
-from enikk_engine_claude import github_access, sandbox
+from enikk_engine_claude import github_access, kube_access, sandbox
 from enikk_engine_claude.audit import audit_hooks
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN as MCP_ENV_TOKEN
@@ -143,6 +143,9 @@ class ClaudeEngineConfig(FrozenModel):
     shell_prefix: Path = Field(default_factory=lambda: _installed() / "enikk-sandbox-shell")
     mcp_gateway: str | None = None
     """agentgateway's base URL; ``None`` attaches no MCP server (ADR-0039 §2)."""
+    kube: kube_access.KubeAccess | None = None
+    """The runtime's read-only Kubernetes credentials, copied into each run's home
+    (ADR-0041 3c); ``None`` gives the shell no cluster access."""
 
 
 class ClaudeEngine:
@@ -220,6 +223,10 @@ class ClaudeEngine:
             (Path(home) / "tmp").mkdir()
             if job.github_token is not None:
                 github_access.install(Path(home), job.github_token)
+            if self._config.kube is not None and not kube_access.install(
+                Path(home), self._config.kube
+            ):
+                _log.warning("task %s: Kubernetes credentials are not mounted", job.task_id)
             cwd.mkdir(parents=True, exist_ok=True)
             options = self._options(job, store, Path(home), cwd, resume, trace)
             try:
