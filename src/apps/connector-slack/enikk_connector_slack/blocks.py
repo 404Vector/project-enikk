@@ -31,6 +31,7 @@ from enikk_contracts.prompts import (
     PromotionStatus,
 )
 from enikk_contracts.skills import is_skill
+from enikk_contracts.styles import is_style
 
 if TYPE_CHECKING:
     from enikk_contracts.digests import DigestFailed, ScheduleDelivered
@@ -439,7 +440,7 @@ def promotion_request(notice: PromotionRequested) -> Message:
     The diff follows in the thread (``promotion_details``)."""
     promotion = str(notice.promotion_id)
     roles = ", ".join(notice.roles)
-    used = f" ({_escape(roles)} 역할)" if roles else (" (스킬)" if is_skill(notice.prompt) else "")
+    used = f" ({_escape(roles)} 역할)" if roles else _kind(notice.prompt)
     change = f"production {_version(notice.production_version)} → 후보 v{notice.candidate_version}"
     reason = "\n".join(
         f"> {line}" for line in _escape(notice.reason).splitlines()[:SUMMARY_LINES] if line
@@ -623,3 +624,11 @@ def _section(text: str) -> Section:
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _kind(prompt: str) -> str:
+    if is_skill(prompt):
+        return " (스킬)"
+    if is_style(prompt):
+        return " (화풍)"
+    return ""

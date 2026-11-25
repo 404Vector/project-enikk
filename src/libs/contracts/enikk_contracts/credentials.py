@@ -18,6 +18,8 @@ class CredentialName(StrEnum):
     CLAUDE_OAUTH_TOKEN = "claude.oauth-token"
     LANGFUSE_PUBLIC_KEY = "langfuse.public-key"
     LANGFUSE_SECRET_KEY = "langfuse.secret-key"
+    GEMINI_API_KEY = "gemini.api-key"
+    """Google AI Studio key of the image tool server alone (ADR-0043, I-09)."""
     GITHUB_APP_PRIVATE_KEY = "github.app-private-key"
     """Used by core alone and never handed out (I-32). Core also derives the key that
     signs the tasks' MCP tokens from it (ADR-0039 S3)."""

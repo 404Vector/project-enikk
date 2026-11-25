@@ -1,0 +1,31 @@
+[project]
+name = "enikk-imagegen"
+version = "0.1.0"
+description = "enikk-imagegen: image generation with the Gemini API as MCP tools (ADR-0043)"
+requires-python = ">=3.12"
+dependencies = [
+    "enikk-kernel",
+    "enikk-contracts",
+    "enikk-core-client",
+    "enikk-langfuse",
+    "httpx>=0.28",
+    "mcp>=2.3",
+    "starlette>=0.40",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+enikk-imagegen = "enikk_imagegen.main:main"
+
+[tool.uv.sources]
+enikk-kernel = { workspace = true }
+enikk-contracts = { workspace = true }
+enikk-core-client = { workspace = true }
+enikk-langfuse = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enikk_imagegen"]

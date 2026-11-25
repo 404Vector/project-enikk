@@ -32,6 +32,7 @@ from enikk_contracts.prompts import (
     PromptRead,
 )
 from enikk_contracts.skills import is_skill
+from enikk_contracts.styles import is_style
 from enikk_core.wakeups import PROMOTION_STATES, promotion_event_text
 from enikk_core_domain.errors import (
     InvalidRequestError,
@@ -66,6 +67,8 @@ if TYPE_CHECKING:
 
 SHARED_CACHE_SECONDS: Final = 60
 """How long a shared runtime keeps a prompt before asking Langfuse again (ADR-0016)."""
+STYLE_CACHE_SECONDS: Final = 60
+"""How long the image tool server keeps a style before asking Langfuse again (ADR-0043)."""
 TRUNCATED: Final = "\n…(diff 가 길어 잘렸습니다)"
 
 _log = logging.getLogger(__name__)
@@ -127,18 +130,19 @@ class PromptService:
         self, task_id: uuid.UUID, prompt: str
     ) -> tuple[Task, Session, tuple[str, ...]]:
         """The task, its session and the roles using ``prompt``; refuse unless the task's
-        role may handle prompts and ``prompt`` is a role's prompt, the base prompt or a
-        skill (ADR-0037 §1, §2)."""
+        role may handle prompts and ``prompt`` is a role's prompt, the base prompt, a
+        skill (ADR-0037 §1, §2) or an image style (ADR-0043 §3)."""
         task, session = await self._origin(task_id)
         definition = self._catalog.get(task.agent)
         if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
             raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
         roles = roles_using(prompt, self._definitions())
-        if not roles and not is_skill(prompt) and prompt != BASE_PROMPT:
+        if not roles and not is_skill(prompt) and not is_style(prompt) and prompt != BASE_PROMPT:
             known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
             raise InvalidRequestError(
                 f"'{prompt}' is not the prompt of any role, the base prompt "
-                f"({BASE_PROMPT}) nor a skill (skill-*); roles use: {known}"
+                f"({BASE_PROMPT}), a skill (skill-*) nor an image style (style-*); "
+                f"roles use: {known}"
             )
         return task, session, roles
 
@@ -320,6 +324,8 @@ class PromptService:
         """When each role using ``prompt`` starts using the new production."""
         if is_skill(prompt):
             return f"스킬은 최대 {SHARED_CACHE_SECONDS}초 안에, 다음에 불러올 때부터"
+        if is_style(prompt):
+            return f"화풍은 최대 {STYLE_CACHE_SECONDS}초 안에, 다음 이미지 요청부터"
         parts = []
         for definition in self._definitions():
             if definition.prompt.name != prompt:

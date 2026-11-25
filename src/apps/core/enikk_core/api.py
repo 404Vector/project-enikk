@@ -433,7 +433,7 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         return _json(await usecases.transcript_subpaths(scope, task_id, query))
 
     @app.post(routes.CREDENTIALS, responses={200: {"model": Credentials}})
-    @requires("connector", "runtime")
+    @requires("connector", "runtime", "tool")
     async def fetch_credentials(request: Request) -> Response:
         principal = await gate.admit(request)
         wanted = await _parse(request, CredentialRequest)
