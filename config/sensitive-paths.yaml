@@ -24,5 +24,10 @@ paths:
   # What keeps the built-in tools away from the service's secrets, and their audit log (I-37).
   - src/libs/adapters/engine-claude/enikk_engine_claude/sandbox.py
   - src/libs/adapters/engine-claude/enikk_engine_claude/audit.py
+  # The two secrets the sandboxed tools may read: the session's GitHub token and the
+  # read-only Kubernetes token (ADR-0041 3a, 3c).
+  - src/libs/adapters/engine-claude/enikk_engine_claude/github_access.py
+  - src/libs/adapters/engine-claude/enikk_engine_claude/kube_access.py
   # Cluster permissions of every service (I-18, I-28).
   - deploy/k8s/identities/
+  - deploy/helm/runtime-claude/templates/cluster-reader.yaml

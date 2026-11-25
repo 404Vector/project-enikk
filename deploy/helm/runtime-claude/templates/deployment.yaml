@@ -27,7 +27,8 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: enikk-runtime-claude
-      # Only the audience=enikk-core projected token below; no Kubernetes API token (I-28).
+      # The audience=enikk-core token, and the read-only API token of kube.enabled (I-28,
+      # ADR-0041 3c); nothing mounted automatically.
       automountServiceAccountToken: false
       enableServiceLinks: false
       # A running task finishes or loses its lease; core re-queues it either way.
@@ -61,6 +62,8 @@ spec:
               value: {{ .Values.pulls.enabled | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
               value: {{ .Values.skills.enabled | quote }}
+            - name: ENIKK_RUNTIME_KUBE__ENABLED
+              value: {{ .Values.kube.enabled | quote }}
             - name: ENIKK_RUNTIME_MCP__ENABLED
               value: {{ .Values.mcp.enabled | quote }}
             - name: ENIKK_RUNTIME_MCP__GATEWAY_URL
@@ -87,6 +90,11 @@ spec:
             - name: core-token
               mountPath: /var/run/secrets/enikk/core
               readOnly: true
+            {{- if .Values.kube.enabled }}
+            - name: kube-token
+              mountPath: /var/run/secrets/enikk/kube
+              readOnly: true
+            {{- end }}
             - name: scratch
               mountPath: /tmp
             - name: work
@@ -110,6 +118,20 @@ spec:
                   audience: enikk-core
                   expirationSeconds: {{ .Values.coreTokenSeconds }}
                   path: token
+        {{- if .Values.kube.enabled }}
+        # The API audience; read-only by the ClusterRole below (ADR-0041 3c).
+        - name: kube-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: {{ .Values.kube.tokenSeconds }}
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+        {{- end }}
         - name: scratch
           emptyDir:
             sizeLimit: {{ .Values.scratch.sizeLimit }}
