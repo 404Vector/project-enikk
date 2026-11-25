@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enikk-imagegen
+  labels:
+    app.kubernetes.io/name: enikk-imagegen
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ if and .Values.enabled .Values.image.tag }}1{{ else }}0{{ end }}
+  # A new Pod must be ready before the old one stops (ADR-0020 §3, ADR-0023 §3).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: enikk-imagegen
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enikk-imagegen
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: enikk-imagegen
+      # Only the audience=enikk-core projected token below; no Kubernetes API token (I-28).
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: imagegen
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-imagegen"]
+          env:
+            - name: ENIKK_IMAGEGEN_CORE_URL
+              value: {{ .Values.coreUrl | quote }}
+            - name: ENIKK_IMAGEGEN_LANGFUSE_URL
+              value: {{ .Values.langfuseUrl | quote }}
+            - name: ENIKK_IMAGEGEN_TRACING
+              value: {{ .Values.tracing | quote }}
+            - name: ENIKK_IMAGEGEN_DEFAULT_MODEL
+              value: {{ .Values.defaultModel | quote }}
+            - name: ENIKK_IMAGEGEN_DAILY_LIMIT
+              value: {{ .Values.dailyLimit | quote }}
+            - name: ENIKK_IMAGEGEN_WORKSPACE
+              value: {{ .Values.workspace.mountPath | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: core-token
+              mountPath: /var/run/secrets/enikk/core
+              readOnly: true
+            - name: data
+              mountPath: {{ .Values.workspace.mountPath }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: enikk-core
+                  expirationSeconds: {{ .Values.coreTokenSeconds }}
+                  path: token
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.workspace.claimName }}

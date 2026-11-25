@@ -51,3 +51,30 @@ data:
                       targets:
                         - name: scheduler
                           mcp: { host: "http://enikk-scheduler.enikk.svc/mcp" }
+              - name: imagegen
+                matches:
+                  - path: { pathPrefix: /mcp/imagegen }
+                policies:
+                  mcpAuthentication:
+                    issuer: "enikk-core"
+                    audiences: ["enikk-agentgateway"]
+                    jwks: { url: "http://enikk-core.enikk.svc/v1/mcp/jwks" }
+                    mode: strict
+                    resourceMetadata: {}
+                  mcpAuthorization:
+                    # Ceiling for this server; a task gets only the tools its token names.
+                    rules:
+                      - require: 'mcp.tool.name in ["generate_image", "edit_image", "list_styles", "add_style_reference", "remove_style_reference"]'
+                      - allow: '("imagegen:" + mcp.tool.name) in jwt.tools'
+                  transformations:
+                    request:
+                      set:
+                        x-enikk-session-id: jwt.session
+                        x-enikk-task-id: jwt.task
+                        x-enikk-lease-id: jwt.lease
+                backends:
+                  - mcp:
+                      statefulMode: stateless
+                      targets:
+                        - name: imagegen
+                          mcp: { host: "http://enikk-imagegen.enikk.svc/mcp" }

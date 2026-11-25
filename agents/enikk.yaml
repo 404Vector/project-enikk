@@ -15,6 +15,11 @@ tools:
       allow:
         [list_schedules, get_schedule, list_runs, create_schedule, update_schedule,
          pause_schedule, resume_schedule, delete_schedule, run_now]
+    # Images with the Gemini API, saved to the thread's tmp (ADR-0043).
+    - server: imagegen
+      allow:
+        [generate_image, edit_image, list_styles, add_style_reference,
+         remove_style_reference]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
   # web returns is untrusted input. No browser automation.
   builtin:

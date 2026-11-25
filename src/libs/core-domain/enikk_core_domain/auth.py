@@ -39,8 +39,16 @@ class SchedulerRole(FrozenModel):
     kind: Literal["scheduler"] = "scheduler"
 
 
-Role = Annotated[ConnectorRole | RuntimeRole | SchedulerRole, Field(discriminator="kind")]
-RoleKind = Literal["connector", "runtime", "scheduler"]
+class ToolRole(FrozenModel):
+    """A tool server behind agentgateway (ADR-0043): fetches only its own credentials."""
+
+    kind: Literal["tool"] = "tool"
+
+
+Role = Annotated[
+    ConnectorRole | RuntimeRole | SchedulerRole | ToolRole, Field(discriminator="kind")
+]
+RoleKind = Literal["connector", "runtime", "scheduler", "tool"]
 
 
 class Principal(FrozenModel):

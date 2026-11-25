@@ -91,6 +91,7 @@ known-first-party = [
     "enikk_runtime_claude",
     "enikk_connector_slack",
     "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 # ---------------------------------------------------------------- mypy
@@ -125,6 +126,8 @@ files = [
     "src/apps/connector-slack/tests",
     "src/apps/scheduler/enikk_scheduler",
     "src/apps/scheduler/tests",
+    "src/apps/imagegen/enikk_imagegen",
+    "src/apps/imagegen/tests",
 ]
 
 [tool.pydantic-mypy]
@@ -153,6 +156,7 @@ root_packages = [
     "enikk_runtime_claude",
     "enikk_connector_slack",
     "enikk_scheduler",
+    "enikk_imagegen",
 ]
 include_external_packages = true
 
@@ -163,6 +167,7 @@ source_modules = ["enikk_kernel"]
 forbidden_modules = [
     "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql",
     "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 [[tool.importlinter.contracts]]
@@ -172,6 +177,7 @@ source_modules = ["enikk_contracts"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth",
     "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 [[tool.importlinter.contracts]]
@@ -181,7 +187,7 @@ source_modules = ["enikk_core_domain"]
 forbidden_modules = [
     "enikk_core_client", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform",
     "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
-    "enikk_scheduler",
+    "enikk_scheduler", "enikk_imagegen",
     "fastapi", "starlette", "uvicorn", "httpx", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
 ]
 
@@ -192,6 +198,7 @@ source_modules = ["enikk_core_client"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform",
     "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 [[tool.importlinter.contracts]]
@@ -201,7 +208,7 @@ source_modules = ["enikk_runtime"]
 forbidden_modules = [
     "enikk_core_domain", "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform",
     "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack",
-    "enikk_scheduler",
+    "enikk_scheduler", "enikk_imagegen",
     "fastapi", "starlette", "uvicorn", "typer", "yaml", "sqlalchemy", "alembic", "psycopg",
 ]
 
@@ -215,6 +222,7 @@ source_modules = [
 ]
 forbidden_modules = [
     "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 [[tool.importlinter.contracts]]
@@ -231,6 +239,7 @@ type = "forbidden"
 source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client", "enikk_k8s_auth",
     "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime", "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
 allow_indirect_imports = true
@@ -240,6 +249,7 @@ name = "apps are independent of each other"
 type = "independence"
 modules = [
     "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 
 [[tool.importlinter.contracts]]
@@ -261,6 +271,7 @@ source_modules = [
     "enikk_kernel", "enikk_contracts", "enikk_core_domain", "enikk_core_client",
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime",
     "enikk_langfuse", "enikk_core", "enikk_ops", "enikk_runtime_claude", "enikk_connector_slack", "enikk_scheduler",
+    "enikk_imagegen",
 ]
 forbidden_modules = ["claude_agent_sdk"]
 # The runtime app assembles engine-claude; only direct SDK imports are forbidden.
@@ -274,6 +285,7 @@ source_modules = [
     "enikk_persistence_sql", "enikk_k8s_auth", "enikk_github", "enikk_k8s_jobs", "enikk_platform", "enikk_runtime",
     "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
     "enikk_scheduler",
+    "enikk_imagegen",
 ]
 forbidden_modules = ["slack_sdk", "aiohttp"]
 
@@ -286,6 +298,7 @@ source_modules = [
     "enikk_langfuse", "enikk_engine_claude", "enikk_ops", "enikk_runtime_claude",
     "enikk_connector_slack",
     "enikk_scheduler",
+    "enikk_imagegen",
 ]
 forbidden_modules = ["enikk_github"]
 
@@ -298,6 +311,7 @@ source_modules = [
     "enikk_langfuse", "enikk_engine_claude", "enikk_core", "enikk_ops", "enikk_runtime_claude",
     "enikk_connector_slack",
     "enikk_scheduler",
+    "enikk_imagegen",
 ]
 forbidden_modules = ["jwt"]
 # The Claude Agent SDK depends on PyJWT; only direct imports are forbidden.

@@ -671,3 +671,60 @@ async def test_invalid_skill_candidates_are_not_created(
 def test_a_skill_takes_effect_when_it_is_next_loaded(prompts: PromptService) -> None:
     """A skill is no role's prompt; its promotion still says when it applies."""
     assert prompts._effective("skill-developer") == ("스킬은 최대 60초 안에, 다음에 불러올 때부터")
+
+
+def _style(lease: uuid.UUID, **config: object) -> PromptCandidateRequest:
+    return _request(
+        lease,
+        prompt="style-pixel",
+        text="16-bit pixel art, limited palette",
+        config=PromptConfigChange.model_validate_json(pydantic_core.to_json(config)),
+    )
+
+
+async def test_an_image_style_can_be_proposed(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _style(lease.lease_id, model="gemini-3.1-flash-image", description="게임 에셋")
+    created = await claude.propose_prompt(lease.task_id, request)
+    assert (created.production_version, created.candidate_version) == (None, 1)
+    stored = langfuse.versions["style-pixel"][0]
+    assert stored.config == {"model": "gemini-3.1-flash-image", "description": "게임 에셋"}
+    [notice] = harness.db.notices.values()
+    assert isinstance(notice.body, PromotionRequested)
+    assert notice.body.roles == ()
+    assert prompts._effective("style-pixel").startswith("화풍은")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "config", "message"),
+    [
+        ("style-pixel", {"model": "gemini-3.1-flash-image"}, "description"),
+        ("style-Pixel", {"model": "m", "description": "d"}, "not a valid style name"),
+        (
+            "style-pixel",
+            {"model": "m", "description": "d", "requires": ["pr.write"]},
+            "only for skill",
+        ),
+        (
+            "style-pixel",
+            {"model": "m", "description": "d", "effort": "high"},
+            "invalid style config",
+        ),
+    ],
+)
+async def test_invalid_style_candidates_are_not_created(
+    harness: Harness,
+    prompts: PromptService,
+    langfuse: FakeLangfuse,
+    claude: CoreClient,
+    prompt: str,
+    config: dict[str, object],
+    message: str,
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _style(lease.lease_id, **config).model_copy(update={"prompt": prompt})
+    with pytest.raises(CoreApiError, match=message):
+        await claude.propose_prompt(lease.task_id, request)
+    assert langfuse.created == []

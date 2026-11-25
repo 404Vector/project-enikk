@@ -1,0 +1,18 @@
+# Reached only through agentgateway (ADR-0039 §2, I-05).
+apiVersion: v1
+kind: Service
+metadata:
+  name: enikk-imagegen
+  labels:
+    app.kubernetes.io/name: enikk-imagegen
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  selector:
+    app.kubernetes.io/name: enikk-imagegen
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
