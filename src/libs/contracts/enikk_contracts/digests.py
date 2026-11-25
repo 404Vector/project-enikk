@@ -57,3 +57,5 @@ class ScheduleDelivered(Contract):
     kind: Literal["schedule-delivered"] = "schedule-delivered"
     name: Annotated[str, StringConstraints(min_length=1, max_length=63)]
     text: Annotated[str, StringConstraints(min_length=1, max_length=3000)]
+    channel: Annotated[str, StringConstraints(max_length=80)] | None = None
+    """A channel name (output ``channel``); ``None`` is the owner's DM."""

@@ -76,6 +76,7 @@ class NoticeRelay:
         self._owner = config.owner
         self._deploy_channel = config.deploy_notify_channel
         self._approval_channel = config.approval_channel
+        self._schedule_channels = frozenset(config.schedule_channels)
         self._policy = policy
         self._sleep = sleep
 
@@ -126,7 +127,7 @@ class NoticeRelay:
             await self._deliver_to_owner(notice, blocks.digest_failed(body))
             return
         if isinstance(body, ScheduleDelivered):
-            await self._deliver_to_owner(notice, blocks.schedule_delivered(body))
+            await self._deliver_schedule(notice, body)
             return
         if isinstance(body, ApprovalOutdated):
             message = blocks.outdated(body)
@@ -209,6 +210,17 @@ class NoticeRelay:
             await self._core.promotion_posted(body.promotion_id, PromotionPosted(link=link))
         except (CoreApiError, CoreUnavailableError) as exc:
             _log.warning("could not tell the asking thread about %s: %s", body.prompt, exc)
+
+    async def _deliver_schedule(self, notice: OwnerNotice, body: ScheduleDelivered) -> None:
+        """A run's answer: in its channel if the config allows it, else the owner's DM."""
+        if body.channel is None:
+            await self._deliver_to_owner(notice, blocks.schedule_delivered(body))
+            return
+        if body.channel not in self._schedule_channels:
+            _log.warning("schedule %s: channel %s is not allowed", body.name, body.channel)
+            await self._deliver_to_owner(notice, blocks.schedule_delivered(body, refused=True))
+            return
+        await self._post_or_dm(notice, f"#{body.channel}", blocks.schedule_delivered(body))
 
     async def _deliver_to_owner(self, notice: OwnerNotice, message: blocks.Message) -> None:
         try:

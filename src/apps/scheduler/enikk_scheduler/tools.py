@@ -135,7 +135,8 @@ def build_server(reader: ScheduleReader) -> MCPServer:
         """Create a schedule. spec: description, timing (cron 5 fields with a timezone,
         or once at a time), agent, an optional skill loaded first, tools (within the
         agent's definition), input (text, or day-conversations), output (owner-dm,
-        thread, vault-note, discard), catchup and retries. Active at once."""
+        thread, vault-note with a folder, channel with a channel name such as general,
+        discard), catchup and retries. Active at once."""
         caller = _caller(ctx)
         return await _call(reader.create(caller, name, _spec(spec)))
 

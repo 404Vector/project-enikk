@@ -231,15 +231,15 @@ class ScheduleRunner:
                 )
             )
             return ""
-        if output.kind is OutputKind.OWNER_DM:
+        if output.kind in (OutputKind.OWNER_DM, OutputKind.CHANNEL):
             await uow.notices.add(
                 Notice(
                     id=self._ids.new(),
-                    body=ScheduleDelivered(name=schedule.name, text=short),
+                    body=ScheduleDelivered(name=schedule.name, text=short, channel=output.channel),
                     created_at=now,
                 )
             )
-            return ""
+            return f"#{output.channel}" if output.channel else ""
         if output.kind is OutputKind.VAULT_NOTE and self._memory is not None and output.folder:
             return await self._note(uow, schedule, answer, slot, output.folder)
         return ""

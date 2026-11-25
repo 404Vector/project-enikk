@@ -324,9 +324,11 @@ def digest_failed(notice: DigestFailed) -> Message:
     return Message(text=f"{notice.day.isoformat()} 대화 요약 실패", blocks=(_section(line),))
 
 
-def schedule_delivered(notice: ScheduleDelivered) -> Message:
-    """A scheduled run's answer, in the owner's DM (ADR-0039 S7)."""
+def schedule_delivered(notice: ScheduleDelivered, *, refused: bool = False) -> Message:
+    """A scheduled run's answer, in the owner's DM or its channel (ADR-0039 S6·S7)."""
     line = f"*[스케줄 `{_escape(notice.name)}`]*\n{_escape(notice.text)}"
+    if refused:
+        line = f"_#{notice.channel} 은 허용된 채널이 아니라 DM 으로 보냅니다._\n" + line
     return Message(text=f"스케줄 {notice.name}", blocks=(_section(line[:SECTION_LIMIT]),))
 
 
