@@ -3,36 +3,26 @@
 # dialog. Core judges with the list it is running with, so removing an entry is
 # itself a sensitive change. A pattern ending in "/" covers everything below that
 # directory; any other pattern is one file.
+# Only the three boundaries of ADR-0041 §1 are listed: secrets, the owner's approval
+# of merges and promotions, and GitOps-only changes to the cluster.
 paths:
-  - .github/
-  - AGENTS.md
-  - docs/architecture/invariants.md
-  - docs/adr/
-  # Role definitions grant shell, file and web tools (ADR-0033).
-  - agents/
   - config/sensitive-paths.yaml
-  - config/github.yaml
+  - docs/architecture/invariants.md
+  # CI, branch protection and which apps CI builds and publishes (ADR-0020, ADR-0040).
+  - .github/
   - deploy/github/
-  # Which apps CI builds and publishes; the workflow reads it (ADR-0040).
   - deploy/images.yaml
-  - deploy/helm/core/
-  - deploy/k8s/identities/
+  # Merge approval and prompt promotion (I-19, I-33, I-36).
   - src/apps/core/enikk_core/approval/
-  # Prompt promotion: the only code that moves Langfuse's production label (I-36).
   - src/apps/core/enikk_core/prompts.py
   - src/libs/adapters/langfuse/enikk_langfuse/registry.py
-  # What keeps those tools away from the service's secrets, and their audit log (I-37).
+  # Secrets: who gets which credential, and GitHub App tokens (I-07, I-30, I-32).
+  - deploy/helm/core/
+  - src/apps/core/enikk_core/credentials.py
+  - config/github.yaml
+  - src/libs/adapters/github/
+  # What keeps the built-in tools away from the service's secrets, and their audit log (I-37).
   - src/libs/adapters/engine-claude/enikk_engine_claude/sandbox.py
   - src/libs/adapters/engine-claude/enikk_engine_claude/audit.py
-  - src/libs/adapters/github/
-  # Core pushes a thread's commits and opens its PR; who may, and to which branch (ADR-0037 §6b).
-  - src/apps/core/enikk_core/submissions.py
-  # Who may change schedules, the tool limit and the approval rule (ADR-0039, I-39).
-  - src/apps/core/enikk_core/schedules.py
-  - src/libs/core-domain/enikk_core_domain/schedules.py
-  # The MCP path: core's task tokens, the gateway that checks them and the engine's
-  # MCP connection (ADR-0039 §2, I-05, I-14).
-  - src/apps/core/enikk_core/mcp_tokens.py
-  - deploy/k8s/agentgateway/
-  - deploy/argocd/apps/enikk-agentgateway.yaml
-  - src/libs/adapters/engine-claude/enikk_engine_claude/mcp_gateway.py
+  # Cluster permissions of every service (I-18, I-28).
+  - deploy/k8s/identities/
