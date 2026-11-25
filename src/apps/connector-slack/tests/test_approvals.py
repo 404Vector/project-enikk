@@ -317,3 +317,17 @@ async def test_a_replacing_request_updates_the_message_in_place() -> None:
     assert slack.posts == []
     [review] = core.reviews
     assert (review.channel, review.ts, review.updated) == ("D0OWNER", "5.0", True)
+
+
+async def test_a_request_after_a_refused_merge_says_it_asks_again() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.notices.append(
+        OwnerNotice(
+            notice_id=uuid.uuid4(),
+            body=ApprovalRequested(approval_id=APPROVAL, pull=CARD, again=True),
+        )
+    )
+    await _relay(core, slack).relay_once()
+    [(_, parent)] = slack.messages
+    assert "다시 승인 요청" in parent.text
+    assert "다시 승인 요청" in str(parent.payload())
