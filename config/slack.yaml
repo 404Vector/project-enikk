@@ -19,8 +19,3 @@ deploy_notify_channel: C0CKT1ZNZ43  # #release
 # member (a private channel needs /invite). If posting there fails, the request goes
 # to the owner's DM instead. ENIKK_CONNECTOR_APPROVAL_CHANNEL overrides it.
 approval_channel: C0CL7HZ5UQ1  # approval channel
-
-# Channels a schedule may post its answer to (output "channel", ADR-0039 S6), by name or
-# by ID (from the channel's link). The bot must be a member (/invite @enikk). Any other
-# channel goes to the owner's DM.
-schedule_channels: [C04CF12FF2Q]  # the workspace's general channel
