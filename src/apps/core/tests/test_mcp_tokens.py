@@ -93,7 +93,7 @@ def test_token_names_the_task_and_only_the_granted_tools() -> None:
     assert (claims.task, claims.lease, claims.session) == (str(TASK), str(LEASE), str(SESSION))
     assert claims.agent == "enikk"
     assert claims.tools == ["scheduler:list_schedules", "scheduler:list_runs"]
-    assert claims.exp - claims.iat == definition.limits.timeout_seconds + 300
+    assert claims.exp - claims.iat == definition.limits.timeout_seconds + 300 + 3600
 
 
 def test_signature_does_not_verify_with_another_key() -> None:

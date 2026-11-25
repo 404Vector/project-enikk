@@ -65,6 +65,16 @@ class McpSettings(SettingsModel):
     gateway_url: str = "http://enikk-agentgateway.enikk.svc"
 
 
+class LiveSettings(SettingsModel):
+    """Keep a thread's Claude process between its tasks (ADR-0041 §3, 4b)."""
+
+    enabled: bool = False
+    idle_seconds: int = Field(default=600, ge=30)
+    max_age_seconds: int = Field(default=3600, ge=60, le=3600)
+    """At most core's ``LIVE_SECONDS``: the process keeps its first task's MCP token."""
+    max_sessions: int = Field(default=3, ge=1, le=8)
+
+
 class KubeSettings(SettingsModel):
     """Read-only Kubernetes access from the shell (ADR-0041 3c). The token and CA are
     mounted outside the sandbox and copied into each run's home."""
@@ -88,3 +98,4 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     skills: SkillSettings = SkillSettings()
     mcp: McpSettings = McpSettings()
     kube: KubeSettings = KubeSettings()
+    live: LiveSettings = LiveSettings()
