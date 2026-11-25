@@ -32,6 +32,12 @@ approval:
   enabled: true
   intervalSeconds: 30
 
+# Wake the thread's session when its PR (checks, merge, deployment) or prompt
+# candidate moves on, so the work carries on without the owner (ADR-0041 §4).
+# false: the status card alone, as before.
+wakeups:
+  enabled: true
+
 # Deployment and image build notices in the owner's DM (ADR-0023). core reads
 # these Argo CD Applications (Role in argocdNamespace, get only).
 deployments:

@@ -27,6 +27,7 @@ from enikk_core.security import Gatekeeper
 from enikk_core.submissions import PullSubmissions, SubmissionPolicy
 from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
+from enikk_core.wakeups import SessionWaker
 from enikk_core_domain.auth import RoleDirectory
 from enikk_core_domain.deployments import WatchTiming
 from enikk_core_domain.digests import DigestSchedule
@@ -63,6 +64,11 @@ def build_services(settings: CoreSettings) -> CoreServices:
     catalog = YamlAgentCatalog.load(settings.agents_dir)
     memory = _memory(settings, store, clock, uow, ids, catalog)
     mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.GITHUB_APP_PRIVATE_KEY))
+    waker = (
+        SessionWaker(catalog, clock, ids, settings.tasks.max_attempts)
+        if settings.wakeups.enabled
+        else None
+    )
     usecases = CoreUseCases(
         uow=uow,
         catalog=catalog,
@@ -81,7 +87,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         clock,
     )
     directory = RoleDirectory(tuple(b.to_binding() for b in settings.role_bindings))
-    github, approvals, deployments = _github(settings, store, clock, uow, ids)
+    github, approvals, deployments = _github(settings, store, clock, uow, ids, waker)
     return CoreServices(
         version=settings.version,
         usecases=usecases,
@@ -98,7 +104,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         mcp_tokens=mcp_tokens,
         memory_interval_seconds=settings.memory.interval_seconds,
         diagnostics=_diagnostics(settings, store, clock, uow),
-        prompts=_prompts(settings, store, catalog, clock, uow, ids),
+        prompts=_prompts(settings, store, catalog, clock, uow, ids, waker),
         digests=_digests(settings, memory, catalog, clock, uow, ids),
         digest_interval_seconds=settings.digests.interval_seconds,
         submissions=_submissions(settings, store, catalog, clock, uow),
@@ -178,6 +184,7 @@ def _prompts(
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
+    waker: SessionWaker | None,
 ) -> PromptService | None:
     p = settings.prompts
     if not p.enabled:
@@ -197,6 +204,7 @@ def _prompts(
         owner=load_owner(p.slack_config_file),
         clock=clock,
         ids=ids,
+        waker=waker,
     )
 
 
@@ -272,6 +280,7 @@ def _github(
     clock: SystemClock,
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
+    waker: SessionWaker | None,
 ) -> tuple[GitHubHealthCheck, ApprovalService | None, DeploymentService | None]:
     policy = load_repository_policy(
         settings.github.repositories_file, self_repository=settings.github.self_repository
@@ -290,7 +299,7 @@ def _github(
             pulls=PullRequests(app),
             policy=policy,
             sensitive=load_sensitive_paths(settings.github.sensitive_paths_file),
-            threads=ThreadNotes(clock, ids),
+            threads=ThreadNotes(clock, ids, waker),
             clock=clock,
             ids=ids,
             sleep=asyncio.sleep,
@@ -306,7 +315,7 @@ def _github(
             app=app,
             activity=RepositoryActivity(app),
             reverter=Reverter(app),
-            threads=ThreadNotes(clock, ids),
+            threads=ThreadNotes(clock, ids, waker),
             policy=DeploymentPolicy(
                 apps=watch.apps,
                 repository=settings.github.self_repository,

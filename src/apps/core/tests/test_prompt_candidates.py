@@ -339,6 +339,22 @@ async def test_promotion_moves_production_and_tells_the_thread(
     assert (promotion.status, promotion.decided_by) == (PromotionStatus.PROMOTED, OWNER)
 
 
+async def test_a_decision_wakes_the_thread_that_asked(
+    harness: Harness, prompts: PromptService, claude: CoreClient
+) -> None:
+    from enikk_core.wakeups import HEADER, SessionWaker
+
+    prompts._waker = SessionWaker(
+        harness.catalog, harness.clock, RandomIdGenerator(), max_attempts=2
+    )
+    promotion_id = await _proposed(harness, claude)
+    async with harness.client("slack") as slack:
+        await slack.decide_promotion(promotion_id, _press(PromotionAction.PROMOTE))
+    woken = [t for t in harness.db.tasks.values() if t.input.startswith(HEADER)]
+    assert len(woken) == 1
+    assert "프롬프트 `assistant` v4 production 으로 승격됨" in woken[0].input
+
+
 async def test_a_repeated_press_changes_nothing(
     harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
 ) -> None:

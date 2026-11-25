@@ -57,6 +57,8 @@ spec:
               value: /app/config/github.yaml
             - name: ENIKK_CORE_GITHUB__SENSITIVE_PATHS_FILE
               value: /app/config/sensitive-paths.yaml
+            - name: ENIKK_CORE_WAKEUPS__ENABLED
+              value: {{ .Values.wakeups.enabled | quote }}
             - name: ENIKK_CORE_APPROVAL__ENABLED
               value: {{ .Values.approval.enabled | quote }}
             - name: ENIKK_CORE_APPROVAL__INTERVAL_SECONDS
