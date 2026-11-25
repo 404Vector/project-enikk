@@ -35,7 +35,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0026](0026-slack-notice-destinations.md) | Slack 알림을 어디에 올리는가 — 배포 알림은 #release, 개발 요청은 상태와 상세를 나눈다 | 승인 (승인 요청 위치와 §4 는 ADR-0036 으로 부분 대체) | 2026-11-22 |
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 역할은 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
 | [0028](0028-memory-in-the-owners-vault.md) | 에닉의 기억은 소유자의 Obsidian 볼트에 둔다 | 승인 (§5 는 ADR-0035 로 부분 대체) | 2026-11-22 |
-| [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 승인 | 2026-11-23 |
+| [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 승인 (셸의 클러스터 읽기는 ADR-0041 3c 로 추가) | 2026-11-23 |
 | [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 → 결정 1 은 ADR-0037 5b 로 대체(`agents/*.yaml` 은 에이전트의 정의) | 2026-11-23 |
 | [0032](0032-prompt-candidates-and-promotion-in-slack.md) | Slack 에서 프롬프트 후보를 만들고, 소유자가 승격한다 | 승인 (승격 요청 위치는 ADR-0036 으로, 대상·Config 검증은 ADR-0037 로 부분 대체) | 2026-11-23 |
@@ -47,7 +47,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0038](0038-multi-platform-images.md) | 이미지를 amd64 와 arm64 로 함께 빌드한다 | 승인 | 2026-11-24 |
 | [0039](0039-general-scheduler-as-an-mcp-server.md) | 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인 | 승인 (S1·S2·S3 구현. S4 와 §5 의 승인 규칙은 ADR-0041 로 없앤다, 3단계에서 대체 표시) | 2026-11-24 |
 | [0040](0040-image-app-list-outside-the-workflow.md) | 이미지를 만들 앱 목록을 워크플로 밖에 둔다 | 승인 | 2026-11-24 |
-| [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1·2·3a 구현: 민감 경로 축소, 이벤트 깨우기, 세션의 GitHub 토큰) | 2026-11-25 |
+| [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1·2·3a·3c 구현: 민감 경로 축소, 이벤트 깨우기, 세션의 GitHub 토큰, 클러스터 읽기) | 2026-11-25 |
 
 ## 상태 정의
 

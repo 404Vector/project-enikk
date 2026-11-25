@@ -1,6 +1,6 @@
 # ADR-0041: 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다
 
-- 상태: 승인 (1단계(민감 경로 축소)·2단계(이벤트 깨우기)·3a(세션의 GitHub 토큰) 구현. 3b·3c·4단계는 아래 "이행 순서")
+- 상태: 승인 (1단계(민감 경로 축소)·2단계(이벤트 깨우기)·3a(세션의 GitHub 토큰)·3c(클러스터 읽기) 구현. 3b·4단계는 아래 "이행 순서")
 - 날짜: 2026-11-25
 - 관련: ADR-0004, ADR-0005, ADR-0010, ADR-0014, ADR-0017, ADR-0019, ADR-0024, ADR-0029, ADR-0033, ADR-0037, ADR-0039, I-11, I-12, I-14, I-16, I-17, I-20, I-25, I-28, I-29, I-32, I-37, I-39
 
@@ -95,7 +95,7 @@
 3. 권한 개방. 셋으로 나눈다.
    - 3a. 세션의 GitHub 토큰 **(구현됨)**. 플랫폼 도구 `github` 를 받은 정의의 작업은 임대(`TaskAssignment.github_token`)와 함께 core 가 발급한 `develop` 토큰을 받는다(`enikk_core/github_tokens.py`, 플랫폼 저장소 하나, `workflows` 는 `config/github.yaml` 을 따름, `actions` 읽기 추가). 엔진은 실행의 홈에 git 자격 증명 파일과 `.gitconfig` 의 credential helper, 토큰 파일을 쓰고(`enikk_engine_claude/github_access.py`), 셸의 git 은 github.com 에 그대로 push 한다. `enikk-github METHOD PATH [--data FILE]` 가 같은 토큰으로 GitHub API 를 부른다(PR 열기·닫기·검사 결과). 홈은 실행이 끝나면 지워진다. 발급이 실패해도 작업은 토큰 없이 돈다. core 의 제출 경로(`pull-requests`)는 `skill-developer` 가 직접 push 로 옮겨 간 뒤 3b 에서 없앤다. 같은 단위에서 깨우기를 건너뛴 이유를 로그에 남기고, 배포 결과로 깨우는 테스트를 더했다.
    - 3b. 정의의 `*`, `requires`·`pending` 삭제, core 제출 경로 삭제.
-   - 3c. 클러스터 읽기. runtime 에 읽기 전용 Kubernetes 권한(Secret 제외)과 `kubectl`. 그 토큰도 샌드박스 안에서 읽히는 예외로 둔다(소유자 결정 2026-11-25).
+   - 3c. 클러스터 읽기 **(구현됨)**. `deploy/helm/runtime-claude` 의 `kube.enabled` 가 ClusterRole `enikk-runtime-claude-reader`(workload·이벤트·Pod 로그·ConfigMap·RBAC·Argo CD Application 읽기, Secret 없음, 쓰기 없음)와 API audience 의 projected 토큰(+ `kube-root-ca.crt`)을 `/var/run/secrets/enikk/kube` 에 둔다. 엔진은 실행마다 그 토큰과 CA 를 홈에 복사하고 `~/.kube/config` 를 쓴다(`enikk_engine_claude/kube_access.py`). 셸에서는 `enikk-kube PATH`(GET 한 번)로 부른다. `kubectl` 은 이미지에 넣지 않았다(아키텍처별 바이너리 관리가 늘기 때문, kubeconfig 는 준비됨). 그 토큰도 샌드박스 안에서 읽히는 예외로 둔다(소유자 결정 2026-11-25). 3b 보다 먼저 했다(3b 는 지금 쓰이지 않는 제한의 정리라 실익이 적음).
 4. 세션 유지.
 
 ### 되돌리기
