@@ -113,8 +113,15 @@ class DeploymentWatch(FrozenModel):
     report, or a second sync of the same commit) is reported only if it fails."""
 
     def observe(
-        self, observations: list[AppObservation], now: AwareDatetime, timing: WatchTiming
+        self,
+        observations: list[AppObservation],
+        now: AwareDatetime,
+        timing: WatchTiming,
+        awaiting_images: frozenset[str] = frozenset(),
     ) -> tuple[DeploymentWatch, list[FinishedDeployment]]:
+        """``awaiting_images``: commits whose images are being built or were built but run
+        on no app yet. Their deployment (a sync of the chart alone) waits for the image
+        rollout, at most ``timing.timeout`` after its last change (ADR-0041 §4)."""
         baselines = {b.app: b for b in self.baselines}
         pending = {p.commit: p for p in self.pending}
         current = {o.app: o for o in observations}
@@ -151,7 +158,10 @@ class DeploymentWatch(FrozenModel):
                     )
                 }
             )
-            if judged.settled and now - judged.last_change_at >= timing.settle:
+            waiting = (
+                judged.commit in awaiting_images and now - judged.last_change_at < timing.timeout
+            )
+            if judged.settled and now - judged.last_change_at >= timing.settle and not waiting:
                 result = FinishedDeployment(commit=judged.commit, rollouts=judged.rollouts)
                 again = result.commit in reported
                 if result.worth_reporting and (not again or not result.succeeded):

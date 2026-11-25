@@ -101,10 +101,18 @@ class DeploymentService:
         token = await self._token()
         bodies: list[DeploymentFinished | BuildFailed] = []
         try:
+            runs = await self._image_runs(token)
+            running = {o.image_tag for o in observations if o.image_tag}
+            awaiting = frozenset(
+                r.head_sha
+                for r in runs
+                if (not r.completed or r.conclusion == "success")
+                and f"sha-{r.head_sha}" not in running
+            )
             async with self._uow() as uow:
                 watch = await uow.deployment_watch.load_for_update() or DeploymentWatch()
                 now = self._clock.now()
-                watch, finished = watch.observe(observations, now, self._policy.timing)
+                watch, finished = watch.observe(observations, now, self._policy.timing, awaiting)
                 for deployment in finished:
                     notice, branch = await self._deployment_notice(token, deployment, watch)
                     bodies.append(notice)
@@ -112,7 +120,7 @@ class DeploymentService:
                     await self._card(uow, notice.repository, notice.pull, branch, stage, notice)
                     await self._rollback_card(uow, token, notice)
                 if token is not None:
-                    watch, failed = await self._failed_builds(token, watch)
+                    watch, failed = await self._failed_builds(token, watch, runs)
                     for build, branch in failed:
                         bodies.append(build)
                         await self._card(
@@ -217,14 +225,19 @@ class DeploymentService:
         )
         return notice, branch
 
-    async def _failed_builds(
-        self, token: InstallationToken, watch: DeploymentWatch
-    ) -> tuple[DeploymentWatch, list[tuple[BuildFailed, str | None]]]:
+    async def _image_runs(self, token: InstallationToken | None) -> list[WorkflowRun]:
+        """The recent image builds on main; none without GitHub."""
+        if token is None:
+            return []
         try:
-            runs = await self._activity.workflow_runs(token, self._policy.images_workflow)
+            return await self._activity.workflow_runs(token, self._policy.images_workflow)
         except DependencyUnavailableError as exc:
             _log.warning("cannot read image builds: %s", exc)
-            return watch, []
+            return []
+
+    async def _failed_builds(
+        self, token: InstallationToken, watch: DeploymentWatch, runs: list[WorkflowRun]
+    ) -> tuple[DeploymentWatch, list[tuple[BuildFailed, str | None]]]:
         fresh = [r for r in runs if r.completed and watch.is_new_build_run(r.id, r.created_at)]
         notices = []
         for run in fresh:

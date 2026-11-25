@@ -203,3 +203,29 @@ def test_a_later_failure_of_a_reported_commit_is_still_reported() -> None:
         reported += finished
     [failure] = reported
     assert not failure.succeeded  # type: ignore[attr-defined]
+
+
+def test_a_chart_sync_waits_for_the_image_of_its_commit() -> None:
+    """ADR-0041 §4: a chart synced before its image is not yet the deployment."""
+    watch = _baseline()
+    awaiting = frozenset({NEW})
+    chart = [_obs(app, OLD, _at(100), revision=NEW) for app in APPS]
+    watch, finished = watch.observe(chart, _at(100), TIMING, awaiting)
+    watch, finished = watch.observe(chart, _at(200), TIMING, awaiting)
+    assert finished == []
+    images = [_obs(app, NEW, _at(250), revision=NEW) for app in APPS]
+    watch, finished = watch.observe(images, _at(250), TIMING)
+    watch, finished = watch.observe(images, _at(320), TIMING)
+    [deployment] = finished
+    assert deployment.commit == NEW
+    assert deployment.succeeded
+
+
+def test_the_wait_for_an_image_ends_with_the_timeout() -> None:
+    watch = _baseline()
+    awaiting = frozenset({NEW})
+    chart = [_obs(app, OLD, _at(100), revision=NEW) for app in APPS]
+    watch, _ = watch.observe(chart, _at(100), TIMING, awaiting)
+    watch, finished = watch.observe(chart, _at(100 + 601), TIMING, awaiting)
+    [deployment] = finished
+    assert deployment.commit == NEW
