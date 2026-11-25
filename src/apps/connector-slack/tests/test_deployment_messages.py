@@ -227,3 +227,21 @@ async def test_a_failed_conversation_summary_is_one_line_in_the_owners_dm() -> N
     assert "prompt &lt;missing&gt;" in rendered
     assert "다음 날 실행 때 한 번 더 시도합니다" in rendered
     assert "\n" not in message.payload()[0]["text"]["text"]  # type: ignore[index]
+
+
+async def test_a_schedule_posts_to_an_allowed_channel_and_otherwise_to_the_dm() -> None:
+    """ADR-0039 S6: output channel, only for the config's schedule_channels."""
+    from enikk_contracts.digests import ScheduleDelivered
+
+    core, slack = FakeCore(), FakeSlack()
+    config = CONFIG.model_copy(update={"schedule_channels": ("general",)})
+    allowed = ScheduleDelivered(name="economy", text="오늘의 경제", channel="general")
+    other = ScheduleDelivered(name="economy", text="오늘의 경제", channel="random")
+    for body in (allowed, other):
+        core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
+    assert await NoticeRelay(core, slack, config, POLICY).relay_once() == 2
+    [(first, posted), (second, refused)] = slack.messages
+    assert first == "#general"
+    assert "오늘의 경제" in str(posted.payload())
+    assert second == OWNER
+    assert "허용된 채널이 아니라" in str(refused.payload())

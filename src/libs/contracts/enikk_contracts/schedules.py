@@ -54,7 +54,8 @@ UNTRUSTED_INPUTS: Final = frozenset({InputKind.DAY_CONVERSATIONS})
 
 
 class OutputKind(StrEnum):
-    """Outputs registered in code. All of them reach the owner only."""
+    """Outputs registered in code. All reach the owner only, except ``channel``: a Slack
+    channel the connector's config allows (``schedule_channels``)."""
 
     OWNER_DM = "owner-dm"
     THREAD = "thread"
@@ -62,6 +63,8 @@ class OutputKind(StrEnum):
     VAULT_NOTE = "vault-note"
     """A note in a folder under ``Private/enikk/``."""
     DISCARD = "discard"
+    CHANNEL = "channel"
+    """A Slack channel by name, among the connector's ``schedule_channels``."""
 
 
 class Timing(Contract):
@@ -89,14 +92,21 @@ class ScheduleInput(Contract):
         return self
 
 
+ChannelName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$")]
+"""A Slack channel's name, without ``#``."""
+
+
 class ScheduleOutput(Contract):
     kind: OutputKind
     folder: FolderName | None = None
+    channel: ChannelName | None = None
 
     @model_validator(mode="after")
     def _folder_only_for_notes(self) -> Self:
         if (self.kind is OutputKind.VAULT_NOTE) != (self.folder is not None):
             raise ValueError("'folder' is required exactly for the vault-note output")
+        if (self.kind is OutputKind.CHANNEL) != (self.channel is not None):
+            raise ValueError("'channel' is required exactly for the channel output")
         return self
 
 
