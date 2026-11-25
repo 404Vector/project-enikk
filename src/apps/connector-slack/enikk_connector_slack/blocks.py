@@ -270,16 +270,12 @@ def digest_failed(notice: DigestFailed) -> Message:
     return Message(text=f"{notice.day.isoformat()} 대화 요약 실패", blocks=(_section(line),))
 
 
-def schedule_delivered(
-    notice: ScheduleDelivered, *, refused: bool = False, missing: bool = False
-) -> Message:
+def schedule_delivered(notice: ScheduleDelivered, *, missing: bool = False) -> Message:
     """A scheduled run's answer, in the owner's DM or its channel (ADR-0039 S6·S7)."""
     line = f"*[스케줄 `{_escape(notice.name)}`]*\n{_escape(notice.text)}"
-    if refused:
-        line = f"_#{notice.channel} 은 허용된 채널이 아니라 DM 으로 보냅니다._\n" + line
-    elif missing:
+    if missing:
         line = (
-            f"_#{notice.channel} 채널을 찾지 못해 DM 으로 보냅니다. "
+            f"_#{notice.channel} 채널에 올리지 못해 DM 으로 보냅니다. "
             f"그 채널에서 `/invite @enikk` 를 해 주십시오._\n"
         ) + line
     return Message(text=f"스케줄 {notice.name}", blocks=(_section(line[:SECTION_LIMIT]),))

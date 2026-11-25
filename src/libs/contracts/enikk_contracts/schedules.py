@@ -55,7 +55,7 @@ UNTRUSTED_INPUTS: Final = frozenset({InputKind.DAY_CONVERSATIONS})
 
 class OutputKind(StrEnum):
     """Outputs registered in code. All reach the owner only, except ``channel``: a Slack
-    channel the connector's config allows (``schedule_channels``)."""
+    channel the bot is a member of (inviting the bot is the owner's permission)."""
 
     OWNER_DM = "owner-dm"
     THREAD = "thread"
@@ -64,7 +64,7 @@ class OutputKind(StrEnum):
     """A note in a folder under ``Private/enikk/``."""
     DISCARD = "discard"
     CHANNEL = "channel"
-    """A Slack channel by name, among the connector's ``schedule_channels``."""
+    """A Slack channel by name or ID; the bot must be a member, else the owner's DM."""
 
 
 class Timing(Contract):
