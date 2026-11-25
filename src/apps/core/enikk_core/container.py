@@ -106,7 +106,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         prompts=_prompts(settings, store, catalog, clock, uow, ids, waker),
         digests=_digests(settings, memory, catalog, clock, uow, ids),
         digest_interval_seconds=settings.digests.interval_seconds,
-        schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids),
+        schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids, memory=memory),
     )
 
 

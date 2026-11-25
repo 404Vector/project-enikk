@@ -30,7 +30,7 @@ from enikk_contracts.approvals import (
     StatusCardPosted,
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
-from enikk_contracts.digests import DigestFailed
+from enikk_contracts.digests import DigestFailed, ScheduleDelivered
 from enikk_contracts.prompts import (
     PromotionAction,
     PromotionDecision,
@@ -124,6 +124,9 @@ class NoticeRelay:
             return
         if isinstance(body, DigestFailed):
             await self._deliver_to_owner(notice, blocks.digest_failed(body))
+            return
+        if isinstance(body, ScheduleDelivered):
+            await self._deliver_to_owner(notice, blocks.schedule_delivered(body))
             return
         if isinstance(body, ApprovalOutdated):
             message = blocks.outdated(body)

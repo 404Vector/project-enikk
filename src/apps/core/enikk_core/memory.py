@@ -289,6 +289,27 @@ class MemoryService:
         await self._write(path, text, f"memory: conversations of {day.isoformat()}")
         return path
 
+    async def write_scheduled(
+        self, folder: str, stem: str, title: str, body: str, kind: NoteKind, source: str
+    ) -> str:
+        """Create or replace a scheduled run's note under enikk's folder (ADR-0039 S7,
+        output ``vault-note``). Returns its path."""
+        path = f"{self.layout.enikk_dir}{folder}/{stem}.md"
+        _refuse_secrets(title, body)
+        today = self._clock.now().date()
+        text = note_text(
+            title=title,
+            kind=kind,
+            body=body,
+            created=today,
+            updated=today,
+            expires=None,
+            source=source,
+            by=CONVERSATIONS_BY,
+        )
+        await self._write(path, text, f"memory: scheduled note {stem}")
+        return path
+
     async def search(self, request: MemorySearch) -> MemoryMatches:
         words = [w for w in request.query.split() if w][:5]
         async with self._uow() as uow:

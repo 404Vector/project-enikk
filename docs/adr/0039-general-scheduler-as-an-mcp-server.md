@@ -124,7 +124,9 @@
    - 도구 좁히기: 하지 않는다. 회차는 스케줄의 에이전트 정의 그대로 돈다(ADR-0041 §1). 좁혀야 하면 좁은 정의를 가진 에이전트를 고른다(예: S7 의 도구 없는 요약).
    - `run_now`: 지금 한 회차를 시작한다(예정 시각 = 지금). 결과는 스케줄의 출력으로 간다.
 6. **S6**: 경제 이슈 요약. 소유자가 대화로 직접 만들어 첫 실사용 시험으로 삼는다.
-7. **S7**: 대화 요약 이전. `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
+7. **S7**: 대화 요약 이전. 둘로 나눈다.
+   - S7a **(구현됨)**: 출력 `owner-dm`(core 알림 `schedule-delivered` → 커넥터가 소유자 DM 에 한 블록), `vault-note`(`MemoryService.write_scheduled`, `Private/enikk/<folder>/` 아래, 하루치 대화 입력이면 `<그날>.md`·종류 `conversation`·제목 `<그날> <설명>`, 아니면 `<날짜-시각>-<이름>.md`·종류 `note`), 입력 `day-conversations`(예정 시각의 전날, 스펙의 시간대, 대화 요약과 같은 `day_conversations`·`summary_input`; 대화가 없으면 작업 없이 성공으로 남김). 신뢰하지 않는 대화 원문을 다루는 스케줄은 도구 없는 에이전트(`summarizer`)를 고른다(I-38).
+   - S7b: 아래 이전. `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
 
 ### 되돌리기
 - S1~S5: 기능 플래그(스케줄러 `enabled`, 엔진의 MCP 연결)로 끈다. 그동안 대화 요약은 옛 경로로 돈다.

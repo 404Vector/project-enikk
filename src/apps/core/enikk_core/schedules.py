@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         ScheduleUpdate,
         ScheduleView,
     )
+    from enikk_core.memory import MemoryService
     from enikk_core_domain.model import Session, Task
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_kernel.clock import Clock
@@ -43,13 +44,19 @@ if TYPE_CHECKING:
 
 class ScheduleService:
     def __init__(
-        self, *, uow: UnitOfWorkFactory, catalog: AgentCatalog, clock: Clock, ids: IdGenerator
+        self,
+        *,
+        uow: UnitOfWorkFactory,
+        catalog: AgentCatalog,
+        clock: Clock,
+        ids: IdGenerator,
+        memory: MemoryService | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
         self._clock = clock
         self._ids = ids
-        self._runner = ScheduleRunner(uow=uow, catalog=catalog, clock=clock, ids=ids)
+        self._runner = ScheduleRunner(uow=uow, catalog=catalog, clock=clock, ids=ids, memory=memory)
 
     async def tick(self) -> ScheduleTicked:
         """One tick of the scheduler's clock (ADR-0039 S5)."""
