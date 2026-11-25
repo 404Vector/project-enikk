@@ -112,6 +112,7 @@ def test_lists_the_read_and_change_tools(client: TestClient) -> None:
         "pause_schedule",
         "resume_schedule",
         "delete_schedule",
+        "run_now",
     }
     assert set(tools) == read | change
     assert all(tools[name]["annotations"]["readOnlyHint"] for name in read)

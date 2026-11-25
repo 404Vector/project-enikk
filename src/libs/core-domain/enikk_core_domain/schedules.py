@@ -7,7 +7,7 @@ calling agent's own range applies at once; any other waits for the owner (ADR-00
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING, Annotated, Final, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -28,8 +28,6 @@ from enikk_core_domain.model import Entity
 from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from enikk_contracts.agents import AgentDefinition, ToolPolicy
 
 MIN_INTERVAL: Final = timedelta(minutes=10)
@@ -217,3 +215,63 @@ class ScheduleRun(Entity):
 
     def view(self) -> RunView:
         return RunView(**dict(self))
+
+    def retried(self, task_id: uuid.UUID, now: datetime) -> Self:
+        return self._evolve(task_id=task_id, attempts=self.attempts + 1, updated_at=now)
+
+    def ended(self, status: RunStatus, detail: str, now: datetime) -> Self:
+        return self._evolve(status=status, detail=detail[:500], updated_at=now)
+
+
+MAX_DUE: Final = 15
+"""At most this many due times are made at once: the newest and up to 14 missed."""
+
+
+def due_slots(spec: ScheduleSpec, after: datetime, until: datetime) -> list[datetime]:
+    """The due times in ``(after, until]``, oldest first, at most ``catchup + 1`` (the
+    newest ones). Cron times are read in the spec's time zone (ADR-0039 S5)."""
+    timing = spec.timing
+    keep = spec.catchup + 1
+    if timing.at is not None:
+        return [timing.at] if after < timing.at <= until else []
+    if timing.cron is None:
+        return []
+    fields = parse_cron(timing.cron)
+    zone = ZoneInfo(timing.timezone)
+    restricted_day = fields.days != frozenset(range(1, 32))
+    restricted_weekday = fields.weekdays != frozenset(range(7))
+    found: list[datetime] = []
+    day = until.astimezone(zone).date()
+    first = max(after, until - timedelta(days=MAX_DUE)).astimezone(zone).date()
+    while day >= first and len(found) < keep:
+        weekday = (day.weekday() + 1) % 7
+        by_day = day.day in fields.days
+        by_weekday = weekday in fields.weekdays
+        matches = (
+            (by_day or by_weekday)
+            if restricted_day and restricted_weekday
+            else (by_day and by_weekday)
+        )
+        if matches and day.month in fields.months:
+            for hour in sorted(fields.hours, reverse=True):
+                for minute in sorted(fields.minutes, reverse=True):
+                    local = datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
+                    slot = local.astimezone(UTC)
+                    if after < slot <= until and len(found) < keep:
+                        found.append(slot)
+        day -= timedelta(days=1)
+    return sorted(found)
+
+
+def started_run(
+    schedule_id: uuid.UUID, slot: datetime, task_id: uuid.UUID | None, now: datetime
+) -> ScheduleRun:
+    return ScheduleRun(
+        schedule_id=schedule_id,
+        slot=slot,
+        status=RunStatus.RUNNING,
+        task_id=task_id,
+        attempts=1,
+        started_at=now,
+        updated_at=now,
+    )

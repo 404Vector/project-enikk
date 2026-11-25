@@ -11,6 +11,7 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from enikk_contracts.schedules import (
+    RunNow,
     RunsQuery,
     ScheduleCreate,
     ScheduleName,
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from enikk_contracts.schedules import (
         Caller,
         RunList,
+        RunView,
         ScheduleDeleted,
         ScheduleList,
         ScheduleView,
@@ -73,6 +75,9 @@ class ScheduleReader:
 
     async def delete(self, caller: Caller, name: str) -> ScheduleDeleted:
         return await self._core.delete_schedule(name, ScheduleQuery(caller=caller))
+
+    async def run_now(self, caller: Caller, name: str) -> RunView:
+        return await self._core.run_schedule_now(name, RunNow(caller=caller))
 
 
 def build_server(reader: ScheduleReader) -> MCPServer:
@@ -130,6 +135,13 @@ def build_server(reader: ScheduleReader) -> MCPServer:
         """Resume a paused schedule."""
         caller = _caller(ctx)
         return await _call(reader.pause(caller, name, paused=False))
+
+    @server.tool(annotations=CHANGES)
+    async def run_now(name: ScheduleName, ctx: Context) -> dict[str, Any]:
+        """Start one run of a schedule now, whatever its timing; its output goes where
+        the schedule says. list_runs shows how it went."""
+        caller = _caller(ctx)
+        return await _call(reader.run_now(caller, name))
 
     @server.tool(annotations=REMOVES)
     async def delete_schedule(name: ScheduleName, ctx: Context) -> dict[str, Any]:

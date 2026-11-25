@@ -26,3 +26,5 @@ class SchedulerSettings(ServiceSettings, env_prefix="ENIKK_SCHEDULER_"):
     )
     """Host header values the MCP endpoint accepts, with any port."""
     verbose: bool = False
+    tick_seconds: float = Field(default=30.0, ge=0)
+    """How often the clock asks core to run due schedules (ADR-0039 S5); 0 stops it."""

@@ -14,7 +14,7 @@ tools:
     - server: scheduler
       allow:
         [list_schedules, get_schedule, list_runs, create_schedule, update_schedule,
-         pause_schedule, resume_schedule, delete_schedule]
+         pause_schedule, resume_schedule, delete_schedule, run_now]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
   # web returns is untrusted input. No browser automation.
   builtin:
