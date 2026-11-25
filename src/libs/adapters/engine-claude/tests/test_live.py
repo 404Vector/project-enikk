@@ -191,3 +191,33 @@ async def test_idle_sessions_are_closed(tmp_path: Path) -> None:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+async def test_a_new_process_survives_the_close_of_the_idle_one(tmp_path: Path) -> None:
+    """The idle process of a thread is closed in the background while the next task
+    starts a new one; the close must not remove the new one's directories."""
+    _Client.made = []
+    engine = ClaudeEngine(
+        config=ClaudeEngineConfig(
+            workdir=tmp_path / "work",
+            scratch_dir=tmp_path / "scratch",
+            live=LivePolicy(idle_seconds=0),
+        ),
+        oauth_token=SecretStr("sk-ant-oat-test"),
+        transcripts=_Transcripts(),  # type: ignore[arg-type]
+        client_fn=lambda options: _Client(options),  # type: ignore[arg-type,return-value]
+        query_fn=_one_off,
+        landlock=False,
+    )
+    session = uuid.uuid4()
+    await engine.run(_job(session))
+    await engine.run(_job(session))
+    for _ in range(3):
+        await asyncio.sleep(0)
+    first, second = _Client.made
+    assert first.disconnected
+    assert not second.disconnected
+    assert first.options.cwd != second.options.cwd
+    assert second.options.cwd is not None
+    assert (tmp_path / "work" / str(second.options.cwd).rsplit("/", 1)[-1]).is_dir()
+    await engine.aclose()
