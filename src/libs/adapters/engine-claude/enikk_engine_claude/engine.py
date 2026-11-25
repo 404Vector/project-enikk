@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast, get_args
@@ -254,10 +255,11 @@ class ClaudeEngine:
         raise EngineError(failure.reason, retryable=failure.retryable)
 
     async def _open_live(self, job: EngineJob, key: tuple[str, int, str]) -> LiveSession:
-        home = self._config.scratch_dir / "live" / str(job.session_id)
-        cwd = self._config.workdir / f"live-{job.session_id}"
-        for path in (home, cwd):
-            shutil.rmtree(path, ignore_errors=True)
+        # Each process gets its own directories: the previous process of the thread may
+        # still be closing in the background and removes only its own.
+        name = f"{job.session_id}-{uuid.uuid4().hex[:8]}"
+        home = self._config.scratch_dir / "live" / name
+        cwd = self._config.workdir / f"live-{name}"
         (home / "tmp").mkdir(parents=True)
         cwd.mkdir(parents=True)
         self._credentials(home, job)
