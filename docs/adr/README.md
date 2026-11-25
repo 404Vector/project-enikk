@@ -43,11 +43,11 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0034](0034-resume-inside-the-sandbox-and-failed-runs.md) | 세션 이어받기를 샌드박스 안에서 하고, 실패한 실행을 자세히 남긴다 | 승인 | 2026-11-23 |
 | [0035](0035-daily-conversation-summaries.md) | 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다 | 승인 | 2026-11-23 |
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 (세션 깨우기는 ADR-0041 §4 로 추가) | 2026-11-23 |
-| [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1~4단계, 5a·5b 구현) | 2026-11-23 |
+| [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1~4단계, 5a·5b 구현. §6b core 제출 경로는 ADR-0041 3b 로 대체) | 2026-11-23 |
 | [0038](0038-multi-platform-images.md) | 이미지를 amd64 와 arm64 로 함께 빌드한다 | 승인 | 2026-11-24 |
 | [0039](0039-general-scheduler-as-an-mcp-server.md) | 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인 | 승인 (S1·S2·S3 구현. S4 와 §5 의 승인 규칙은 ADR-0041 로 없앤다, 3단계에서 대체 표시) | 2026-11-24 |
 | [0040](0040-image-app-list-outside-the-workflow.md) | 이미지를 만들 앱 목록을 워크플로 밖에 둔다 | 승인 | 2026-11-24 |
-| [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1·2·3a·3c 구현: 민감 경로 축소, 이벤트 깨우기, 세션의 GitHub 토큰, 클러스터 읽기) | 2026-11-25 |
+| [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1·2·3a·3b·3c 구현: 민감 경로 축소, 이벤트 깨우기, 세션의 GitHub 토큰, core 제출 경로 삭제, 클러스터 읽기) | 2026-11-25 |
 
 ## 상태 정의
 
