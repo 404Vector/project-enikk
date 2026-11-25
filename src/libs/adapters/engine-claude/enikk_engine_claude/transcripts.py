@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         TranscriptLoaded,
         TranscriptSubpaths,
     )
+    from enikk_engine_claude.current import CurrentJob
 
 _ENTRIES: Final = TypeAdapter(tuple[TranscriptEntry, ...])
 
@@ -60,14 +61,13 @@ class CoreSessionStore:
     def __init__(
         self,
         api: TranscriptApi,
-        task_id: uuid.UUID,
-        lease_id: uuid.UUID,
+        current: CurrentJob,
         *,
         project_key: str | None = None,
     ) -> None:
         self._api = api
-        self._task_id = task_id
-        self._lease_id = lease_id
+        self._current = current
+        """The task and lease are read at each call (ADR-0041 §3)."""
         self._project_key = project_key
         """When set, replaces the ``project_key`` of every key the SDK passes in."""
 
@@ -82,9 +82,9 @@ class CoreSessionStore:
         transcript = self._key(key)
         for start in range(0, len(validated), MAX_ENTRIES_PER_APPEND):
             await self._api.append_transcript(
-                self._task_id,
+                self._current.job.task_id,
                 TranscriptAppend(
-                    lease_id=self._lease_id,
+                    lease_id=self._current.job.lease_id,
                     key=transcript,
                     entries=validated[start : start + MAX_ENTRIES_PER_APPEND],
                 ),
@@ -92,7 +92,8 @@ class CoreSessionStore:
 
     async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None:
         loaded = await self._api.load_transcript(
-            self._task_id, TranscriptQuery(lease_id=self._lease_id, key=self._key(key))
+            self._current.job.task_id,
+            TranscriptQuery(lease_id=self._current.job.lease_id, key=self._key(key)),
         )
         if not loaded.entries:
             return None
@@ -101,9 +102,9 @@ class CoreSessionStore:
 
     async def list_subkeys(self, key: SessionListSubkeysKey) -> list[str]:
         found = await self._api.transcript_subpaths(
-            self._task_id,
+            self._current.job.task_id,
             SubpathQuery(
-                lease_id=self._lease_id,
+                lease_id=self._current.job.lease_id,
                 project_key=self._project_key or key["project_key"],
                 engine_session_id=key["session_id"],
             ),

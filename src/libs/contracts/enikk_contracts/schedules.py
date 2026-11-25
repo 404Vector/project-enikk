@@ -117,10 +117,18 @@ class ScheduleSpec(Contract):
 
 
 class Caller(Contract):
-    """The task that called the scheduler's MCP tool, with its current lease."""
+    """Who called the scheduler's MCP tool: a session, whose running task core finds
+    (ADR-0041 §3, tokens outlive one task), or a task with its current lease."""
 
-    task_id: uuid.UUID
-    lease_id: uuid.UUID
+    session_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    lease_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _named(self) -> Self:
+        if self.session_id is None and (self.task_id is None or self.lease_id is None):
+            raise ValueError("a caller is a session, or a task with its lease")
+        return self
 
 
 class ScheduleQuery(Contract):

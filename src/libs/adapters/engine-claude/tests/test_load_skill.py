@@ -8,6 +8,7 @@ import pytest
 
 from enikk_contracts.prompts import PromptCandidateCreated, PromptCandidateRequest
 from enikk_contracts.skills import Capability, SkillSummary
+from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.platform_tools import (
     LOAD_SKILL_TOOL,
     granted_platform_tools,
@@ -70,7 +71,7 @@ def test_load_skill_goes_only_to_sessions_with_a_skill_list() -> None:
 
 async def test_load_skill_returns_the_text_and_records_the_version() -> None:
     loaded: list[SkillUse] = []
-    result = await load_skill_tool(_job(LISTED), _Library(), loaded).handler(
+    result = await load_skill_tool(CurrentJob(_job(LISTED)), _Library(), loaded).handler(
         {"name": "skill-developer"}
     )
     assert not result["is_error"]
@@ -89,7 +90,9 @@ async def test_load_skill_returns_the_text_and_records_the_version() -> None:
 )
 async def test_load_skill_reports_failures(library: _Library, name: str, message: str) -> None:
     loaded: list[SkillUse] = []
-    result = await load_skill_tool(_job(LISTED), library, loaded).handler({"name": name})
+    result = await load_skill_tool(CurrentJob(_job(LISTED)), library, loaded).handler(
+        {"name": name}
+    )
     assert result["is_error"]
     assert message in result["content"][0]["text"]
     assert loaded == []
@@ -116,7 +119,7 @@ class _Proposer:
 
 async def test_propose_prompt_passes_description_and_requires() -> None:
     proposer = _Proposer()
-    result = await propose_prompt_tool(_job(None), proposer).handler(  # type: ignore[arg-type]
+    result = await propose_prompt_tool(CurrentJob(_job(None)), proposer).handler(  # type: ignore[arg-type]
         {
             "prompt": "skill-developer",
             "text": "docs/ 를 먼저 읽는다.",
@@ -138,7 +141,7 @@ async def test_propose_prompt_passes_description_and_requires() -> None:
 @pytest.mark.parametrize("requires", [["cluster.write"], "repo.push"])
 async def test_propose_prompt_refuses_unknown_requires(requires: object) -> None:
     proposer = _Proposer()
-    result = await propose_prompt_tool(_job(None), proposer).handler(  # type: ignore[arg-type]
+    result = await propose_prompt_tool(CurrentJob(_job(None)), proposer).handler(  # type: ignore[arg-type]
         {
             "prompt": "skill-developer",
             "text": "x",

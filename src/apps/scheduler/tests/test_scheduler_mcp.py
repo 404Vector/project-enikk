@@ -166,3 +166,11 @@ def test_accepts_the_host_agentgateway_passes_on() -> None:
 
     hosts = SchedulerSettings().allowed_hosts
     assert {"enikk-scheduler", "enikk-agentgateway", "enikk-agentgateway.enikk.svc"} <= set(hosts)
+
+
+def test_the_session_header_names_the_caller() -> None:
+    session = uuid.uuid4()
+    caller = caller_from({"X-Enikk-Session-Id": str(session), TASK_HEADER: str(TASK)})
+    assert caller.session_id == session
+    with pytest.raises(MissingCallerError):
+        caller_from({"x-enikk-session-id": "x"})

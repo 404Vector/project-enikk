@@ -115,10 +115,7 @@ class ScheduleService:
     async def _caller(
         self, uow: UnitOfWork, caller: Caller, *, change: bool
     ) -> tuple[Task, Session]:
-        task = await uow.tasks.get_for_update(caller.task_id)
-        if task is None:
-            raise PermissionDeniedError(f"task {caller.task_id} does not exist")
-        task.verify_lease(caller.lease_id, self._clock.now())
+        task = await self._calling_task(uow, caller)
         session = await uow.sessions.get(task.session_id)
         if session is None:
             raise NotFoundError(f"session {task.session_id} of task {task.id} is missing")
@@ -127,6 +124,23 @@ class ScheduleService:
                 "only sessions the owner started in Slack change schedules (ADR-0039 §5)"
             )
         return task, session
+
+    async def _calling_task(self, uow: UnitOfWork, caller: Caller) -> Task:
+        """The caller's task with a live lease: the session's running task (ADR-0041 §3)
+        or the named task."""
+        now = self._clock.now()
+        if caller.session_id is not None:
+            for running in await uow.tasks.active_in_session(caller.session_id):
+                if running.lease is not None and running.lease.expires_at > now:
+                    return running
+            raise PermissionDeniedError(f"session {caller.session_id} has no running task")
+        if caller.task_id is None or caller.lease_id is None:
+            raise PermissionDeniedError("the caller names no session and no task")
+        task = await uow.tasks.get_for_update(caller.task_id)
+        if task is None:
+            raise PermissionDeniedError(f"task {caller.task_id} does not exist")
+        task.verify_lease(caller.lease_id, now)
+        return task
 
     def _checked(self, spec: ScheduleSpec) -> tuple[ScheduleSpec, AgentDefinition]:
         definition = check_spec(spec, self._catalog.get(spec.agent))
