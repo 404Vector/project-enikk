@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.credentials import CredentialName
     from enikk_contracts.digests import DigestStatus
+    from enikk_contracts.outbox import OutboundKind
     from enikk_contracts.tasks import TaskStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.auth import ServiceIdentity
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
         ApprovalState,
         Dispatch,
         Notice,
+        OutboxFile,
         OutboxMessage,
         ReviewMessageRef,
         Session,
@@ -104,6 +106,16 @@ class OutboxRepository(Protocol):
         ...
 
     async def update(self, message: OutboxMessage) -> None: ...
+
+    async def add_file(self, file: OutboxFile) -> None:
+        """The bytes of a ``FILE`` message, kept until it is delivered (ADR-0042)."""
+        ...
+
+    async def file(self, message_id: uuid.UUID) -> OutboxFile | None: ...
+
+    async def drop_file(self, message_id: uuid.UUID) -> None: ...
+
+    async def count_of_task(self, task_id: uuid.UUID, kind: OutboundKind) -> int: ...
 
 
 class TranscriptRepository(Protocol):

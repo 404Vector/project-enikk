@@ -14,6 +14,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -256,6 +257,18 @@ class OutboxRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime]
     delivered_at: Mapped[datetime | None]
+
+
+class OutboxFileRow(Base):
+    """The bytes of a ``file`` outbox message until it is delivered (ADR-0042)."""
+
+    __tablename__ = "outbox_files"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("outbox.id", ondelete="CASCADE"), primary_key=True
+    )
+    filename: Mapped[str] = mapped_column(String(200))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
 
 
 class TranscriptEntryRow(Base):

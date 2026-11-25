@@ -18,6 +18,9 @@ MESSAGE: Final = "message"
 DIRECT_MESSAGE: Final = "im"
 MAX_TEXT: Final = 40_000
 
+FILE_SHARE: Final = "file_share"
+"""The subtype of a message with attached files (ADR-0042)."""
+
 _log = logging.getLogger(__name__)
 
 
@@ -34,14 +37,14 @@ class Router:
         self._mention = f"<@{bot_user_id}>"
 
     def route(self, message: SlackMessage) -> InboundEvent | None:
-        if message.bot_id is not None or message.subtype is not None:
+        if message.bot_id is not None or message.subtype not in (None, FILE_SHARE):
             return None
         if message.channel is None or message.ts is None or message.user is None:
             return None
         if message.user != self._config.owner:
             _log.debug("ignored a message from %s: not the owner", message.user)
             return None
-        text = message.text.replace(self._mention, "").strip()[:MAX_TEXT]
+        text = _with_files(message.text.replace(self._mention, "").strip(), message)[:MAX_TEXT]
         if not text:
             return None
 
@@ -70,3 +73,12 @@ class Router:
             agent=agent,
             continue_only=continue_only,
         )
+
+
+def _with_files(text: str, message: SlackMessage) -> str:
+    """Tell the agent what was attached; it cannot read attachments yet (ADR-0042)."""
+    if not message.files:
+        return text
+    names = ", ".join(f.name or "(이름 없음)" for f in message.files)
+    note = f"[첨부 파일 {len(message.files)}개: {names}. 에닉은 아직 첨부 파일을 읽을 수 없다]"
+    return f"{text}\n\n{note}" if text else note

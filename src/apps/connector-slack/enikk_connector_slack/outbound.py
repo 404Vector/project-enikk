@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -11,7 +12,7 @@ from enikk_connector_slack.events import MessageRef
 from enikk_connector_slack.inbound import RECEIVED, WAITING
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
-from enikk_core_client import CoreUnavailableError
+from enikk_core_client import CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ REPLIED: Final = "white_check_mark"
 FAILED: Final = "x"
 CANCELLED: Final = "no_entry_sign"
 FAILURE_PREFIX: Final = ":warning: 요청을 처리하지 못했습니다.\n"
+FILE_FAILED: Final = ":warning: 파일 {name} 을 올리지 못했습니다."
 
 _log = logging.getLogger(__name__)
 
@@ -88,6 +90,14 @@ class OutboxRelay:
         if message.kind is OutboundKind.STARTED:
             await self._started(message)
             return
+        if message.kind is OutboundKind.FILE:
+            await self._file(message)
+            return
+        if message.kind is OutboundKind.REACTION:
+            source = MessageRef.parse(message.source_event_id)
+            if source is not None:
+                await self._slack.react(source, message.text)
+            return
         conversation = message.conversation
         replied = message.kind is OutboundKind.REPLY
         try:
@@ -107,6 +117,30 @@ class OutboxRelay:
             await self._slack.unreact(source, WAITING)
             await self._slack.unreact(source, RECEIVED)
             await self._slack.react(source, _mark(message.kind, replied=replied))
+
+    async def _file(self, message: OutboundMessage) -> None:
+        """Attach the message's file in its thread (ADR-0042); say so when Slack refuses it."""
+        conversation = message.conversation
+        try:
+            file = await self._core.outbox_file(message.message_id)
+        except CoreNotFoundError:
+            _log.error("no file for outbox message %s", message.message_id)
+            return
+        try:
+            await self._slack.upload_file(
+                conversation.channel,
+                conversation.thread,
+                file.filename,
+                base64.b64decode(file.content_base64),
+                message.text,
+            )
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped file %s for task %s: %s", file.filename, message.task_id, exc)
+            await self._slack.post_reply(
+                conversation.channel, conversation.thread, FILE_FAILED.format(name=file.filename)
+            )
 
     async def _started(self, message: OutboundMessage) -> None:
         """Mark the request as running and show the [취소] button (ADR-0037 3b)."""

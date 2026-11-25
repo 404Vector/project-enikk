@@ -11,6 +11,7 @@ from pydantic import Field
 from enikk_contracts.base import Contract
 from enikk_contracts.common import ConversationRef, Identifier, NonEmptyText
 from enikk_contracts.tasks import WaitSeconds
+from enikk_contracts.thread_actions import Base64Text
 
 MAX_ACK_BATCH = 100
 
@@ -22,6 +23,10 @@ class OutboundKind(StrEnum):
     """A worker took the task; the connector shows it as running (ADR-0037 3b)."""
     CANCELLED = "cancelled"
     """The owner cancelled the thread's work."""
+    FILE = "file"
+    """A file for the thread; ``text`` is its title, the bytes come from ``OUTBOX_FILE``."""
+    REACTION = "reaction"
+    """An emoji on the message the task answers; ``text`` is the emoji name (ADR-0042)."""
 
 
 class OutboundMessage(Contract):
@@ -54,3 +59,14 @@ class OutboxAck(Contract):
 
 class OutboxAcked(Contract):
     acknowledged: Annotated[int, Field(ge=0)]
+
+
+class OutboxFileQuery(Contract):
+    """Ask for the bytes of a ``FILE`` message; the message is in the path."""
+
+
+class OutboxFile(Contract):
+    """The bytes of a ``FILE`` message, base64-encoded (ADR-0042)."""
+
+    filename: Identifier
+    content_base64: Base64Text

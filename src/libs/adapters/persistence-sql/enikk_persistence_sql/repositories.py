@@ -16,6 +16,7 @@ from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import (
     ApprovalState,
     NoticeStatus,
+    OutboxFile,
     OutboxStatus,
     ReviewMessageRef,
 )
@@ -27,6 +28,7 @@ from enikk_persistence_sql.tables import (
     DeploymentWatchRow,
     DispatchRow,
     NoticeRow,
+    OutboxFileRow,
     OutboxRow,
     PromptPromotionRow,
     ReviewMessageRow,
@@ -244,6 +246,29 @@ class SqlOutboxRepository:
             raise NotFoundError(f"outbox message {message.id} does not exist")
         mappers.outbox_to_row(message, row)
         await _flush(self._db, f"outbox message {message.id}")
+
+    async def add_file(self, file: OutboxFile) -> None:
+        self._db.add(
+            OutboxFileRow(message_id=file.message_id, filename=file.filename, content=file.content)
+        )
+        await _flush(self._db, f"outbox file {file.message_id}")
+
+    async def file(self, message_id: uuid.UUID) -> OutboxFile | None:
+        row = await self._db.get(OutboxFileRow, message_id)
+        if row is None:
+            return None
+        return OutboxFile(message_id=row.message_id, filename=row.filename, content=row.content)
+
+    async def drop_file(self, message_id: uuid.UUID) -> None:
+        await self._db.execute(delete(OutboxFileRow).where(OutboxFileRow.message_id == message_id))
+
+    async def count_of_task(self, task_id: uuid.UUID, kind: OutboundKind) -> int:
+        counted = await self._db.scalar(
+            select(func.count())
+            .select_from(OutboxRow)
+            .where(OutboxRow.task_id == task_id, OutboxRow.kind == kind.value)
+        )
+        return int(counted or 0)
 
 
 class SqlTranscriptRepository:

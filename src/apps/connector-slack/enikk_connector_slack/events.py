@@ -17,6 +17,10 @@ class SlackPayload(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
 
+class SlackFile(SlackPayload):
+    name: str = ""
+
+
 class SlackMessage(SlackPayload):
     """A ``message`` or ``app_mention`` event."""
 
@@ -29,6 +33,7 @@ class SlackMessage(SlackPayload):
     thread_ts: str | None = None
     bot_id: str | None = None
     subtype: str | None = None
+    files: tuple[SlackFile, ...] = ()
 
 
 class EventCallback(SlackPayload):

@@ -50,7 +50,7 @@ from enikk_contracts.memory import (
     RememberRequest,
     UpdateMemoryRequest,
 )
-from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxPoll
+from enikk_contracts.outbox import OutboxAck, OutboxAcked, OutboxBatch, OutboxFile, OutboxPoll
 from enikk_contracts.prompts import (
     PromotionDecision,
     PromotionLinked,
@@ -84,6 +84,11 @@ from enikk_contracts.tasks import (
     LeaseResponse,
     ResultAccepted,
     ResultReport,
+)
+from enikk_contracts.thread_actions import (
+    ThreadActionDone,
+    ThreadFileRequest,
+    ThreadReactionRequest,
 )
 from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 from enikk_contracts.transcripts import (
@@ -254,6 +259,12 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         ack = await _parse(request, OutboxAck)
         return _json(await usecases.ack_outbox(role.connector, ack))
 
+    @app.post(routes.OUTBOX_FILE, responses={200: {"model": OutboxFile}})
+    @requires("connector")
+    async def outbox_file(message_id: uuid.UUID, request: Request) -> Response:
+        role = _connector(await gate.admit(request))
+        return _json(await usecases.outbox_file(role.connector, message_id))
+
     @app.post(routes.TASK_CANCEL, responses={200: {"model": CancelResult}})
     @requires("connector")
     async def cancel_task(task_id: uuid.UUID, request: Request) -> Response:
@@ -339,6 +350,22 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, MemorySearch)
         await usecases.verify_lease(scope, task_id, body.lease_id)
         return _json(await _memory(services).search(body))
+
+    @app.post(routes.THREAD_FILE, responses={200: {"model": ThreadActionDone}})
+    @requires("runtime")
+    async def thread_file(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, ThreadFileRequest)
+        await usecases.post_file(scope, task_id, body)
+        return _json(ThreadActionDone(action="file"))
+
+    @app.post(routes.THREAD_REACTION, responses={200: {"model": ThreadActionDone}})
+    @requires("runtime")
+    async def thread_reaction(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, ThreadReactionRequest)
+        await usecases.react(scope, task_id, body)
+        return _json(ThreadActionDone(action="reaction"))
 
     @app.post(routes.PROMPT_CANDIDATES, responses={200: {"model": PromptCandidateCreated}})
     @requires("runtime")

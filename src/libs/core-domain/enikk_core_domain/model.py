@@ -10,13 +10,14 @@ import uuid
 from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, Self
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import AgentName, ConversationRef, Engine, Identifier, NonEmptyText
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import FailureReason, ProgressNote, TaskStatus
+from enikk_contracts.thread_actions import MAX_FILE_BYTES
 from enikk_core_domain.errors import InvalidTransitionError, LeaseLostError
 from enikk_kernel.models import FrozenModel
 
@@ -349,6 +350,14 @@ class ReviewMessageRef(FrozenModel):
 class OutboxStatus(StrEnum):
     PENDING = "pending"
     DELIVERED = "delivered"
+
+
+class OutboxFile(FrozenModel):
+    """The bytes of a ``FILE`` outbox message (ADR-0042)."""
+
+    message_id: uuid.UUID
+    filename: Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    content: Annotated[bytes, Field(min_length=1, max_length=MAX_FILE_BYTES)]
 
 
 class OutboxMessage(Entity):
