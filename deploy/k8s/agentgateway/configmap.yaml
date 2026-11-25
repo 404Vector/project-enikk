@@ -37,7 +37,7 @@ data:
                   mcpAuthorization:
                     # Ceiling for this server; a task gets only the tools its token names.
                     rules:
-                      - require: 'mcp.tool.name in ["list_schedules", "get_schedule", "list_runs", "create_schedule", "update_schedule", "pause_schedule", "resume_schedule", "delete_schedule"]'
+                      - require: 'mcp.tool.name in ["list_schedules", "get_schedule", "list_runs", "create_schedule", "update_schedule", "pause_schedule", "resume_schedule", "delete_schedule", "run_now"]'
                       - allow: '("scheduler:" + mcp.tool.name) in jwt.tools'
                   transformations:
                     request:

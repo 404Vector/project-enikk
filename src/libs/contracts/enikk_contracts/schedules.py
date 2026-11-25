@@ -197,5 +197,18 @@ class RunView(Contract):
     updated_at: AwareDatetime
 
 
+class ScheduleTicked(Contract):
+    """What one tick of the scheduler's clock did (ADR-0039 S5)."""
+
+    started: Annotated[int, Field(ge=0)]
+    settled: Annotated[int, Field(ge=0)]
+
+
+class RunNow(Contract):
+    """Start one run of a schedule now (``run_now``)."""
+
+    caller: Caller
+
+
 class RunList(Contract):
     runs: Annotated[tuple[RunView, ...], Field(max_length=100)]

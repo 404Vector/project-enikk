@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (S1~S4 구현. §5 의 승인 규칙은 ADR-0041 §1 로 대체. 남은 단위 S5~S7 은 아래 "이행 순서")
+- 상태: 승인 (S1~S5 구현. §5 의 승인 규칙은 ADR-0041 §1 로 대체. 남은 단위 S6·S7 은 아래 "이행 순서")
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -115,7 +115,14 @@
    - 스케줄러는 gateway 가 넘기는 Host(`enikk-agentgateway…`)도 받는다. 진단 도구(deployments, service_logs)와 배포 알림에 gateway 를 더했다.
    - 민감 경로: `enikk_core/mcp_tokens.py`, `deploy/k8s/agentgateway/`, Argo 앱, `enikk_engine_claude/mcp_gateway.py`.
 4. **S4**: 변경 도구 **(구현됨, ADR-0041 로 축소)**. 스케줄러 MCP 에 `create_schedule`·`update_schedule`·`pause_schedule`·`resume_schedule`·`delete_schedule` 을 더하고 gateway 의 상한(`require`)과 `agents/enikk.yaml` 에 허용했다(revision 3). ADR-0041 §1 에 따라 §5 의 승인 규칙(`pending`, 승인 카드, "예약 세션은 조회만")과 변경 알림은 두지 않는다. 남는 규칙은 "스케줄의 도구는 그 에이전트 정의를 넘지 못한다"와 등록된 입력·출력뿐이다. 옛 `pending` 상태와 `needs_approval` 은 지금 쓰이지 않는다.
-5. **S5**: 시계와 실행(스킬 미리 불러오기, 도구 좁히기, 출력 처리기, 재시도), `run_now`.
+5. **S5**: 시계와 실행 **(구현됨, 일부는 S7 로)**.
+   - 시계: 스케줄러가 `tick_seconds`(기본 30초)마다 core 의 `POST /v1/schedules/tick` 을 부른다(`enikk_scheduler/clock.py`). 회차 계산과 실행은 core(`enikk_core/schedule_runs.py`)가 한다. 회차는 (스케줄, 예정 시각)마다 하나라 시계가 둘이어도 겹치지 않는다.
+   - 회차: cron 은 스펙의 시간대로 읽고(일·요일이 둘 다 제한되면 둘 중 하나, 표준 cron), 마지막 회차(없으면 만든 때) 뒤로 놓친 것은 `catchup` 개까지만 만든다. 한 번만(`at`)은 그 시각에 한 번.
+   - 실행: 회차마다 새 세션(`schedule` 커넥터)과 작업 하나. 입력 앞에 스케줄 이름·설명·예정 시각과, 스킬이 있으면 `load_skill` 로 먼저 불러오라는 안내를 붙인다(시스템 프롬프트에 넣는 것은 나중).
+   - 끝난 작업: 성공하면 출력으로 보내고, 실패하면 `retries` 번까지 새 작업으로 다시 하고, 그래도 실패하면 이유를 회차에 남긴다.
+   - 출력: `thread`(만든 스레드에 `[스케줄 이름]` 머리말로)와 `discard`. `owner-dm`·`vault-note` 와 입력 `day-conversations` 는 S7 에서 붙인다(지금은 그 회차를 실패로 남긴다).
+   - 도구 좁히기: 하지 않는다. 회차는 스케줄의 에이전트 정의 그대로 돈다(ADR-0041 §1). 좁혀야 하면 좁은 정의를 가진 에이전트를 고른다(예: S7 의 도구 없는 요약).
+   - `run_now`: 지금 한 회차를 시작한다(예정 시각 = 지금). 결과는 스케줄의 출력으로 간다.
 6. **S6**: 경제 이슈 요약. 소유자가 대화로 직접 만들어 첫 실사용 시험으로 삼는다.
 7. **S7**: 대화 요약 이전. `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
 

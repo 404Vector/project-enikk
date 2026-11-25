@@ -302,6 +302,10 @@ class ScheduleRunRepository(Protocol):
         """The schedule's runs, newest due time first."""
         ...
 
+    async def running(self, limit: int) -> Sequence[ScheduleRun]:
+        """Runs whose task has not been seen to end, oldest due time first (ADR-0039 S5)."""
+        ...
+
 
 class UnitOfWork(Protocol):
     """One transaction across repositories. Leaving without ``commit`` rolls back."""

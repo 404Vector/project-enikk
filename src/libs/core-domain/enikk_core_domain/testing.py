@@ -234,6 +234,10 @@ class _ScheduleRuns:
         runs = [r for r in self._s.schedule_runs.values() if r.schedule_id == schedule_id]
         return sorted(runs, key=lambda r: r.slot, reverse=True)[:limit]
 
+    async def running(self, limit: int) -> Sequence[ScheduleRun]:
+        runs = [r for r in self._s.schedule_runs.values() if r.status is RunStatus.RUNNING]
+        return sorted(runs, key=lambda r: r.slot)[:limit]
+
 
 class _ReviewMessages:
     def __init__(self, staged: _Staged) -> None:
@@ -1293,6 +1297,7 @@ async def check_schedules(new_uow: UnitOfWorkFactory) -> None:
         _expect(stored is not None and stored.state is ScheduleState.PAUSED, "schedule update")
         run = await uow.schedule_runs.get_for_update(news.id, T0)
         _expect(run is not None and run.status is RunStatus.SUCCEEDED, "run update")
+        _expect(list(await uow.schedule_runs.running(10)) == [second], "running runs only")
         await uow.schedules.delete(news.id)
         await uow.commit()
     async with new_uow() as uow:

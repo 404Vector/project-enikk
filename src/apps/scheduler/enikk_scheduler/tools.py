@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING, Annotated, Any, Final
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
-from pydantic import Field
+from pydantic import Field, ValidationError, WithJsonSchema
 
 from enikk_contracts.schedules import (
+    RunNow,
     RunsQuery,
     ScheduleCreate,
     ScheduleName,
@@ -29,11 +30,35 @@ if TYPE_CHECKING:
     from enikk_contracts.schedules import (
         Caller,
         RunList,
+        RunView,
         ScheduleDeleted,
         ScheduleList,
         ScheduleView,
     )
     from enikk_core_client import CoreClient
+
+
+def _inlined(schema: dict[str, Any]) -> dict[str, Any]:
+    """``schema`` with its ``$defs`` references written out, so it can sit inside another
+    schema (a tool's input schema has its own root)."""
+    defs: dict[str, Any] = schema.get("$defs", {})
+
+    def resolve(node: Any) -> Any:  # noqa: ANN401 - any JSON value
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                return resolve(defs[ref.removeprefix("#/$defs/")])
+            return {k: resolve(v) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(v) for v in node]
+        return node
+
+    resolved: dict[str, Any] = resolve(schema)
+    return resolved
+
+
+SpecArgument = Annotated[dict[str, Any], WithJsonSchema(_inlined(ScheduleSpec.model_json_schema()))]
+"""A spec in the tool's input schema; ``_spec`` reads it."""
 
 SERVER_NAME: Final = "enikk-scheduler"
 READ_ONLY: Final = ToolAnnotations(
@@ -74,6 +99,9 @@ class ScheduleReader:
     async def delete(self, caller: Caller, name: str) -> ScheduleDeleted:
         return await self._core.delete_schedule(name, ScheduleQuery(caller=caller))
 
+    async def run_now(self, caller: Caller, name: str) -> RunView:
+        return await self._core.run_schedule_now(name, RunNow(caller=caller))
+
 
 def build_server(reader: ScheduleReader) -> MCPServer:
     server = MCPServer(SERVER_NAME, instructions="Schedules of enikk's agents (ADR-0039).")
@@ -102,22 +130,22 @@ def build_server(reader: ScheduleReader) -> MCPServer:
 
     @server.tool(annotations=CHANGES)
     async def create_schedule(
-        name: ScheduleName, spec: ScheduleSpec, ctx: Context
+        name: ScheduleName, spec: SpecArgument, ctx: Context
     ) -> dict[str, Any]:
         """Create a schedule. spec: description, timing (cron 5 fields with a timezone,
         or once at a time), agent, an optional skill loaded first, tools (within the
         agent's definition), input (text, or day-conversations), output (owner-dm,
         thread, vault-note, discard), catchup and retries. Active at once."""
         caller = _caller(ctx)
-        return await _call(reader.create(caller, name, spec))
+        return await _call(reader.create(caller, name, _spec(spec)))
 
     @server.tool(annotations=CHANGES)
     async def update_schedule(
-        name: ScheduleName, spec: ScheduleSpec, ctx: Context
+        name: ScheduleName, spec: SpecArgument, ctx: Context
     ) -> dict[str, Any]:
         """Replace the whole spec of a schedule (get_schedule first to keep the rest)."""
         caller = _caller(ctx)
-        return await _call(reader.update(caller, name, spec))
+        return await _call(reader.update(caller, name, _spec(spec)))
 
     @server.tool(annotations=CHANGES)
     async def pause_schedule(name: ScheduleName, ctx: Context) -> dict[str, Any]:
@@ -131,6 +159,13 @@ def build_server(reader: ScheduleReader) -> MCPServer:
         caller = _caller(ctx)
         return await _call(reader.pause(caller, name, paused=False))
 
+    @server.tool(annotations=CHANGES)
+    async def run_now(name: ScheduleName, ctx: Context) -> dict[str, Any]:
+        """Start one run of a schedule now, whatever its timing; its output goes where
+        the schedule says. list_runs shows how it went."""
+        caller = _caller(ctx)
+        return await _call(reader.run_now(caller, name))
+
     @server.tool(annotations=REMOVES)
     async def delete_schedule(name: ScheduleName, ctx: Context) -> dict[str, Any]:
         """Delete a schedule and its run history."""
@@ -138,6 +173,15 @@ def build_server(reader: ScheduleReader) -> MCPServer:
         return await _call(reader.delete(caller, name))
 
     return server
+
+
+def _spec(raw: dict[str, Any]) -> ScheduleSpec:
+    """The spec as sent: JSON strings for enums and times, read the lenient way. The
+    contract is strict for Python callers; a tool argument is plain JSON."""
+    try:
+        return ScheduleSpec.model_validate(raw, strict=False)
+    except ValidationError as exc:
+        raise ToolError(f"invalid spec: {exc}") from exc
 
 
 def _caller(ctx: Context) -> Caller:

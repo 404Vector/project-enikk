@@ -16,6 +16,7 @@ from enikk_contracts.schedules import (
     ScheduleDeleted,
     ScheduleList,
 )
+from enikk_core.schedule_runs import ScheduleRunner
 from enikk_core_domain.errors import NotFoundError, PermissionDeniedError
 from enikk_core_domain.schedules import Schedule, check_spec
 
@@ -23,11 +24,14 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.schedules import (
         Caller,
+        RunNow,
         RunsQuery,
+        RunView,
         ScheduleCreate,
         SchedulePause,
         ScheduleQuery,
         ScheduleSpec,
+        ScheduleTicked,
         ScheduleUpdate,
         ScheduleView,
     )
@@ -45,6 +49,18 @@ class ScheduleService:
         self._catalog = catalog
         self._clock = clock
         self._ids = ids
+        self._runner = ScheduleRunner(uow=uow, catalog=catalog, clock=clock, ids=ids)
+
+    async def tick(self) -> ScheduleTicked:
+        """One tick of the scheduler's clock (ADR-0039 S5)."""
+        return await self._runner.tick()
+
+    async def run_now(self, name: str, request: RunNow) -> RunView:
+        async with self._uow() as uow:
+            await self._caller(uow, request.caller)
+            schedule = await self._named(uow, name)
+        run = await self._runner.run_now(schedule)
+        return run.view()
 
     async def list(self, query: ScheduleQuery) -> ScheduleList:
         async with self._uow() as uow:

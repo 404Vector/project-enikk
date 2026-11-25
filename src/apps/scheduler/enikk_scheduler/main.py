@@ -22,7 +22,9 @@ def main() -> None:
     configure_logging(verbose=settings.verbose)
     try:
         core = CoreClient.connect(settings.core_url, FileTokenSource(settings.token_file))
-        app = create_app(core, allowed_hosts=settings.allowed_hosts)
+        app = create_app(
+            core, allowed_hosts=settings.allowed_hosts, tick_seconds=settings.tick_seconds
+        )
         _log.info("starting %s port=%d", SERVER_NAME, settings.port)
         uvicorn.run(app, host=settings.host, port=settings.port, log_config=None)
     except EnikkError as error:

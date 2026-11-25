@@ -45,6 +45,8 @@ SCHEDULE_UPDATE: Final = "/v1/schedules/{name}/update"
 SCHEDULE_PAUSE: Final = "/v1/schedules/{name}/pause"
 SCHEDULE_DELETE: Final = "/v1/schedules/{name}/delete"
 SCHEDULE_RUNS: Final = "/v1/schedules/{name}/runs"
+SCHEDULE_RUN_NOW: Final = "/v1/schedules/{name}/run-now"
+SCHEDULES_TICK: Final = "/v1/schedules/tick"
 
 AUDIENCE: Final = "enikk-core"
 """Audience of the ServiceAccount tokens that core accepts (ADR-0011)."""

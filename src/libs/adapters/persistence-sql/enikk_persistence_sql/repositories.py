@@ -10,6 +10,7 @@ from sqlalchemy.orm import aliased
 
 from enikk_contracts.agents import Execution
 from enikk_contracts.outbox import OutboundKind
+from enikk_contracts.schedules import RunStatus
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import (
@@ -584,6 +585,15 @@ class SqlScheduleRunRepository:
             select(ScheduleRunRow)
             .where(ScheduleRunRow.schedule_id == schedule_id)
             .order_by(ScheduleRunRow.slot.desc())
+            .limit(limit)
+        )
+        return [mappers.schedule_run_from_row(row) for row in rows]
+
+    async def running(self, limit: int) -> Sequence[ScheduleRun]:
+        rows = await self._db.scalars(
+            select(ScheduleRunRow)
+            .where(ScheduleRunRow.status == RunStatus.RUNNING.value)
+            .order_by(ScheduleRunRow.slot)
             .limit(limit)
         )
         return [mappers.schedule_run_from_row(row) for row in rows]

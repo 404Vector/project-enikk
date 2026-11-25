@@ -25,7 +25,14 @@ from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptRead,
 )
-from enikk_contracts.schedules import RunList, ScheduleDeleted, ScheduleList, ScheduleView
+from enikk_contracts.schedules import (
+    RunList,
+    RunView,
+    ScheduleDeleted,
+    ScheduleList,
+    ScheduleTicked,
+    ScheduleView,
+)
 from enikk_contracts.tasks import (
     CancelRequest,
     CancelResult,
@@ -69,6 +76,7 @@ if TYPE_CHECKING:
         PromptReadRequest,
     )
     from enikk_contracts.schedules import (
+        RunNow,
         RunsQuery,
         ScheduleCreate,
         SchedulePause,
@@ -297,6 +305,15 @@ class CoreClient:
         """Delete a schedule. Scheduler only."""
         path = routes.SCHEDULE_DELETE.format(name=name)
         return _parse(ScheduleDeleted, await self._post(path, query))
+
+    async def tick_schedules(self) -> ScheduleTicked:
+        """One tick of the scheduler's clock. Scheduler only (ADR-0039 S5)."""
+        return _parse(ScheduleTicked, await self._send("POST", routes.SCHEDULES_TICK, timeout=60))
+
+    async def run_schedule_now(self, name: str, request: RunNow) -> RunView:
+        """Start one run of a schedule now. Scheduler only."""
+        path = routes.SCHEDULE_RUN_NOW.format(name=name)
+        return _parse(RunView, await self._post(path, request))
 
     async def list_runs(self, name: str, query: RunsQuery) -> RunList:
         """The latest runs of one schedule. Scheduler only (ADR-0039)."""

@@ -64,12 +64,15 @@ from enikk_contracts.prompts import (
 )
 from enikk_contracts.schedules import (
     RunList,
+    RunNow,
     RunsQuery,
+    RunView,
     ScheduleCreate,
     ScheduleDeleted,
     ScheduleList,
     SchedulePause,
     ScheduleQuery,
+    ScheduleTicked,
     ScheduleUpdate,
     ScheduleView,
 )
@@ -511,6 +514,19 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         _scheduler(await gate.admit(request))
         body = await _parse(request, ScheduleQuery)
         return _json(await _schedules(services).delete(name, body))
+
+    @app.post(routes.SCHEDULES_TICK, responses={200: {"model": ScheduleTicked}})
+    @requires("scheduler")
+    async def tick_schedules(request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        return _json(await _schedules(services).tick())
+
+    @app.post(routes.SCHEDULE_RUN_NOW, responses={200: {"model": RunView}})
+    @requires("scheduler")
+    async def run_schedule_now(name: str, request: Request) -> Response:
+        _scheduler(await gate.admit(request))
+        body = await _parse(request, RunNow)
+        return _json(await _schedules(services).run_now(name, body))
 
     @app.post(routes.SCHEDULE_RUNS, responses={200: {"model": RunList}})
     @requires("scheduler")
