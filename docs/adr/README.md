@@ -30,7 +30,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0021](0021-dev-agent-job-per-task.md) | 개발 역할(developer)은 작업마다 새 Pod(Job)로 실행한다 | 승인 (`builtin` 을 격리 역할에만 허용한 부분은 ADR-0033 으로, push·PR 을 개발 Pod 만 하는 부분은 ADR-0037 로 부분 대체) | 2026-11-22 |
 | [0022](0022-delegation-to-developer.md) | assistant 역할이 개발 역할에 작업을 위임한다 | 승인 | 2026-11-22 |
 | [0023](0023-deployment-notices-and-revert.md) | 배포 결과 알림과 되돌리기 | 승인 (알림 위치는 ADR-0026 으로 부분 대체) | 2026-11-22 |
-| [0024](0024-sensitive-paths-instead-of-protected.md) | 보호 경로를 막지 않고, 민감 경로로 표시해 강화된 승인을 받는다 | 승인 | 2026-11-22 |
+| [0024](0024-sensitive-paths-instead-of-protected.md) | 보호 경로를 막지 않고, 민감 경로로 표시해 강화된 승인을 받는다 | 승인 (목록의 범위는 ADR-0041 로 부분 대체: 세 경계만) | 2026-11-22 |
 | [0025](0025-thread-follow-up-on-agent-prs.md) | 위임한 스레드에서 PR 을 끝까지 따라가고, 같은 PR 을 이어서 고친다 | 승인 (§2 스레드 알림 방식은 ADR-0036 으로 부분 대체) | 2026-11-22 |
 | [0026](0026-slack-notice-destinations.md) | Slack 알림을 어디에 올리는가 — 배포 알림은 #release, 개발 요청은 상태와 상세를 나눈다 | 승인 (승인 요청 위치와 §4 는 ADR-0036 으로 부분 대체) | 2026-11-22 |
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 역할은 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
@@ -45,8 +45,9 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0036](0036-approval-channel-and-status-card.md) | 승인 요청은 승인 채널에, 요청 스레드에는 PR 상태 카드 하나 | 승인 | 2026-11-23 |
 | [0037](0037-one-agent-with-skills-and-a-shared-volume.md) | 에닉 하나가 스킬을 불러 직접 일한다 — 공유 볼륨, 스레드 세션, 권한 동작은 core 경유 | 승인 (1~4단계, 5a·5b 구현) | 2026-11-23 |
 | [0038](0038-multi-platform-images.md) | 이미지를 amd64 와 arm64 로 함께 빌드한다 | 승인 | 2026-11-24 |
-| [0039](0039-general-scheduler-as-an-mcp-server.md) | 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인 | 승인 (S1·S2·S3 구현) | 2026-11-24 |
+| [0039](0039-general-scheduler-as-an-mcp-server.md) | 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인 | 승인 (S1·S2·S3 구현. S4 와 §5 의 승인 규칙은 ADR-0041 로 없앤다, 3단계에서 대체 표시) | 2026-11-24 |
 | [0040](0040-image-app-list-outside-the-workflow.md) | 이미지를 만들 앱 목록을 워크플로 밖에 둔다 | 승인 | 2026-11-24 |
+| [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1단계 구현: 민감 경로 축소) | 2026-11-25 |
 
 ## 상태 정의
 
