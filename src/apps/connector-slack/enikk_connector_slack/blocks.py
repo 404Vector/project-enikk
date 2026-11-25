@@ -34,7 +34,7 @@ from enikk_contracts.prompts import (
 from enikk_contracts.skills import is_skill
 
 if TYPE_CHECKING:
-    from enikk_contracts.digests import DigestFailed
+    from enikk_contracts.digests import DigestFailed, ScheduleDelivered
 
 APPROVE_ACTION: Final = "enikk.approve"
 REJECT_ACTION: Final = "enikk.reject"
@@ -322,6 +322,12 @@ def digest_failed(notice: DigestFailed) -> Message:
         f"{_escape(notice.reason)} ({then})"
     )
     return Message(text=f"{notice.day.isoformat()} 대화 요약 실패", blocks=(_section(line),))
+
+
+def schedule_delivered(notice: ScheduleDelivered) -> Message:
+    """A scheduled run's answer, in the owner's DM (ADR-0039 S7)."""
+    line = f"*[스케줄 `{_escape(notice.name)}`]*\n{_escape(notice.text)}"
+    return Message(text=f"스케줄 {notice.name}", blocks=(_section(line[:SECTION_LIMIT]),))
 
 
 def deployment_finished(notice: DeploymentFinished) -> Message:

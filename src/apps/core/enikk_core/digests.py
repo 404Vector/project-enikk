@@ -184,23 +184,7 @@ class DigestService:
         return digest
 
     async def _threads(self, uow: UnitOfWork, day: date) -> list[DayThread]:
-        start, end = self.schedule.bounds(day)
-        tasks = await uow.tasks.created_between(start, end, MAX_RECORDS)
-        messages = await uow.outbox.created_between(start, end, MAX_RECORDS)
-        owners = {t.id: t for t in tasks}
-        for message in messages:
-            if message.task_id not in owners:
-                found = await uow.tasks.get_for_update(message.task_id)
-                if found is not None:
-                    owners[found.id] = found
-        sessions = {}
-        for session_id in {t.session_id for t in owners.values()}:
-            session = await uow.sessions.get(session_id)
-            if session is not None:
-                sessions[session_id] = session
-        agents_of = {t.id: t.agent for t in owners.values()}
-        visible = [m for m in messages if _from_conversation(m.task_id, owners, sessions)]
-        return day_threads(tasks, sessions, visible, agents_of)
+        return await day_conversations(uow, self.schedule, day)
 
     async def _from_owner(self, task_id: uuid.UUID) -> None:
         async with self._uow() as uow:
@@ -293,3 +277,27 @@ def _from_conversation(
         return True
     session = sessions.get(task.session_id)
     return session is None or session.conversation.connector is ConnectorKind.SLACK
+
+
+async def day_conversations(
+    uow: UnitOfWork, schedule: DigestSchedule, day: date
+) -> list[DayThread]:
+    """The conversations of ``day`` in ``schedule``'s time zone (ADR-0035), for the
+    summary and for schedules whose input is ``day-conversations`` (ADR-0039 S7)."""
+    start, end = schedule.bounds(day)
+    tasks = await uow.tasks.created_between(start, end, MAX_RECORDS)
+    messages = await uow.outbox.created_between(start, end, MAX_RECORDS)
+    owners = {t.id: t for t in tasks}
+    for message in messages:
+        if message.task_id not in owners:
+            found = await uow.tasks.get_for_update(message.task_id)
+            if found is not None:
+                owners[found.id] = found
+    sessions = {}
+    for session_id in {t.session_id for t in owners.values()}:
+        session = await uow.sessions.get(session_id)
+        if session is not None:
+            sessions[session_id] = session
+    agents_of = {t.id: t.agent for t in owners.values()}
+    visible = [m for m in messages if _from_conversation(m.task_id, owners, sessions)]
+    return day_threads(tasks, sessions, visible, agents_of)

@@ -8,8 +8,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from enikk_contracts.digests import ScheduleDelivered
 from enikk_contracts.outbox import OutboundKind
-from enikk_contracts.schedules import OutputKind, RunStatus, ScheduleOutput, Timing
+from enikk_contracts.schedules import (
+    InputKind,
+    OutputKind,
+    RunStatus,
+    ScheduleInput,
+    ScheduleOutput,
+    Timing,
+)
 from enikk_contracts.tasks import TaskStatus
 from enikk_core.schedule_runs import ScheduleRunner
 from enikk_core_domain.schedules import Schedule
@@ -31,7 +39,9 @@ async def _schedule(
     spec = schedule_spec(agent="assistant").model_copy(
         update={
             "timing": Timing(at=due),
-            "output": ScheduleOutput(kind=output),
+            "output": ScheduleOutput(
+                kind=output, folder="뉴스" if output is OutputKind.VAULT_NOTE else None
+            ),
             "retries": retries,
         }
     )
@@ -111,15 +121,46 @@ async def test_a_failure_is_retried_then_recorded(harness: Harness) -> None:
     assert (run.status, run.attempts, run.detail) == (RunStatus.FAILED, 2, "boom")
 
 
-async def test_outputs_of_later_stages_fail_the_run(harness: Harness) -> None:
+async def test_the_owner_dm_gets_the_answer(harness: Harness) -> None:
     schedule = await _schedule(harness, output=OutputKind.OWNER_DM)
+    runner = _runner(harness)
+    harness.clock.advance(timedelta(minutes=2))
+    await runner.tick()
+    [task] = _queued(harness)
+    await _end(harness, task, ok=True)
+    await runner.tick()
+    async with harness.db.unit_of_work() as uow:
+        [notice] = await uow.notices.pending(10)
+    assert isinstance(notice.body, ScheduleDelivered)
+    assert (notice.body.name, notice.body.text) == (schedule.name, "오늘의 뉴스")
+
+
+async def test_a_vault_note_needs_the_vault_and_a_day_without_talk_is_done(
+    harness: Harness,
+) -> None:
+    note = await _schedule(harness, output=OutputKind.VAULT_NOTE)
     harness.clock.advance(timedelta(minutes=2))
     await _runner(harness).tick()
-    assert _queued(harness) == []
     async with harness.db.unit_of_work() as uow:
-        [run] = await uow.schedule_runs.latest(schedule.id, 5)
+        [run] = await uow.schedule_runs.latest(note.id, 5)
     assert run.status is RunStatus.FAILED
-    assert "S7" in run.detail
+    assert "vault" in run.detail
+    quiet = note.model_copy(
+        update={
+            "id": uuid.uuid4(),
+            "name": "talk",
+            "spec": note.spec.model_copy(
+                update={
+                    "input": ScheduleInput(kind=InputKind.DAY_CONVERSATIONS),
+                    "output": ScheduleOutput(kind=OutputKind.DISCARD),
+                }
+            ),
+        }
+    )
+    run = await _runner(harness).run_now(quiet)
+    assert run.status is RunStatus.SUCCEEDED
+    assert "no conversations" in run.detail
+    assert _queued(harness) == []
 
 
 async def test_run_now_starts_a_run_at_once(harness: Harness) -> None:

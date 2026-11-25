@@ -49,3 +49,11 @@ class DigestFailed(Contract):
     reason: Detail
     retry: bool
     """Whether core will try once more on the next day's run."""
+
+
+class ScheduleDelivered(Contract):
+    """A scheduled run's answer for the owner's DM (ADR-0039 S7, output ``owner-dm``)."""
+
+    kind: Literal["schedule-delivered"] = "schedule-delivered"
+    name: Annotated[str, StringConstraints(min_length=1, max_length=63)]
+    text: Annotated[str, StringConstraints(min_length=1, max_length=3000)]
