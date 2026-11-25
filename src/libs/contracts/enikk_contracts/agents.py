@@ -72,6 +72,9 @@ class PlatformTool(StrEnum):
     PULL_REQUESTS = "pull-requests"
     """Submit the session's worktree commits; core pushes them and opens the PR
     (ADR-0037 §6b)."""
+    GITHUB = "github"
+    """A short-lived GitHub token for the platform repository in the shell: push agent
+    branches, open and close pull requests (ADR-0041 §1)."""
 
 
 class ToolPolicy(Contract):

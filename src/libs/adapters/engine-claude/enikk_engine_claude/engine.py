@@ -41,7 +41,7 @@ from pydantic import Field, SecretStr
 import enikk_kernel
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import Engine
-from enikk_engine_claude import sandbox
+from enikk_engine_claude import github_access, sandbox
 from enikk_engine_claude.audit import audit_hooks
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN as MCP_ENV_TOKEN
@@ -218,6 +218,8 @@ class ClaudeEngine:
         cwd = self._cwd(job)
         with tempfile.TemporaryDirectory(prefix="claude-", dir=self._config.scratch_dir) as home:
             (Path(home) / "tmp").mkdir()
+            if job.github_token is not None:
+                github_access.install(Path(home), job.github_token)
             cwd.mkdir(parents=True, exist_ok=True)
             options = self._options(job, store, Path(home), cwd, resume, trace)
             try:

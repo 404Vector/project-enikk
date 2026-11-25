@@ -13,7 +13,8 @@ class Access(StrEnum):
 
 class TokenPurpose(StrEnum):
     DEVELOP = "develop"
-    """Handed to the dev agent Pod. Never records approvals or changes settings."""
+    """Handed to enikk's sessions (ADR-0041 §1). Never records approvals or changes
+    settings."""
     APPROVE = "approve"
     """Core's approval module: records ``enikk/owner-approval`` and enables auto-merge."""
     WATCH = "watch"
@@ -36,6 +37,7 @@ _FIXED: Final[dict[TokenPurpose, Permissions]] = {
         "pull_requests": Access.WRITE,
         "checks": Access.READ,
         "statuses": Access.READ,
+        "actions": Access.READ,
     },
     TokenPurpose.APPROVE: {
         "metadata": Access.READ,

@@ -62,6 +62,10 @@ class TaskAssignment(Contract):
     """Signed by core for this task and lease: the MCP servers and tools of the
     definition (ADR-0039 §2). The gateway checks it; empty when there is nothing to grant
     or no signing key."""
+    github_token: CredentialValue | None = None
+    """A GitHub App installation token for the platform repository, for definitions
+    granted ``github`` (ADR-0041 §1). Expires within an hour; empty when core has no
+    GitHub App or could not get one."""
 
 
 class LeaseResponse(Contract):

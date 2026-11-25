@@ -370,3 +370,53 @@ async def test_a_failed_build_updates_the_status_card(
     [card] = [n for n in await _notices(harness) if isinstance(n, PullStatusCard)]
     assert card.stage is PullStage.BUILD_FAILED
     assert card.commit == NEW
+
+
+async def test_a_deployment_wakes_the_thread_whose_pull_request_it_was(
+    harness: Harness, reader: FakeReader, activity: FakeActivity, reverter: FakeReverter
+) -> None:
+    """ADR-0041 §4: the deployment result is a task in the asking thread's own session."""
+    from enikk_core.threads import ThreadNotes
+    from enikk_core.wakeups import HEADER, SessionWaker
+    from enikk_core_domain.testing import session as thread_session
+    from enikk_core_domain.testing import task as thread_task
+
+    own = thread_session(thread="5.0")
+    async with harness.db.unit_of_work() as uow:
+        await uow.sessions.add(own)
+        await uow.tasks.add(thread_task(own))
+        await uow.commit()
+
+    async def pull_of(token: InstallationToken, sha: str) -> CommitPull:
+        return CommitPull(
+            number=40,
+            title="feat: x",
+            url="https://github.com/x/y/pull/40",
+            branch=f"agent/{own.id}",
+        )
+
+    activity.pull_of_commit = pull_of  # type: ignore[method-assign]
+    waker = SessionWaker(harness.catalog, harness.clock, RandomIdGenerator(), max_attempts=2)
+    service = DeploymentService(
+        uow=harness.db.unit_of_work,
+        reader=reader,
+        app=harness.github,
+        activity=activity,
+        reverter=reverter,
+        policy=POLICY,
+        clock=harness.clock,
+        ids=RandomIdGenerator(),
+        threads=ThreadNotes(harness.clock, RandomIdGenerator(), waker),
+    )
+    reader.show(OLD, harness.clock.now())
+    await service.watch_once()
+    harness.clock.advance(timedelta(seconds=30))
+    reader.show(NEW, harness.clock.now())
+    await service.watch_once()
+    harness.clock.advance(timedelta(seconds=61))
+    await service.watch_once()
+
+    woken = [t for t in harness.db.tasks.values() if t.input.startswith(HEADER)]
+    assert len(woken) == 1
+    assert woken[0].session_id == own.id
+    assert woken[0].input.startswith(f"{HEADER} PR #40 배포 성공")
