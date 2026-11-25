@@ -165,6 +165,7 @@ class FakeSlack:
         self.deleted: list[tuple[str, str]] = []
         self.fail_channels: dict[str, Exception] = {}
         self.channel_ids: dict[str, str] = {}
+        self.unknown_emoji: set[str] = set()
 
     async def channel_id(self, name: str) -> str | None:
         return self.channel_ids.get(name)
@@ -218,8 +219,11 @@ class FakeSlack:
             return None
         return f"https://slack.test/archives/{channel}/p{ts.replace('.', '')}"
 
-    async def react(self, message: MessageRef, emoji: str) -> None:
+    async def react(self, message: MessageRef, emoji: str) -> bool:
+        if emoji in self.unknown_emoji:
+            return False
         self.reactions.append(("+", message.ts, emoji))
+        return True
 
     async def unreact(self, message: MessageRef, emoji: str) -> None:
         self.reactions.append(("-", message.ts, emoji))

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from enikk_contracts.memory import NoteKind
+from enikk_contracts.outbox import OutboundKind
 from enikk_core.memory import MemoryPolicy, MemoryService, parse_note
 from enikk_core_domain.memory import MemoryLayout
 from enikk_github.permissions import TokenPurpose
@@ -201,6 +202,7 @@ async def test_remember_writes_a_private_draft_note_and_tells_the_thread(
     async with harness.db.unit_of_work() as uow:
         [told] = await uow.outbox.pending(ConnectorKind.SLACK, 5)
     assert told.text.startswith("기억했습니다: 배포 알림 / 위치")
+    assert told.kind is OutboundKind.REMEMBERED
 
 
 async def test_notes_name_the_agent_by_its_current_name(

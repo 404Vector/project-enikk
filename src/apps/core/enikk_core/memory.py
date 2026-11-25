@@ -225,7 +225,12 @@ class MemoryService:
             by=self._by(task),
         )
         await self._write(path, text, f"memory: remember {name}")
-        await self._tell(task, session, f"기억했습니다: {request.title} ({self._short(path)})")
+        await self._tell(
+            task,
+            session,
+            OutboundKind.REMEMBERED,
+            f"기억했습니다: {request.title} ({self._short(path)})",
+        )
         return MemoryWritten(action="remembered", path=path)
 
     async def update(self, task_id: uuid.UUID, request: UpdateMemoryRequest) -> MemoryWritten:
@@ -246,7 +251,10 @@ class MemoryService:
         )
         await self._write(current.path, text, f"memory: update {current.title}")
         await self._tell(
-            task, session, f"기억을 고쳤습니다: {current.title} ({self._short(current.path)})"
+            task,
+            session,
+            OutboundKind.MEMORY_UPDATED,
+            f"기억을 고쳤습니다: {current.title} ({self._short(current.path)})",
         )
         return MemoryWritten(action="updated", path=current.path)
 
@@ -267,7 +275,10 @@ class MemoryService:
             await uow.vault.remove([current.path])
             await uow.commit()
         await self._tell(
-            task, session, f"잊었습니다: {current.title} ({self._short(current.path)})"
+            task,
+            session,
+            OutboundKind.FORGOTTEN,
+            f"잊었습니다: {current.title} ({self._short(current.path)})",
         )
         return MemoryWritten(action="forgotten", path=current.path)
 
@@ -368,11 +379,12 @@ class MemoryService:
             raise DependencyUnavailableError("memory writing is not configured")
         return self._writer
 
-    async def _tell(self, task: Task, session: Session, text: str) -> None:
+    async def _tell(self, task: Task, session: Session, kind: OutboundKind, text: str) -> None:
+        """Mark the owner's message (ADR-0042); ``text`` stays as the record, unposted."""
         if self._ids is None:
             return
         async with self._uow() as uow:
-            await _post(uow, task, session, text, self._ids.new(), self._clock.now())
+            await _post(uow, task, session, kind, text, self._ids.new(), self._clock.now())
             await uow.commit()
 
     def _short(self, path: str) -> str:
@@ -380,7 +392,13 @@ class MemoryService:
 
 
 async def _post(
-    uow: UnitOfWork, task: Task, session: Session, text: str, message_id: uuid.UUID, now: datetime
+    uow: UnitOfWork,
+    task: Task,
+    session: Session,
+    kind: OutboundKind,
+    text: str,
+    message_id: uuid.UUID,
+    now: datetime,
 ) -> None:
     await uow.outbox.add(
         OutboxMessage(
@@ -388,7 +406,7 @@ async def _post(
             task_id=task.id,
             source_event_id=task.source_event_id,
             conversation=session.outbox_conversation,
-            kind=OutboundKind.REPLY,
+            kind=kind,
             text=text,
             created_at=now,
         )

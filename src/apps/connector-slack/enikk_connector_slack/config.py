@@ -8,6 +8,7 @@ import pydantic_core
 import yaml
 from pydantic import StringConstraints, ValidationError
 
+from enikk_connector_slack.marks import Reactions
 from enikk_contracts.common import AgentName
 from enikk_kernel.errors import ConfigurationError
 from enikk_kernel.models import FrozenModel
@@ -37,6 +38,8 @@ class SlackConfig(FrozenModel):
     """Channel for deployment, image build and rollback notices (ADR-0026)."""
     approval_channel: SlackChannelId = DEFAULT_APPROVAL_CHANNEL
     """Channel for approval requests: pull requests and prompt promotions (ADR-0036)."""
+    reactions: Reactions = Reactions()
+    """Custom emoji for the marks on the owner's messages (ADR-0042)."""
 
     def with_deploy_channel(self, channel: str | None) -> SlackConfig:
         """This config with ``channel`` for deployment notices, if one is given."""

@@ -127,8 +127,9 @@ class SlackApi(Protocol):
         Failures are logged and give ``None``."""
         ...
 
-    async def react(self, message: MessageRef, emoji: str) -> None:
-        """Add a reaction. Failures are logged, never raised."""
+    async def react(self, message: MessageRef, emoji: str) -> bool:
+        """Add a reaction; ``False`` only when the workspace has no such emoji.
+        Other failures are logged, never raised."""
         ...
 
     async def unreact(self, message: MessageRef, emoji: str) -> None:

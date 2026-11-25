@@ -212,9 +212,9 @@ def day_threads(
         )
         roles.setdefault(where, []).append(task.agent)
     for message in messages:
-        if (
-            message.conversation.connector is not ConnectorKind.SLACK
-            or message.kind is OutboundKind.STARTED
+        if message.conversation.connector is not ConnectorKind.SLACK or message.kind in (
+            OutboundKind.STARTED,
+            OutboundKind.REACTION,
         ):
             continue
         agent = agents_of.get(message.task_id)
