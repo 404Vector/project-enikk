@@ -92,8 +92,10 @@ class ScheduleInput(Contract):
         return self
 
 
-ChannelName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$")]
-"""A Slack channel's name, without ``#``."""
+ChannelName = Annotated[
+    str, StringConstraints(pattern=r"^([a-z0-9][a-z0-9_-]{0,79}|[CG][A-Z0-9]{8,12})$")
+]
+"""A Slack channel's name without ``#``, or its ID (``C…``, from the channel's link)."""
 
 
 class ScheduleOutput(Contract):

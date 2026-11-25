@@ -259,3 +259,15 @@ async def test_a_channel_the_bot_cannot_see_goes_to_the_dm_with_what_to_do() -> 
     [(channel, message)] = slack.messages
     assert channel == OWNER
     assert "/invite @enikk" in str(message.payload())
+
+
+async def test_a_schedule_channel_may_be_given_by_its_id() -> None:
+    from enikk_contracts.digests import ScheduleDelivered
+
+    core, slack = FakeCore(), FakeSlack()
+    config = CONFIG.model_copy(update={"schedule_channels": ("C04CF12FF2Q",)})
+    body = ScheduleDelivered(name="economy", text="오늘의 경제", channel="C04CF12FF2Q")
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
+    assert await NoticeRelay(core, slack, config, POLICY).relay_once() == 1
+    [(channel, _)] = slack.messages
+    assert channel == "C04CF12FF2Q"

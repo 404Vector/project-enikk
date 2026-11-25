@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from typing import TYPE_CHECKING, Final
 
@@ -57,6 +58,7 @@ PROMOTIONS: Final = {
     blocks.REVERT_PROMPT_ACTION: PromotionAction.REVERT,
 }
 
+_CHANNEL_ID: Final = re.compile(r"^[CG][A-Z0-9]{8,12}$")
 _log = logging.getLogger(__name__)
 
 
@@ -221,7 +223,11 @@ class NoticeRelay:
             _log.warning("schedule %s: channel %s is not allowed", body.name, body.channel)
             await self._deliver_to_owner(notice, blocks.schedule_delivered(body, refused=True))
             return
-        channel = self._channel_ids.get(body.channel) or await self._slack.channel_id(body.channel)
+        channel = (
+            body.channel
+            if _CHANNEL_ID.match(body.channel)
+            else self._channel_ids.get(body.channel) or await self._slack.channel_id(body.channel)
+        )
         if channel is None:
             _log.warning("schedule %s: no channel %s the bot can see", body.name, body.channel)
             await self._deliver_to_owner(notice, blocks.schedule_delivered(body, missing=True))
