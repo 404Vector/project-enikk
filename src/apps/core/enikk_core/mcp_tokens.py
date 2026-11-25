@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 TOKEN_MARGIN_SECONDS: Final = 300
 """How long a token outlives the task's own time limit."""
+LIVE_SECONDS: Final = 3600
+"""How long the runtime may keep a session's Claude process for later tasks of the
+thread (ADR-0041 §3); the process keeps the token of its first task."""
 _COORDINATE_BYTES: Final = 32
 DERIVATION_LABEL: Final = b"enikk mcp token signing key v1"
 """Separates this key from any other use of the source key."""
@@ -99,7 +102,7 @@ class McpTokenIssuer:
         claims = _Claims(
             sub=f"task:{task_id}",
             iat=issued,
-            exp=issued + definition.limits.timeout_seconds + TOKEN_MARGIN_SECONDS,
+            exp=issued + definition.limits.timeout_seconds + TOKEN_MARGIN_SECONDS + LIVE_SECONDS,
             task=str(task_id),
             lease=str(lease_id),
             agent=definition.name,

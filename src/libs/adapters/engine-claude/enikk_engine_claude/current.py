@@ -10,9 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from enikk_engine_claude.failures import RunTrace
     from enikk_runtime.model import EngineJob
 
 
 class CurrentJob:
-    def __init__(self, job: EngineJob) -> None:
+    def __init__(self, job: EngineJob, trace: RunTrace | None = None) -> None:
         self.job = job
+        self.trace = trace
+        """What the current task's run has shown so far (stderr lines go here)."""

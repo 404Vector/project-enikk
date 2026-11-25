@@ -19,12 +19,14 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast, get_args
 
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     ClaudeSDKError,
     EffortLevel,
     MirrorErrorMessage,
@@ -45,6 +47,7 @@ from enikk_engine_claude import github_access, kube_access, sandbox
 from enikk_engine_claude.audit import audit_hooks
 from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
+from enikk_engine_claude.live import LivePolicy, LivePool, LiveSession
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN as MCP_ENV_TOKEN
 from enikk_engine_claude.mcp_gateway import gateway_tools
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
@@ -62,7 +65,7 @@ if TYPE_CHECKING:
 
     from enikk_engine_claude.failures import Failure
     from enikk_engine_claude.transcripts import TranscriptApi
-    from enikk_runtime.model import EngineJob
+    from enikk_runtime.model import EngineJob, SkillUse
     from enikk_runtime.ports import (
         Diagnostician,
         DigestRequester,
@@ -72,6 +75,7 @@ if TYPE_CHECKING:
     )
 
     QueryFn = Callable[..., AsyncIterator[Message]]
+    ClientFn = Callable[[ClaudeAgentOptions], ClaudeSDKClient]
 
 MAX_ANSWER_CHARS: Final = 40_000
 TRUNCATION_NOTE: Final = "\n\n…(truncated)"
@@ -143,6 +147,9 @@ class ClaudeEngineConfig(FrozenModel):
     shell_prefix: Path = Field(default_factory=lambda: _installed() / "enikk-sandbox-shell")
     mcp_gateway: str | None = None
     """agentgateway's base URL; ``None`` attaches no MCP server (ADR-0039 §2)."""
+    live: LivePolicy | None = None
+    """Keep a thread's Claude process between its tasks (ADR-0041 §3, 4b); ``None`` starts
+    one per task."""
     kube: kube_access.KubeAccess | None = None
     """The runtime's read-only Kubernetes credentials, copied into each run's home
     (ADR-0041 3c); ``None`` gives the shell no cluster access."""
@@ -161,6 +168,7 @@ class ClaudeEngine:
         digests: DigestRequester | None = None,
         skills: SkillLibrary | None = None,
         query_fn: QueryFn = query,
+        client_fn: ClientFn = ClaudeSDKClient,
         landlock: bool | None = None,
     ) -> None:
         self._config = config
@@ -172,6 +180,8 @@ class ClaudeEngine:
         self._digests = digests
         self._skills = skills
         self._query = query_fn
+        self._client = client_fn
+        self._live = None if config.live is None else LivePool(config.live)
         self._landlock = sandbox.available() if landlock is None else landlock
         if not self._landlock:
             _log.warning(
@@ -186,6 +196,99 @@ class ClaudeEngine:
         return model.startswith("claude-")
 
     async def run(self, job: EngineJob) -> EngineResult:
+        if self._live is not None and job.definition.execution is Execution.SHARED:
+            return await self._run_live(self._live, job)
+        return await self._run_once(job)
+
+    async def aclose(self) -> None:
+        if self._live is not None:
+            await self._live.close_all()
+
+    async def _run_live(self, pool: LivePool, job: EngineJob) -> EngineResult:
+        """Run ``job`` in its thread's live Claude process, starting one if there is none.
+        Anything unusual falls back to a process for this task alone (``_run_once``)."""
+        pool.sweep(_now())
+        key = (job.prompt.name, job.prompt.version, job.prompt.model)
+        live = pool.take(job.session_id, key, _now())
+        opened = live is None
+        if live is None:
+            if job.engine_session_id is not None and prompt_changed(
+                await self._history(job), job.prompt.text
+            ):
+                return await self._run_once(job)
+            try:
+                live = await self._open_live(job, key)
+            except Exception:
+                _log.exception("task %s: could not start a live session", job.task_id)
+                return await self._run_once(job)
+            pool.add(live)
+        else:
+            live.current.job = job
+            self._credentials(live.home, job)
+        trace = RunTrace()
+        live.loaded.clear()
+        trace.skills = live.loaded
+        live.current.trace = trace
+        try:
+            with _temp_root(self._config.scratch_dir):
+                await live.client.query(job.input)
+                await self._consume(job, live.client.receive_response(), trace)
+        except ClaudeSDKError as exc:
+            pool.drop(live, "the run failed")
+            failure = failure_of_exception(exc, trace)
+        except BaseException:
+            pool.drop(live, "the run was stopped")
+            raise
+        else:
+            result = trace.result
+            if result is not None and not result.is_error and result.subtype == "success":
+                pool.release(live, _now())
+                trace.skills = list(live.loaded)
+                return _finish(job, result, trace)
+            pool.drop(live, "the run failed")
+            failure = failure_of_result(result, trace)
+        _log.warning("task %s: Claude Code failed: %s", job.task_id, failure.detail)
+        if opened and not trace.answered:
+            # A new live process that never answered: run this task the old way.
+            return await self._run_once(job)
+        raise EngineError(failure.reason, retryable=failure.retryable)
+
+    async def _open_live(self, job: EngineJob, key: tuple[str, int, str]) -> LiveSession:
+        home = self._config.scratch_dir / "live" / str(job.session_id)
+        cwd = self._config.workdir / f"live-{job.session_id}"
+        for path in (home, cwd):
+            shutil.rmtree(path, ignore_errors=True)
+        (home / "tmp").mkdir(parents=True)
+        cwd.mkdir(parents=True)
+        self._credentials(home, job)
+        current = CurrentJob(job, RunTrace())
+        loaded: list[SkillUse] = []
+        options = self._options(
+            current, self._store(current), home, cwd, job.engine_session_id, loaded
+        )
+        client = self._client(options)
+        with _temp_root(self._config.scratch_dir):
+            await client.connect()
+        _log.info("session %s: started a live Claude process", job.session_id)
+        return LiveSession(
+            session_id=job.session_id,
+            client=client,
+            current=current,
+            home=home,
+            cwd=cwd,
+            prompt=key,
+            loaded=loaded,
+            now=_now(),
+        )
+
+    def _credentials(self, home: Path, job: EngineJob) -> None:
+        """The task's GitHub token and the current Kubernetes token, in the run's home."""
+        if job.github_token is not None:
+            github_access.install(home, job.github_token)
+        if self._config.kube is not None and not kube_access.install(home, self._config.kube):
+            _log.warning("task %s: Kubernetes credentials are not mounted", job.task_id)
+
+    async def _run_once(self, job: EngineJob) -> EngineResult:
         if job.engine_session_id is not None:
             history = await self._history(job)
             if prompt_changed(history, job.prompt.text):
@@ -213,21 +316,16 @@ class ClaudeEngine:
         return await self._attempt(job, None, with_history(job.input, history))
 
     async def _attempt(self, job: EngineJob, resume: str | None, prompt: str) -> EngineResult:
-        current = CurrentJob(job)
+        trace = RunTrace()
+        current = CurrentJob(job, trace)
         store = self._store(current)
         self._config.scratch_dir.mkdir(parents=True, exist_ok=True)
-        trace = RunTrace()
         cwd = self._cwd(job)
         with tempfile.TemporaryDirectory(prefix="claude-", dir=self._config.scratch_dir) as home:
             (Path(home) / "tmp").mkdir()
-            if job.github_token is not None:
-                github_access.install(Path(home), job.github_token)
-            if self._config.kube is not None and not kube_access.install(
-                Path(home), self._config.kube
-            ):
-                _log.warning("task %s: Kubernetes credentials are not mounted", job.task_id)
+            self._credentials(Path(home), job)
             cwd.mkdir(parents=True, exist_ok=True)
-            options = self._options(current, store, Path(home), cwd, resume, trace)
+            options = self._options(current, store, Path(home), cwd, resume, trace.skills)
             try:
                 with _temp_root(self._config.scratch_dir):
                     await self._consume(job, self._query(prompt=prompt, options=options), trace)
@@ -285,7 +383,7 @@ class ClaudeEngine:
         home: Path,
         cwd: Path,
         resume: str | None,
-        trace: RunTrace,
+        loaded: list[SkillUse],
     ) -> ClaudeAgentOptions:
         job = current.job
         effort = job.prompt.parameters.get("effort")
@@ -300,7 +398,7 @@ class ClaudeEngine:
             self._prompts,
             self._digests,
             self._skills,
-            trace.skills,
+            loaded,
         )
         platform = self._platform(job) if server is not None else []
         mcp = gateway_tools(job, self._config.mcp_gateway, reserved=PLATFORM_SERVER)
@@ -335,7 +433,7 @@ class ClaudeEngine:
                 "HOME": str(home),
                 "TMPDIR": str(home / "tmp"),
             },
-            stderr=lambda line: _stderr(trace, line),
+            stderr=lambda line: _stderr(current.trace, line),
         )
 
     def _builtin(self, job: EngineJob) -> list[str]:
@@ -435,8 +533,9 @@ def _observe(trace: RunTrace, message: AssistantMessage) -> None:
     trace.texts.extend(b.text for b in message.content if isinstance(b, TextBlock))
 
 
-def _stderr(trace: RunTrace, line: str) -> None:
-    trace.stderr_line(line)
+def _stderr(trace: RunTrace | None, line: str) -> None:
+    if trace is not None:
+        trace.stderr_line(line)
     _log.debug("claude: %s", line)
 
 
@@ -460,6 +559,10 @@ def _temp_root(path: Path) -> Iterator[None]:
         _temp_users -= 1
         if _temp_users == 0:
             tempfile.tempdir = _temp_previous
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _effort(value: object) -> EffortLevel | None:

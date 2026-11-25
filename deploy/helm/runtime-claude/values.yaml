@@ -65,3 +65,14 @@ mcp:
 kube:
   enabled: true
   tokenSeconds: 3600
+
+# Keep a thread's Claude process between its tasks (ADR-0041 §3): the next task of the
+# thread goes to the same process instead of resuming from core's transcript. Closed
+# after idleSeconds without a task, after maxAgeSeconds (at most 3600, the MCP token's
+# extra lifetime), on a prompt change or a failed run, or to keep maxSessions.
+# false: one process per task, as before.
+live:
+  enabled: true
+  idleSeconds: 600
+  maxAgeSeconds: 3600
+  maxSessions: 3

@@ -60,6 +60,14 @@ spec:
               value: {{ .Values.worker.slots | quote }}
             - name: ENIKK_RUNTIME_SKILLS__ENABLED
               value: {{ .Values.skills.enabled | quote }}
+            - name: ENIKK_RUNTIME_LIVE__ENABLED
+              value: {{ .Values.live.enabled | quote }}
+            - name: ENIKK_RUNTIME_LIVE__IDLE_SECONDS
+              value: {{ .Values.live.idleSeconds | quote }}
+            - name: ENIKK_RUNTIME_LIVE__MAX_AGE_SECONDS
+              value: {{ .Values.live.maxAgeSeconds | quote }}
+            - name: ENIKK_RUNTIME_LIVE__MAX_SESSIONS
+              value: {{ .Values.live.maxSessions | quote }}
             - name: ENIKK_RUNTIME_KUBE__ENABLED
               value: {{ .Values.kube.enabled | quote }}
             - name: ENIKK_RUNTIME_MCP__ENABLED
