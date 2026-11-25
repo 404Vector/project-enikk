@@ -3,7 +3,6 @@ of an agent PR (ADR-0020, ADR-0023, ADR-0032, ADR-0036)."""
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -45,10 +44,7 @@ REVERT_PROMPT_ACTION: Final = "enikk.prompt.revert"
 CANCEL_ACTION: Final = "enikk.cancel"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
-SUMMARY_LIMIT: Final = 200
 SUMMARY_LINES: Final = 2
-SUMMARY_HEADINGS: Final = frozenset({"요약", "summary", "개요"})
-PASSING: Final = frozenset({"success", "neutral", "skipped"})
 
 OUTCOME_TEXT: Final = {
     ResolutionOutcome.MERGED: ":white_check_mark: 승인했고 머지했습니다.",
@@ -128,11 +124,6 @@ class Message(_Block):
         return [b.model_dump(mode="json", exclude_none=True) for b in self.blocks]
 
 
-_HEADING: Final = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
-_BOLD_LINE: Final = re.compile(r"^\s*\*\*(.+?)\*\*:?\s*$")
-_STRONG: Final = re.compile(r"\*\*(.+?)\*\*")
-
-
 def approval_request(notice: ApprovalRequested) -> Message:
     pull = notice.pull
     approval = str(notice.approval_id)
@@ -146,7 +137,7 @@ def approval_request(notice: ApprovalRequested) -> Message:
         warning = (
             _section(
                 ":warning: *민감 경로 변경* — 승인 절차, 권한, 설계 기록 같은 파일을 바꿉니다. "
-                f"스레드의 첫 댓글에서 이 파일들의 diff 를 확인해 주세요.\n{listed}"
+                f"스레드에서 이 파일들의 diff 를 확인해 주세요.\n{listed}"
             ),
         )
         confirm = Confirm(
@@ -193,71 +184,26 @@ def checks_failed(notice: ChecksFailed) -> Message:
     )
 
 
-def details(pull: PullRequestCard) -> tuple[Message, ...]:
-    """Thread replies under a request: the sensitive diff first (ADR-0024), then
-    metadata, PR body, changed files and checks."""
-    replies: list[Message] = []
-    if pull.sensitive_diff:
-        # A literal ``` inside the diff would end the code block early.
-        pieces = _chunks(pull.sensitive_diff.replace("```", "`\u200b``"), SECTION_LIMIT - 20)
-        replies += [
-            Message(
-                text=f"PR #{pull.number} 민감 경로 diff ({i}/{len(pieces)})",
-                blocks=(
-                    _section(
-                        (":warning: *민감 경로 diff*\n" if i == 1 else "")
-                        + f"```{_escape(piece)}```"
-                    ),
+def sensitive_diff(pull: PullRequestCard) -> tuple[Message, ...]:
+    """Thread replies under a request that changes sensitive paths: their diff (ADR-0024,
+    I-20). Nothing else goes in the thread; the PR itself is one click away (the owner's
+    decision, 2026-11-25)."""
+    if not pull.sensitive_diff:
+        return ()
+    # A literal ``` inside the diff would end the code block early.
+    pieces = _chunks(pull.sensitive_diff.replace("```", "`\u200b``"), SECTION_LIMIT - 60)
+    return tuple(
+        Message(
+            text=f"PR #{pull.number} 민감 경로 diff ({i}/{len(pieces)})",
+            blocks=(
+                _section(
+                    (f":warning: *민감 경로 diff* (커밋 `{pull.head_sha[:7]}`)\n" if i == 1 else "")
+                    + f"```{_escape(piece)}```"
                 ),
-            )
-            for i, piece in enumerate(pieces, start=1)
-        ]
-    parts = [
-        f"`{pull.repository}` · 작성자 `{pull.author}` · 브랜치 `{pull.branch}` "
-        f"· 커밋 `{pull.head_sha[:7]}`"
-    ]
-    if pull.body.strip():
-        parts.append(_mrkdwn(pull.body))
-    if pull.files:
-        added = sum(f.additions for f in pull.files)
-        removed = sum(f.deletions for f in pull.files)
-        lines = [f"*바뀐 파일* {len(pull.files) + pull.more_files}개 (+{added} -{removed})"]
-        lines += [f"• `{f.path}` +{f.additions} -{f.deletions}" for f in pull.files]
-        if pull.more_files:
-            lines.append(f"• …외 {pull.more_files}개")
-        parts.append("\n".join(lines))
-    if pull.checks:
-        marks = "\n".join(f"{_mark(c.conclusion)} {_escape(c.name)}" for c in pull.checks)
-        parts.append(f"*검사*\n{marks}")
-    chunks = _chunks("\n\n".join(parts), SECTION_LIMIT)
-    total = len(chunks)
-    return (
-        *replies,
-        *(
-            Message(
-                text=f"PR #{pull.number} 상세 ({i}/{total})"
-                if total > 1
-                else f"PR #{pull.number} 상세",
-                blocks=(_section(chunk),),
-            )
-            for i, chunk in enumerate(chunks, start=1)
-        ),
+            ),
+        )
+        for i, piece in enumerate(pieces, start=1)
     )
-
-
-def summary(body: str) -> str:
-    """One or two lines from a PR body: its summary section, else its first paragraph."""
-    paragraphs = _paragraphs(body)
-    chosen = next(
-        (text for title, text in paragraphs if title.lower() in SUMMARY_HEADINGS and text), None
-    )
-    if chosen is None:
-        chosen = next((text for _, text in paragraphs if text), "")
-    lines = [line.strip() for line in chosen.splitlines() if line.strip()][:SUMMARY_LINES]
-    text = _STRONG.sub(r"\1", "\n".join(lines))
-    if len(text) > SUMMARY_LIMIT:
-        text = text[: SUMMARY_LIMIT - 1].rstrip() + "…"
-    return text
 
 
 def sent_to_dm_instead(message: Message, channel: str) -> Message:
@@ -645,43 +591,7 @@ def decided(outcome: ResolutionOutcome, detail: str, by: str) -> Context:
 
 
 def _headline(pull: PullRequestCard, *, heading: str) -> tuple[Block, ...]:
-    blocks: list[Block] = [_section(f"{heading} <{pull.url}|#{pull.number} {_escape(pull.title)}>")]
-    short = summary(pull.body)
-    if short:
-        blocks.append(_section("\n".join(f"> {line}" for line in _escape(short).splitlines())))
-    return tuple(blocks)
-
-
-def _paragraphs(body: str) -> list[tuple[str, str]]:
-    """``(heading, text)`` for each paragraph. ``heading`` is the nearest one above it."""
-    found: list[tuple[str, str]] = []
-    heading = ""
-    current: list[str] = []
-
-    def flush() -> None:
-        if current:
-            found.append((heading, "\n".join(current)))
-            current.clear()
-
-    for line in body.splitlines():
-        title = _HEADING.match(line) or _BOLD_LINE.match(line)
-        if title:
-            flush()
-            heading = title.group(1).strip().rstrip(":")
-        elif line.strip():
-            current.append(line)
-        else:
-            flush()
-    flush()
-    return found
-
-
-def _mrkdwn(body: str) -> str:
-    lines = []
-    for line in _escape(body).splitlines():
-        title = _HEADING.match(line)
-        lines.append(f"*{title.group(1)}*" if title else _STRONG.sub(r"*\1*", line))
-    return "\n".join(lines)
+    return (_section(f"{heading} <{pull.url}|#{pull.number} {_escape(pull.title)}>"),)
 
 
 def _chunks(text: str, limit: int) -> list[str]:
@@ -703,10 +613,6 @@ def _chunks(text: str, limit: int) -> list[str]:
     if current.strip():
         chunks.append(current)
     return chunks
-
-
-def _mark(conclusion: str) -> str:
-    return ":white_check_mark:" if conclusion in PASSING else ":x:"
 
 
 def _section(text: str) -> Section:

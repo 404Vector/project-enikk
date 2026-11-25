@@ -166,12 +166,6 @@ class NoticeRelay:
                 replaces.channel, replaces.ts, message.text, message.json_blocks()
             )
             posted = PostedMessage(channel=replaces.channel, ts=replaces.ts)
-            await self._post_text(
-                posted,
-                card,
-                f":arrows_counterclockwise: 새 커밋 `{card.head_sha[:7]}` 로 갱신했습니다. "
-                "아래는 새 커밋의 상세입니다.",
-            )
         else:
             found = await self._post_or_dm(notice, self._approval_channel, message)
             if found is None:
@@ -179,11 +173,13 @@ class NoticeRelay:
             posted = found
         if card is None:
             return
-        updated = replaces is not None
-        linked = await self._link_threads(posted, card, updated=updated)
-        await self._post_details(posted.channel, posted.ts, card)
-        if linked.report is not None and not updated:
-            await self._post_text(posted, card, f"*개발 역할 보고*\n{linked.report}")
+        # The thread holds only the asking thread's link, and for sensitive paths their
+        # diff (I-20). The body, files, checks, report and diff are in the PR itself
+        # (the owner's decision, 2026-11-25).
+        await self._link_threads(posted, card, updated=replaces is not None)
+        if not card.sensitive:
+            return
+        await self._post_sensitive_diff(posted.channel, posted.ts, card)
         if card.diff:
             name = f"pr-{card.number}-{card.head_sha[:7]}.diff"
             note = " (잘림)" if card.diff_truncated else ""
@@ -338,12 +334,12 @@ class NoticeRelay:
         except SlackDeliveryError as exc:
             _log.warning("could not post in the review thread of PR #%d: %s", pull.number, exc)
 
-    async def _post_details(self, channel: str, thread: str, pull: PullRequestCard) -> None:
-        for reply in blocks.details(pull):
+    async def _post_sensitive_diff(self, channel: str, thread: str, pull: PullRequestCard) -> None:
+        for reply in blocks.sensitive_diff(pull):
             try:
                 await self._slack.post_message(channel, reply, thread=thread)
             except SlackDeliveryError as exc:
-                _log.warning("could not post details of PR #%d: %s", pull.number, exc)
+                _log.warning("could not post the sensitive diff of PR #%d: %s", pull.number, exc)
                 return
 
 
