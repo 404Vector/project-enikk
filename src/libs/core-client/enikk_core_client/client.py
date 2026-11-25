@@ -39,7 +39,15 @@ from enikk_contracts.tasks import (
     LeaseResponse,
     ResultAccepted,
 )
-from enikk_contracts.thread_actions import ThreadActionDone
+from enikk_contracts.thread_actions import (
+    EmojiList,
+    MessageLink,
+    ScheduledCancelled,
+    ScheduledMessage,
+    ScheduledMessages,
+    SlackWorkspaceReceived,
+    ThreadActionDone,
+)
 from enikk_contracts.threads import ReviewThreadLinked
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
@@ -83,7 +91,16 @@ if TYPE_CHECKING:
         ScheduleUpdate,
     )
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
-    from enikk_contracts.thread_actions import ThreadFileRequest, ThreadReactionRequest
+    from enikk_contracts.thread_actions import (
+        CancelScheduledRequest,
+        EmojiQuery,
+        MessageLinkRequest,
+        ScheduledQuery,
+        ScheduleMessageRequest,
+        SlackWorkspaceReport,
+        ThreadFileRequest,
+        ThreadReactionRequest,
+    )
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
@@ -259,6 +276,37 @@ class CoreClient:
         """Put an emoji on the owner's message the task answers (ADR-0042)."""
         path = routes.THREAD_REACTION.format(task_id=task_id)
         return _parse(ThreadActionDone, await self._post(path, request))
+
+    async def message_link(self, task_id: uuid.UUID, request: MessageLinkRequest) -> MessageLink:
+        """A Slack permalink for the task's thread, request or a PR's approval (ADR-0042)."""
+        path = routes.THREAD_LINK.format(task_id=task_id)
+        return _parse(MessageLink, await self._post(path, request))
+
+    async def list_emoji(self, task_id: uuid.UUID, query: EmojiQuery) -> EmojiList:
+        path = routes.THREAD_EMOJI.format(task_id=task_id)
+        return _parse(EmojiList, await self._post(path, query))
+
+    async def schedule_message(
+        self, task_id: uuid.UUID, request: ScheduleMessageRequest
+    ) -> ScheduledMessage:
+        path = routes.THREAD_SCHEDULE.format(task_id=task_id)
+        return _parse(ScheduledMessage, await self._post(path, request))
+
+    async def scheduled_messages(
+        self, task_id: uuid.UUID, query: ScheduledQuery
+    ) -> ScheduledMessages:
+        path = routes.THREAD_SCHEDULED_LIST.format(task_id=task_id)
+        return _parse(ScheduledMessages, await self._post(path, query))
+
+    async def cancel_scheduled(
+        self, task_id: uuid.UUID, request: CancelScheduledRequest
+    ) -> ScheduledCancelled:
+        path = routes.THREAD_SCHEDULED_CANCEL.format(task_id=task_id)
+        return _parse(ScheduledCancelled, await self._post(path, request))
+
+    async def report_slack_workspace(self, report: SlackWorkspaceReport) -> SlackWorkspaceReceived:
+        """Slack connector only: the workspace address and custom emoji (ADR-0042)."""
+        return _parse(SlackWorkspaceReceived, await self._post(routes.SLACK_WORKSPACE, report))
 
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches:
         path = routes.MEMORY_SEARCH.format(task_id=task_id)

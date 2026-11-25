@@ -46,6 +46,16 @@ if TYPE_CHECKING:
         ResultReport,
     )
     from enikk_contracts.thread_actions import (
+        CancelScheduledRequest,
+        EmojiList,
+        EmojiQuery,
+        MessageLink,
+        MessageLinkRequest,
+        ScheduledCancelled,
+        ScheduledMessage,
+        ScheduledMessages,
+        ScheduledQuery,
+        ScheduleMessageRequest,
         ThreadActionDone,
         ThreadFileRequest,
         ThreadReactionRequest,
@@ -85,7 +95,8 @@ class MemoryKeeper(Protocol):
 
 
 class ThreadPoster(Protocol):
-    """Files and reactions for the thread a task answers (ADR-0042). ``CoreClient``."""
+    """Files, reactions, links, emoji and scheduled messages for the thread a task answers
+    (ADR-0042). ``CoreClient``."""
 
     async def post_thread_file(
         self, task_id: uuid.UUID, request: ThreadFileRequest
@@ -94,6 +105,24 @@ class ThreadPoster(Protocol):
     async def react_in_thread(
         self, task_id: uuid.UUID, request: ThreadReactionRequest
     ) -> ThreadActionDone: ...
+
+    async def message_link(
+        self, task_id: uuid.UUID, request: MessageLinkRequest
+    ) -> MessageLink: ...
+
+    async def list_emoji(self, task_id: uuid.UUID, query: EmojiQuery) -> EmojiList: ...
+
+    async def schedule_message(
+        self, task_id: uuid.UUID, request: ScheduleMessageRequest
+    ) -> ScheduledMessage: ...
+
+    async def scheduled_messages(
+        self, task_id: uuid.UUID, query: ScheduledQuery
+    ) -> ScheduledMessages: ...
+
+    async def cancel_scheduled(
+        self, task_id: uuid.UUID, request: CancelScheduledRequest
+    ) -> ScheduledCancelled: ...
 
 
 class PromptProposer(Protocol):

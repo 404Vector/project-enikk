@@ -30,3 +30,5 @@ class ConnectorSlackSettings(ServiceSettings, env_prefix="ENIKK_CONNECTOR_"):
     """Overrides ``deploy_notify_channel`` of the Slack config (ADR-0026)."""
     approval_channel: str | None = None
     """Overrides ``approval_channel`` of the Slack config (ADR-0036)."""
+    workspace_report_seconds: float = Field(default=600.0, ge=30)
+    """How often core hears the workspace address and custom emoji (ADR-0042)."""

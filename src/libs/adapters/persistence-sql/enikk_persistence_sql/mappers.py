@@ -275,6 +275,7 @@ def outbox_to_row(message: OutboxMessage, row: OutboxRow | None = None) -> Outbo
     row.status = message.status.value
     row.created_at = message.created_at
     row.delivered_at = message.delivered_at
+    row.not_before = message.not_before
     return row
 
 
@@ -291,6 +292,7 @@ def outbox_from_row(row: OutboxRow) -> OutboxMessage:
         status=OutboxStatus(row.status),
         created_at=row.created_at,
         delivered_at=row.delivered_at,
+        not_before=row.not_before,
     )
 
 

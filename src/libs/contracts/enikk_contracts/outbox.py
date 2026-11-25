@@ -31,6 +31,13 @@ class OutboundKind(StrEnum):
     """The task kept a memory note; shown as a mark on the message, ``text`` is the record."""
     MEMORY_UPDATED = "memory_updated"
     FORGOTTEN = "forgotten"
+    SCHEDULED = "scheduled"
+    """A message the session scheduled for its thread; posted without touching the marks."""
+    SCHEDULED_DM = "scheduled_dm"
+    """A message the session scheduled as a new message in the owner's DM."""
+
+
+SCHEDULED_KINDS = frozenset({OutboundKind.SCHEDULED, OutboundKind.SCHEDULED_DM})
 
 
 class OutboundMessage(Contract):

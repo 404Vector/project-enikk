@@ -466,13 +466,33 @@ class _Outbox:
         ]
         return sorted(found, key=lambda m: (m.created_at, m.id))[-limit:]
 
-    async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
+    async def pending(
+        self, connector: ConnectorKind, limit: int, now: datetime | None = None
+    ) -> Sequence[OutboxMessage]:
         found = [
             m
             for m in self._s.outbox.values()
-            if m.status is OutboxStatus.PENDING and m.conversation.connector is connector
+            if m.status is OutboxStatus.PENDING
+            and m.conversation.connector is connector
+            and (m.not_before is None or (now is not None and m.not_before <= now))
         ]
         return sorted(found, key=lambda m: (m.created_at, m.id))[:limit]
+
+    async def waiting(self, limit: int) -> Sequence[OutboxMessage]:
+        found = [
+            m
+            for m in self._s.outbox.values()
+            if m.status is OutboxStatus.PENDING and m.not_before is not None
+        ]
+        return sorted(found, key=lambda m: (m.not_before, m.id))[:limit]
+
+    async def delete_pending(self, message_id: uuid.UUID) -> bool:
+        message = self._s.outbox.get(message_id)
+        if message is None or message.status is not OutboxStatus.PENDING:
+            return False
+        del self._s.outbox[message_id]
+        self._s.outbox_files.pop(message_id, None)
+        return True
 
     async def created_between(
         self, start: datetime, end: datetime, limit: int
@@ -751,6 +771,35 @@ async def check_round_trip(new_uow: UnitOfWorkFactory) -> None:
         _expect(list(await uow.outbox.pending(ConnectorKind.SLACK, 10)) == [message], "pending")
         many = await uow.outbox.get_many(ConnectorKind.SLACK, [message.id, uuid.uuid4()])
         _expect(list(many) == [message], "get_many")
+
+
+async def check_outbox_not_before(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    now = datetime(2026, 11, 25, 12, tzinfo=UTC)
+    later = outbox_message(owner, work).model_copy(
+        update={"kind": OutboundKind.SCHEDULED, "not_before": now + timedelta(hours=1)}
+    )
+    sooner = outbox_message(owner, work).model_copy(
+        update={"kind": OutboundKind.SCHEDULED, "not_before": now + timedelta(minutes=5)}
+    )
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.outbox.add(later)
+        await uow.outbox.add(sooner)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(not await uow.outbox.pending(ConnectorKind.SLACK, 10), "scheduled not due")
+        _expect(not await uow.outbox.pending(ConnectorKind.SLACK, 10, now), "not yet due")
+        due = await uow.outbox.pending(ConnectorKind.SLACK, 10, now + timedelta(minutes=10))
+        _expect(list(due) == [sooner], "due when now reaches not_before")
+        _expect(list(await uow.outbox.waiting(10)) == [sooner, later], "waiting, soonest first")
+        _expect(await uow.outbox.delete_pending(later.id), "delete pending")
+        _expect(not await uow.outbox.delete_pending(later.id), "deleted once")
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(list(await uow.outbox.waiting(10)) == [sooner], "deleted one gone")
 
 
 async def check_outbox_files(new_uow: UnitOfWorkFactory) -> None:
@@ -1379,6 +1428,7 @@ async def check_active_in_session(new_uow: UnitOfWorkFactory) -> None:
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_outbox_files,
+    check_outbox_not_before,
     check_updates_persist,
     check_rollback_without_commit,
     check_duplicate_event_rejected,

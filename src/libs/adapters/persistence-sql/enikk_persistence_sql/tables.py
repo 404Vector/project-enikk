@@ -257,6 +257,7 @@ class OutboxRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[datetime]
     delivered_at: Mapped[datetime | None]
+    not_before: Mapped[datetime | None]
 
 
 class OutboxFileRow(Base):

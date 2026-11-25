@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from enikk_kernel.errors import EnikkError
+from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
     import uuid
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
         PromotionResult,
     )
     from enikk_contracts.tasks import CancelResult
+    from enikk_contracts.thread_actions import SlackWorkspaceReceived, SlackWorkspaceReport
     from enikk_contracts.threads import ReviewThreadLinked, ReviewThreadOpened
 
 
@@ -69,6 +71,10 @@ class CoreApi(Protocol):
 
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult: ...
 
+    async def report_slack_workspace(
+        self, report: SlackWorkspaceReport
+    ) -> SlackWorkspaceReceived: ...
+
 
 class SlackDeliveryError(EnikkError):
     """A message could not be posted. ``transient`` errors are worth retrying."""
@@ -78,9 +84,21 @@ class SlackDeliveryError(EnikkError):
         self.transient = transient
 
 
+class WorkspaceView(FrozenModel):
+    url: str
+    emoji: tuple[str, ...] | None
+    """Custom emoji names; ``None`` when the app may not list them."""
+
+
 class SlackApi(Protocol):
-    async def post_reply(self, channel: str, thread: str, text: str) -> None:
-        """Post ``text`` in the thread. Raises ``SlackDeliveryError``."""
+    async def workspace(self) -> WorkspaceView:
+        """The workspace's address and custom emoji (ADR-0042). Raises ``SlackDeliveryError``."""
+        ...
+
+    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
+        """Post ``text`` in the thread, or as a new message without one.
+
+        ``channel`` may be a user ID (their DM with the app). Raises ``SlackDeliveryError``."""
         ...
 
     async def post_message(

@@ -86,6 +86,18 @@ from enikk_contracts.tasks import (
     ResultReport,
 )
 from enikk_contracts.thread_actions import (
+    CancelScheduledRequest,
+    EmojiList,
+    EmojiQuery,
+    MessageLink,
+    MessageLinkRequest,
+    ScheduledCancelled,
+    ScheduledMessage,
+    ScheduledMessages,
+    ScheduledQuery,
+    ScheduleMessageRequest,
+    SlackWorkspaceReceived,
+    SlackWorkspaceReport,
     ThreadActionDone,
     ThreadFileRequest,
     ThreadReactionRequest,
@@ -259,6 +271,15 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         ack = await _parse(request, OutboxAck)
         return _json(await usecases.ack_outbox(role.connector, ack))
 
+    @app.post(routes.SLACK_WORKSPACE, responses={200: {"model": SlackWorkspaceReceived}})
+    @requires("connector")
+    async def slack_workspace(request: Request) -> Response:
+        role = _connector(await gate.admit(request))
+        if role.connector is not ConnectorKind.SLACK:
+            raise PermissionDeniedError("only the Slack connector reports the workspace")
+        body = await _parse(request, SlackWorkspaceReport)
+        return _json(usecases.report_workspace(body))
+
     @app.post(routes.OUTBOX_FILE, responses={200: {"model": OutboxFile}})
     @requires("connector")
     async def outbox_file(message_id: uuid.UUID, request: Request) -> Response:
@@ -364,8 +385,43 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
     async def thread_reaction(task_id: uuid.UUID, request: Request) -> Response:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, ThreadReactionRequest)
-        await usecases.react(scope, task_id, body)
-        return _json(ThreadActionDone(action="reaction"))
+        note = await usecases.react(scope, task_id, body)
+        return _json(ThreadActionDone(action="reaction", note=note))
+
+    @app.post(routes.THREAD_LINK, responses={200: {"model": MessageLink}})
+    @requires("runtime")
+    async def thread_link(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, MessageLinkRequest)
+        return _json(await usecases.message_link(scope, task_id, body))
+
+    @app.post(routes.THREAD_EMOJI, responses={200: {"model": EmojiList}})
+    @requires("runtime")
+    async def thread_emoji(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, EmojiQuery)
+        return _json(await usecases.list_emoji(scope, task_id, body))
+
+    @app.post(routes.THREAD_SCHEDULE, responses={200: {"model": ScheduledMessage}})
+    @requires("runtime")
+    async def thread_schedule(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, ScheduleMessageRequest)
+        return _json(await usecases.schedule_message(scope, task_id, body))
+
+    @app.post(routes.THREAD_SCHEDULED_LIST, responses={200: {"model": ScheduledMessages}})
+    @requires("runtime")
+    async def thread_scheduled(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, ScheduledQuery)
+        return _json(await usecases.scheduled_messages(scope, task_id, body))
+
+    @app.post(routes.THREAD_SCHEDULED_CANCEL, responses={200: {"model": ScheduledCancelled}})
+    @requires("runtime")
+    async def thread_scheduled_cancel(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, CancelScheduledRequest)
+        return _json(await usecases.cancel_scheduled(scope, task_id, body))
 
     @app.post(routes.PROMPT_CANDIDATES, responses={200: {"model": PromptCandidateCreated}})
     @requires("runtime")
