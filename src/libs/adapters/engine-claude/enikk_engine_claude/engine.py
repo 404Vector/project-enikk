@@ -194,7 +194,11 @@ class ClaudeEngine:
         return model.startswith("claude-")
 
     async def run(self, job: EngineJob) -> EngineResult:
-        if self._live is not None and job.definition.execution is Execution.SHARED:
+        if (
+            self._live is not None
+            and job.definition.execution is Execution.SHARED
+            and not job.one_off
+        ):
             return await self._run_live(self._live, job)
         return await self._run_once(job)
 

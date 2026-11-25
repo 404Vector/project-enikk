@@ -260,6 +260,7 @@ class CoreUseCases:
             memories=memories,
             mcp_token=self._mcp_token(leased.id, leased.last_lease_id, session.id, definition),
             github_token=github_token,
+            one_off=scheduled,
         )
 
     def _mcp_token(
