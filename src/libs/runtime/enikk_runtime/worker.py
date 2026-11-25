@@ -224,6 +224,7 @@ class TaskWorker:
             skills=skills,
             mcp_token=assignment.mcp_token,
             github_token=assignment.github_token,
+            one_off=assignment.one_off,
         )
         async with self._observer.observe(job) as observation:
             try:

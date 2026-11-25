@@ -71,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         },
         timeout=TIMEOUT_SECONDS,
     )
-    print(f"HTTP {response.status_code}")
-    print(response.text)
+    try:
+        print(f"HTTP {response.status_code}")
+        print(response.text)
+    except BrokenPipeError:
+        return 0
     return 0 if response.is_success else 1

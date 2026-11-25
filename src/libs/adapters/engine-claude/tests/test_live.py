@@ -221,3 +221,14 @@ async def test_a_new_process_survives_the_close_of_the_idle_one(tmp_path: Path) 
     assert second.options.cwd is not None
     assert (tmp_path / "work" / str(second.options.cwd).rsplit("/", 1)[-1]).is_dir()
     await engine.aclose()
+
+
+async def test_a_one_off_session_keeps_no_process(tmp_path: Path) -> None:
+    """A scheduled run gets no later task: it runs the one-off way."""
+    engine = _engine(tmp_path)
+    ONE_OFF.clear()
+    job = _job(uuid.uuid4(), text="once").model_copy(update={"one_off": True})
+    with pytest.raises(EngineError):
+        await engine.run(job)
+    assert _Client.made == []
+    assert ONE_OFF == ["once"]

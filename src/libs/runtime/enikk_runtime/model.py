@@ -90,6 +90,8 @@ class EngineJob(FrozenModel):
     """The skills the session may load; ``None`` when it gets no ``load_skill``."""
     mcp_token: SecretStr | None = None
     """Core's token for the definition's MCP tools (ADR-0039 §2); never shown to tools."""
+    one_off: bool = False
+    """No later task comes to this session: run it without keeping a live process."""
     github_token: SecretStr | None = None
     """A short-lived GitHub token for the shell's git and ``enikk-github`` (ADR-0041 §1)."""
 
