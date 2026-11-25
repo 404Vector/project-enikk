@@ -58,13 +58,6 @@ class SkillSettings(SettingsModel):
     enabled: bool = False
 
 
-class PullSettings(SettingsModel):
-    """``submit_pull_request`` (ADR-0037 §6b): roles granted ``pull-requests`` with a
-    thread worktree hand their commits to core. Needs the shared volume."""
-
-    enabled: bool = False
-
-
 class McpSettings(SettingsModel):
     """MCP tools through agentgateway (ADR-0039 §2). The off switch of S3."""
 
@@ -93,6 +86,5 @@ class RuntimeClaudeSettings(ServiceSettings, env_prefix="ENIKK_RUNTIME_"):
     worker: WorkerSettings = WorkerSettings()
     workspace: WorkspaceSettings = WorkspaceSettings()
     skills: SkillSettings = SkillSettings()
-    pulls: PullSettings = PullSettings()
     mcp: McpSettings = McpSettings()
     kube: KubeSettings = KubeSettings()

@@ -25,7 +25,6 @@ from enikk_core.memory import MemoryPolicy, MemoryService
 from enikk_core.prompts import PromptService, load_owner
 from enikk_core.schedules import ScheduleService
 from enikk_core.security import Gatekeeper
-from enikk_core.submissions import PullSubmissions, SubmissionPolicy
 from enikk_core.threads import ReviewLinks, ThreadNotes
 from enikk_core.usecases import CoreUseCases
 from enikk_core.wakeups import SessionWaker
@@ -35,7 +34,6 @@ from enikk_core_domain.digests import DigestSchedule
 from enikk_core_domain.memory import MemoryLayout
 from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
-from enikk_github.clone import CloneConfig, CoreClone
 from enikk_github.pulls import PullRequests
 from enikk_github.reverts import Reverter
 from enikk_github.vault import VaultReader, VaultWriter
@@ -44,7 +42,6 @@ from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.logs import KubeLogReader, LogConfig
 from enikk_kernel.clock import SystemClock
 from enikk_kernel.ids import RandomIdGenerator
-from enikk_kernel.process import SubprocessRunner
 from enikk_langfuse.config import LangfuseConfig
 from enikk_langfuse.registry import LangfusePromptRegistry
 from enikk_persistence_sql.engine import create_engine, create_session_factory
@@ -109,7 +106,6 @@ def build_services(settings: CoreSettings) -> CoreServices:
         prompts=_prompts(settings, store, catalog, clock, uow, ids, waker),
         digests=_digests(settings, memory, catalog, clock, uow, ids),
         digest_interval_seconds=settings.digests.interval_seconds,
-        submissions=_submissions(settings, store, catalog, clock, uow),
         schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids),
     )
 
@@ -132,41 +128,6 @@ def _github_tokens(
         GitHubApp.create(config, private_key, clock),
         settings.github.self_repository,
         workflows=policy.own.workflows,
-    )
-
-
-def _submissions(
-    settings: CoreSettings,
-    store: DirectoryCredentialStore,
-    catalog: YamlAgentCatalog,
-    clock: SystemClock,
-    uow: SqlUnitOfWorkFactory,
-) -> PullSubmissions | None:
-    s = settings.submissions
-    config = settings.github.to_config()
-    if config is None or not s.enabled:
-        return None
-
-    def private_key() -> SecretStr | None:
-        return store.get(CredentialName.GITHUB_APP_PRIVATE_KEY)
-
-    app = GitHubApp.create(config, private_key, clock)
-    repository = settings.github.self_repository
-    clone = CoreClone(
-        CloneConfig(
-            root=s.clone_dir,
-            remote_url=f"https://github.com/{config.owner}/{repository}.git",
-            git_timeout_seconds=s.git_timeout_seconds,
-        ),
-        SubprocessRunner(),
-    )
-    return PullSubmissions(
-        uow=uow,
-        catalog=catalog,
-        app=app,
-        pulls=PullRequests(app),
-        clone=clone,
-        policy=SubmissionPolicy(repository=repository, co_author=s.co_author),
     )
 
 

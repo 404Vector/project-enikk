@@ -45,7 +45,6 @@ from enikk_contracts.tasks import TaskStatus
 from enikk_core_client.errors import CoreApiError, CoreUnavailableError
 from enikk_runtime.errors import PromptInvalidError, PromptUnavailableError
 from enikk_runtime.model import SkillUse
-from enikk_runtime.workspace import WorkspaceError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -61,7 +60,6 @@ if TYPE_CHECKING:
         PromptProposer,
         SkillLibrary,
     )
-    from enikk_runtime.pulls import SessionPulls
 
 SERVER: Final = "enikk"
 _REMEMBERABLE: Final[dict[str, Literal[NoteKind.PREFERENCE, NoteKind.FACT, NoteKind.WORK]]] = {
@@ -77,7 +75,6 @@ PROPOSE_PROMPT_TOOL: Final = f"mcp__{SERVER}__propose_prompt"
 READ_PROMPT_TOOL: Final = f"mcp__{SERVER}__read_prompt"
 SUMMARIZE_DAY_TOOL: Final = f"mcp__{SERVER}__summarize_day"
 LOAD_SKILL_TOOL: Final = f"mcp__{SERVER}__load_skill"
-SUBMIT_PULL_TOOL: Final = f"mcp__{SERVER}__submit_pull_request"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
 )
@@ -138,16 +135,6 @@ def _defaults(job: EngineJob) -> bool:
     return job.definition.tools.platform_defaults
 
 
-def _grants_pulls(job: EngineJob) -> bool:
-    """Granted ``pull-requests`` and this task has a worktree to submit from."""
-    workspace = job.workspace
-    return (
-        PlatformTool.PULL_REQUESTS in job.definition.tools.platform
-        and workspace is not None
-        and workspace.worktree_dir is not None
-    )
-
-
 def _has_skills(job: EngineJob) -> bool:
     return job.skills is not None
 
@@ -160,7 +147,6 @@ def granted_platform_tools(
     prompts: bool = False,
     digests: bool = False,
     skills: bool = False,
-    pulls: bool = False,
 ) -> list[str]:
     return [
         *(MEMORY_TOOLS if memory and _defaults(job) else ()),
@@ -168,7 +154,6 @@ def granted_platform_tools(
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
         *([SUMMARIZE_DAY_TOOL] if digests and _grants_digests(job) else ()),
         *([LOAD_SKILL_TOOL] if skills and _has_skills(job) else ()),
-        *([SUBMIT_PULL_TOOL] if pulls and _grants_pulls(job) else ()),
     ]
 
 
@@ -180,7 +165,6 @@ def platform_server(
     digests: DigestRequester | None = None,
     skills: SkillLibrary | None = None,
     loaded: list[SkillUse] | None = None,
-    pulls: SessionPulls | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
     if memory is not None and _defaults(job):
@@ -193,57 +177,7 @@ def platform_server(
         tools.append(summarize_day_tool(job, digests))
     if skills is not None and _has_skills(job):
         tools.append(load_skill_tool(job, skills, [] if loaded is None else loaded))
-    if pulls is not None and _grants_pulls(job):
-        tools.append(submit_pull_tool(job, pulls))
     return create_sdk_mcp_server(SERVER, tools=tools) if tools else None
-
-
-SUBMIT_PULL_DESCRIPTION: Final = (
-    "Open (or update) the pull request of this thread from the commits on this "
-    "thread's worktree branch. Only committed changes go: commit first with git in the "
-    "worktree. Core checks them (no merge commits, at most 50 commits and 300 files, "
-    "no workflow files), writes them again with enikk's bot as author and pushes them "
-    "to agent/<this thread's session>; you never push. The owner approves the PR in "
-    "the approval channel; nothing reaches main before that. Use it only when the "
-    "owner asked for a change to the repository. title and body (Korean body, English "
-    "title) are optional; omitted on a later call, the PR keeps them. If it is "
-    "refused, tell the owner why instead of retrying the same commits."
-)
-
-
-def submit_pull_tool(job: EngineJob, pulls: SessionPulls) -> SdkMcpTool[Any]:
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string", "description": "PR title, at most 200 characters."},
-            "body": {"type": "string", "description": "PR description."},
-        },
-    }
-
-    @tool("submit_pull_request", SUBMIT_PULL_DESCRIPTION, schema)
-    async def submit_pull_request(args: dict[str, Any]) -> dict[str, Any]:
-        title = str(args["title"]).strip() if args.get("title") else None
-        body = str(args["body"]) if args.get("body") else None
-        try:
-            submitted = await pulls.submit(job, title, body)
-        except WorkspaceError as exc:
-            return _result(f"Nothing was submitted: {exc}", True)
-        except ValidationError:
-            return _result("title is at most 200 characters, body at most 20000.", True)
-        except CoreUnavailableError:
-            return _result("The platform is unreachable right now; tell the owner.", True)
-        except CoreApiError as exc:
-            return _result(f"Core refused the submission: {exc}", True)
-        _log.info("task %s submitted PR #%d (%s)", job.task_id, submitted.number, submitted.head)
-        action = "opened" if submitted.created else "updated"
-        return _result(
-            f"PR #{submitted.number} {action}: {submitted.url} (branch {submitted.branch}, "
-            f"{submitted.commits} commit(s), head {submitted.head[:12]}). The owner is asked "
-            "in the approval channel once the checks finish.",
-            False,
-        )
-
-    return submit_pull_request
 
 
 LOAD_SKILL_DESCRIPTION: Final = (

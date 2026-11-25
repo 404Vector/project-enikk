@@ -25,7 +25,6 @@ from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptRead,
 )
-from enikk_contracts.pulls import PullSubmitted
 from enikk_contracts.schedules import RunList, ScheduleList, ScheduleView
 from enikk_contracts.tasks import (
     CancelRequest,
@@ -69,7 +68,6 @@ if TYPE_CHECKING:
         PromptCandidateRequest,
         PromptReadRequest,
     )
-    from enikk_contracts.pulls import PullSubmission
     from enikk_contracts.schedules import RunsQuery, ScheduleQuery
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_contracts.threads import ReviewThreadOpened
@@ -194,11 +192,6 @@ class CoreClient:
         """Create a prompt candidate and ask the owner to promote it (ADR-0032)."""
         path = routes.PROMPT_CANDIDATES.format(task_id=task_id)
         return _parse(PromptCandidateCreated, await self._post(path, request, 60))
-
-    async def submit_pull(self, task_id: uuid.UUID, request: PullSubmission) -> PullSubmitted:
-        """Core pushes the session's commits and opens or updates its PR (ADR-0037 §6b)."""
-        path = routes.PULL_SUBMISSIONS.format(task_id=task_id)
-        return _parse(PullSubmitted, await self._post(path, request, 180))
 
     async def read_prompt(self, task_id: uuid.UUID, request: PromptReadRequest) -> PromptRead:
         """One version of a role's prompt, read by core (ADR-0032 §8)."""

@@ -21,9 +21,8 @@ tools:
   # Create prompt candidates through core; only the owner promotes them (ADR-0032, I-36).
   # Make one day's conversation summary again when the owner asks (ADR-0035).
   # A short-lived GitHub token in the shell: push the thread's agent branch, open and
-  # close pull requests (ADR-0041 §1). Handing commits to core (pull-requests, ADR-0037
-  # §6b) stays until the skill moves over.
-  platform: [prompt-candidates, conversation-digest, pull-requests, github]
+  # close pull requests (ADR-0041 §1).
+  platform: [prompt-candidates, conversation-digest, github]
 # Room for development work in the thread's own session (ADR-0037 4a).
 limits:
   max_turns: 100

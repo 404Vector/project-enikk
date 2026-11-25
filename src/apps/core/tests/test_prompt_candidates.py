@@ -666,3 +666,8 @@ async def test_invalid_skill_candidates_are_not_created(
         await claude.propose_prompt(lease.task_id, request)
     assert langfuse.created == []
     assert harness.db.notices == {}
+
+
+def test_a_skill_takes_effect_when_it_is_next_loaded(prompts: PromptService) -> None:
+    """A skill is no role's prompt; its promotion still says when it applies."""
+    assert prompts._effective("skill-developer") == ("스킬은 최대 60초 안에, 다음에 불러올 때부터")

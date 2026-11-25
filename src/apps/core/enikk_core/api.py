@@ -62,7 +62,6 @@ from enikk_contracts.prompts import (
     PromptRead,
     PromptReadRequest,
 )
-from enikk_contracts.pulls import PullSubmission, PullSubmitted
 from enikk_contracts.schedules import (
     RunList,
     RunsQuery,
@@ -122,7 +121,6 @@ if TYPE_CHECKING:
     from enikk_core.prompts import PromptService
     from enikk_core.schedules import ScheduleService
     from enikk_core.security import Gatekeeper
-    from enikk_core.submissions import PullSubmissions
     from enikk_core.threads import ReviewLinks
     from enikk_core.usecases import CoreUseCases
     from enikk_core_domain.auth import Principal
@@ -167,7 +165,6 @@ class CoreServices:
         prompts: PromptService | None = None,
         digests: DigestService | None = None,
         digest_interval_seconds: float = 300.0,
-        submissions: PullSubmissions | None = None,
         schedules: ScheduleService | None = None,
         mcp_tokens: McpTokenIssuer | None = None,
     ) -> None:
@@ -188,7 +185,6 @@ class CoreServices:
         self.prompts = prompts
         self.digests = digests
         self.digest_interval_seconds = digest_interval_seconds
-        self.submissions = submissions
         self.schedules = schedules
         self.mcp_tokens = mcp_tokens
 
@@ -356,14 +352,6 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PromptCandidateRequest)
         await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
         return _json(await _prompts(services).propose(task_id, body))
-
-    @app.post(routes.PULL_SUBMISSIONS, responses={200: {"model": PullSubmitted}})
-    @requires("runtime")
-    async def submit_pull(task_id: uuid.UUID, request: Request) -> Response:
-        role = _runtime(await gate.admit(request))
-        body = await _parse(request, PullSubmission)
-        await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
-        return _json(await _submissions(services).submit(task_id, body))
 
     @app.post(routes.PROMPT_READ, responses={200: {"model": PromptRead}})
     @requires("runtime")
@@ -609,12 +597,6 @@ def _prompts(services: CoreServices) -> PromptService:
     if services.prompts is None:
         raise DependencyUnavailableError("prompt candidates are not enabled in core")
     return services.prompts
-
-
-def _submissions(services: CoreServices) -> PullSubmissions:
-    if services.submissions is None:
-        raise DependencyUnavailableError("pull request submission is not enabled in core")
-    return services.submissions
 
 
 def _digests(services: CoreServices) -> DigestService:

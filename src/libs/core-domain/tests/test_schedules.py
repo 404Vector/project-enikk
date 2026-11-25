@@ -104,11 +104,11 @@ def test_tools_never_exceed_the_definition() -> None:
     wide = ToolPolicy(
         builtin=("Bash",),
         mcp=(McpToolGrant(server="scheduler", allow=("list_schedules", "delete_schedule")),),
-        platform=(PlatformTool.PULL_REQUESTS,),
+        platform=(PlatformTool.GITHUB,),
     )
     assert tools_beyond(wide, ENIKK.tools) == [
         "builtin:Bash",
-        "platform:pull-requests",
+        "platform:github",
         "mcp:scheduler/delete_schedule",
     ]
     narrow = ENIKK.model_copy(update={"tools": ToolPolicy(platform_defaults=False)})

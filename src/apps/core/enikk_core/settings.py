@@ -181,17 +181,6 @@ class PromptSettings(SettingsModel):
     """The owner's Slack user ID is read from here; only they decide (I-01)."""
 
 
-class SubmissionSettings(SettingsModel):
-    """Core pushes a Slack thread's commits and opens the PR (ADR-0037 §6b). Needs the
-    GitHub App and git in core's image."""
-
-    enabled: bool = False
-    clone_dir: Path = Path("/var/lib/enikk/clone")
-    """Core's own clone, on an emptyDir. Never the runtime's shared volume."""
-    co_author: str = "Claude <noreply@anthropic.com>"
-    git_timeout_seconds: int = Field(default=120, ge=1)
-
-
 class WakeupSettings(SettingsModel):
     """Wake a thread's session when its PR or prompt candidate moves on (ADR-0041 §4)."""
 
@@ -215,7 +204,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     digests: DigestSettings = DigestSettings()
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
     prompts: PromptSettings = PromptSettings()
-    submissions: SubmissionSettings = SubmissionSettings()
     wakeups: WakeupSettings = WakeupSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()
