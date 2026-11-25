@@ -129,14 +129,12 @@ async def test_the_caller_needs_a_live_lease(harness: Harness, api: Api) -> None
     assert (await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=caller))).status_code == 409
 
 
-async def test_scheduled_sessions_only_read(harness: Harness, api: Api) -> None:
+async def test_scheduled_sessions_change_schedules_too(harness: Harness, api: Api) -> None:
+    """ADR-0041 §1: any session of enikk may change schedules."""
     owner = await _caller(harness)
     await api.post(routes.SCHEDULES, ScheduleCreate(caller=owner, name="news", spec=_spec()))
     scheduled = await _caller(harness, ConnectorKind.SCHEDULE)
-    assert (
-        await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=scheduled))
-    ).status_code == 200
-    refused = [
+    done = [
         await api.post(
             routes.SCHEDULES, ScheduleCreate(caller=scheduled, name="more", spec=_spec())
         ),
@@ -149,7 +147,7 @@ async def test_scheduled_sessions_only_read(harness: Harness, api: Api) -> None:
         ),
         await api.post(routes.SCHEDULE_DELETE.format(name="news"), ScheduleQuery(caller=scheduled)),
     ]
-    assert [r.status_code for r in refused] == [403, 403, 403, 403]
+    assert [r.status_code for r in done] == [200, 200, 200, 200]
 
 
 async def test_tools_beyond_the_definition_are_refused(harness: Harness, api: Api) -> None:
@@ -163,23 +161,20 @@ async def test_tools_beyond_the_definition_are_refused(harness: Harness, api: Ap
     assert response.status_code == 422
 
 
-async def test_outside_the_own_range_waits_for_approval(harness: Harness, api: Api) -> None:
+async def test_nothing_waits_for_approval(harness: Harness, api: Api) -> None:
+    """ADR-0041 §1: other agents and short periods are active at once."""
     caller = await _caller(harness)
     other = await api.post(
         routes.SCHEDULES, ScheduleCreate(caller=caller, name="paint", spec=_spec(agent="painter"))
     )
-    assert ScheduleView.model_validate_json(other.content).state is ScheduleState.PENDING
+    assert ScheduleView.model_validate_json(other.content).state is ScheduleState.ACTIVE
     often = await api.post(
         routes.SCHEDULES,
         ScheduleCreate(
             caller=caller, name="often", spec=schedule_spec(agent="assistant", cron="* * * * *")
         ),
     )
-    assert ScheduleView.model_validate_json(often.content).state is ScheduleState.PENDING
-    paused = await api.post(
-        routes.SCHEDULE_PAUSE.format(name="often"), SchedulePause(caller=caller, paused=True)
-    )
-    assert paused.status_code == 409
+    assert ScheduleView.model_validate_json(often.content).state is ScheduleState.ACTIVE
 
 
 async def test_update_pause_resume_and_delete(harness: Harness, api: Api) -> None:

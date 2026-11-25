@@ -1,15 +1,15 @@
 """Schedules (ADR-0039): what the scheduler service reads and changes on a task's behalf.
 
-Every request names the calling task and its lease. Core checks the lease and takes
-the agent and session from the task. Only sessions the owner started in Slack change
-schedules; scheduled sessions only read them (ADR-0039 §5).
+Every request names the calling session (or task and lease). Core finds the task with
+a live lease and takes the agent and session from it. Any session may change schedules
+and nothing waits for approval; a schedule's tools never exceed its agent's definition
+(ADR-0041 §1, I-39).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from enikk_contracts.common import ConnectorKind
 from enikk_contracts.schedules import (
     MAX_LISTED,
     RunList,
@@ -17,7 +17,7 @@ from enikk_contracts.schedules import (
     ScheduleList,
 )
 from enikk_core_domain.errors import NotFoundError, PermissionDeniedError
-from enikk_core_domain.schedules import Schedule, check_spec, needs_approval
+from enikk_core_domain.schedules import Schedule, check_spec
 
 if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
@@ -48,34 +48,34 @@ class ScheduleService:
 
     async def list(self, query: ScheduleQuery) -> ScheduleList:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller, change=False)
+            await self._caller(uow, query.caller)
             schedules = await uow.schedules.all(MAX_LISTED)
         return ScheduleList(schedules=tuple(s.view() for s in schedules))
 
     async def get(self, name: str, query: ScheduleQuery) -> ScheduleView:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller, change=False)
+            await self._caller(uow, query.caller)
             schedule = await self._named(uow, name)
         return schedule.view()
 
     async def runs(self, name: str, query: RunsQuery) -> RunList:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller, change=False)
+            await self._caller(uow, query.caller)
             schedule = await self._named(uow, name)
             runs = await uow.schedule_runs.latest(schedule.id, query.limit)
         return RunList(runs=tuple(r.view() for r in runs))
 
     async def create(self, request: ScheduleCreate) -> ScheduleView:
         async with self._uow() as uow:
-            task, session = await self._caller(uow, request.caller, change=True)
-            spec, target = self._checked(request.spec)
+            task, session = await self._caller(uow, request.caller)
+            spec, _ = self._checked(request.spec)
             schedule = Schedule.create(
                 schedule_id=self._ids.new(),
                 name=request.name,
                 spec=spec,
                 owner_agent=self._agent_name(task.agent),
                 origin=session.outbox_conversation,
-                approval=needs_approval(spec, target, task.agent),
+                approval=False,
                 now=self._clock.now(),
             )
             await uow.schedules.add(schedule)
@@ -84,19 +84,17 @@ class ScheduleService:
 
     async def update(self, name: str, request: ScheduleUpdate) -> ScheduleView:
         async with self._uow() as uow:
-            task, _ = await self._caller(uow, request.caller, change=True)
-            spec, target = self._checked(request.spec)
+            await self._caller(uow, request.caller)
+            spec, _ = self._checked(request.spec)
             schedule = await self._named(uow, name)
-            changed = schedule.replace(
-                spec, approval=needs_approval(spec, target, task.agent), now=self._clock.now()
-            )
+            changed = schedule.replace(spec, approval=False, now=self._clock.now())
             await uow.schedules.update(changed)
             await uow.commit()
         return changed.view()
 
     async def pause(self, name: str, request: SchedulePause) -> ScheduleView:
         async with self._uow() as uow:
-            await self._caller(uow, request.caller, change=True)
+            await self._caller(uow, request.caller)
             schedule = await self._named(uow, name)
             now = self._clock.now()
             changed = schedule.pause(now) if request.paused else schedule.resume(now)
@@ -106,23 +104,17 @@ class ScheduleService:
 
     async def delete(self, name: str, query: ScheduleQuery) -> ScheduleDeleted:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller, change=True)
+            await self._caller(uow, query.caller)
             schedule = await self._named(uow, name)
             await uow.schedules.delete(schedule.id)
             await uow.commit()
         return ScheduleDeleted(id=schedule.id)
 
-    async def _caller(
-        self, uow: UnitOfWork, caller: Caller, *, change: bool
-    ) -> tuple[Task, Session]:
+    async def _caller(self, uow: UnitOfWork, caller: Caller) -> tuple[Task, Session]:
         task = await self._calling_task(uow, caller)
         session = await uow.sessions.get(task.session_id)
         if session is None:
             raise NotFoundError(f"session {task.session_id} of task {task.id} is missing")
-        if change and session.conversation.connector is not ConnectorKind.SLACK:
-            raise PermissionDeniedError(
-                "only sessions the owner started in Slack change schedules (ADR-0039 §5)"
-            )
         return task, session
 
     async def _calling_task(self, uow: UnitOfWork, caller: Caller) -> Task:

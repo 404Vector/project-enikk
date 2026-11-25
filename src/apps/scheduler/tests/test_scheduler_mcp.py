@@ -18,6 +18,7 @@ from enikk_contracts.schedules import (
     RunStatus,
     RunView,
     ScheduleList,
+    SchedulePause,
     ScheduleQuery,
 )
 from enikk_core_client import CoreClient, StaticTokenSource
@@ -100,12 +101,33 @@ def test_health_answers_the_kubelet_on_the_pod_address(client: TestClient) -> No
     assert response.status_code == 200
 
 
-def test_lists_only_the_read_tools(client: TestClient) -> None:
+def test_lists_the_read_and_change_tools(client: TestClient) -> None:
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
     response = client.post(MCP_PATH, json=body, headers=MCP_HEADERS)
     tools = {tool["name"]: tool for tool in response.json()["result"]["tools"]}
-    assert set(tools) == {"list_schedules", "get_schedule", "list_runs"}
-    assert all(tool["annotations"]["readOnlyHint"] for tool in tools.values())
+    read = {"list_schedules", "get_schedule", "list_runs"}
+    change = {
+        "create_schedule",
+        "update_schedule",
+        "pause_schedule",
+        "resume_schedule",
+        "delete_schedule",
+    }
+    assert set(tools) == read | change
+    assert all(tools[name]["annotations"]["readOnlyHint"] for name in read)
+    assert not any(tools[name]["annotations"]["readOnlyHint"] for name in change)
+    assert tools["delete_schedule"]["annotations"]["destructiveHint"]
+    assert "spec" in tools["create_schedule"]["inputSchema"]["properties"]
+
+
+def test_pause_sends_the_caller_and_the_flag(
+    client: TestClient, requests: list[httpx.Request]
+) -> None:
+    _call(client, "pause_schedule", {"name": "news"}, CALLER_HEADERS)
+    (request,) = requests
+    assert request.url.path == "/v1/schedules/news/pause"
+    sent = SchedulePause.model_validate_json(request.content)
+    assert sent == SchedulePause(caller=Caller(task_id=TASK, lease_id=LEASE), paused=True)
 
 
 def test_passes_the_caller_to_core(client: TestClient, requests: list[httpx.Request]) -> None:
