@@ -101,7 +101,6 @@ class RuntimeClaudeApp:
                 memory=core,
                 diagnostics=core,
                 prompts=core,
-                digests=core,
                 skills=skills,
             )
             worker = TaskWorker(

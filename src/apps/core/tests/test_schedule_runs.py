@@ -169,3 +169,33 @@ async def test_run_now_starts_a_run_at_once(harness: Harness) -> None:
     assert run.status is RunStatus.RUNNING
     assert run.slot == harness.clock.now()
     assert len(_queued(harness)) == 1
+
+
+async def test_the_day_before_is_the_input_with_secrets_masked(harness: Harness) -> None:
+    """ADR-0039 S7, I-38: a run on the day's conversations sees yesterday's threads,
+    secrets masked, never today's."""
+    from enikk_core_domain.testing import session as thread_session
+    from enikk_core_domain.testing import task as thread_task
+    from enikk_kernel.redaction import MASK
+
+    secret = "ghp_" + "a" * 36
+    yesterday = harness.clock.now() - timedelta(days=1)
+    talk = thread_session(thread="9.0", now=yesterday)
+    said = thread_task(talk, now=yesterday).model_copy(update={"input": f"토큰은 {secret}"})
+    async with harness.db.unit_of_work() as uow:
+        await uow.sessions.add(talk)
+        await uow.tasks.add(said)
+        await uow.commit()
+    schedule = await _schedule(harness, output=OutputKind.DISCARD)
+    daily = schedule.model_copy(
+        update={
+            "spec": schedule.spec.model_copy(
+                update={"input": ScheduleInput(kind=InputKind.DAY_CONVERSATIONS)}
+            )
+        }
+    )
+    run = await _runner(harness).run_now(daily)
+    assert run.status is RunStatus.RUNNING
+    [task] = [t for t in _queued(harness) if t.id == run.task_id]
+    assert secret not in task.input
+    assert MASK in task.input

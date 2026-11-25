@@ -56,17 +56,6 @@ memory:
   repository: vault.hyeongseok-kim
   intervalSeconds: 60
 
-# Daily conversation summaries (ADR-0035): at runHour in timezone, core gives the
-# day before's conversations to the summarizer role (no tools) and writes the result
-# to Private/enikk/대화/YYYY-MM-DD.md in the vault. Missed days within catchupDays are
-# made too; a failed day is tried once more on the next day. Needs memory.
-digests:
-  enabled: true
-  timezone: Asia/Seoul
-  runHour: 4
-  catchupDays: 2
-  intervalSeconds: 300
-
 # Read-only diagnostics (ADR-0029): recent tasks, deployments, Pod logs of enikk's
 # services and pull requests, answered by core with secrets masked.
 diagnostics:

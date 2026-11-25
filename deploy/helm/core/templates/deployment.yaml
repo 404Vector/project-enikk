@@ -81,16 +81,6 @@ spec:
               value: {{ .Values.memory.repository | quote }}
             - name: ENIKK_CORE_MEMORY__INTERVAL_SECONDS
               value: {{ .Values.memory.intervalSeconds | quote }}
-            - name: ENIKK_CORE_DIGESTS__ENABLED
-              value: {{ .Values.digests.enabled | quote }}
-            - name: ENIKK_CORE_DIGESTS__TIMEZONE
-              value: {{ .Values.digests.timezone | quote }}
-            - name: ENIKK_CORE_DIGESTS__RUN_HOUR
-              value: {{ .Values.digests.runHour | quote }}
-            - name: ENIKK_CORE_DIGESTS__CATCHUP_DAYS
-              value: {{ .Values.digests.catchupDays | quote }}
-            - name: ENIKK_CORE_DIGESTS__INTERVAL_SECONDS
-              value: {{ .Values.digests.intervalSeconds | quote }}
             - name: ENIKK_CORE_DIAGNOSTICS__ENABLED
               value: {{ .Values.diagnostics.enabled | quote }}
             - name: ENIKK_CORE_PROMPTS__ENABLED

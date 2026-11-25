@@ -67,8 +67,6 @@ class PlatformTool(StrEnum):
 
     PROMPT_CANDIDATES = "prompt-candidates"
     """Create a candidate version of a role's prompt and ask the owner to promote it."""
-    CONVERSATION_DIGEST = "conversation-digest"
-    """Ask core to make (or remake) one day's conversation summary (ADR-0035)."""
     GITHUB = "github"
     """A short-lived GitHub token for the platform repository in the shell: push agent
     branches, open and close pull requests (ADR-0041 §1)."""
