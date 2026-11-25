@@ -18,6 +18,7 @@ from enikk_contracts.prompts import (
     PromptReadRequest,
 )
 from enikk_core_client.errors import CoreConflictError
+from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.platform_tools import (
     PROPOSE_PROMPT_TOOL,
@@ -158,7 +159,7 @@ def test_propose_prompt_goes_only_to_granted_roles() -> None:
 async def test_propose_prompt_sends_the_candidate_under_the_lease() -> None:
     job = _granted_job()
     proposer = _Proposer()
-    result = await propose_prompt_tool(job, proposer).handler(
+    result = await propose_prompt_tool(CurrentJob(job), proposer).handler(
         {
             "prompt": "assistant",
             "text": "You are enikk.",
@@ -182,7 +183,7 @@ async def test_propose_prompt_sends_the_candidate_under_the_lease() -> None:
 
 async def test_propose_prompt_refuses_bad_input_before_core() -> None:
     proposer = _Proposer()
-    result = await propose_prompt_tool(_granted_job(), proposer).handler(
+    result = await propose_prompt_tool(CurrentJob(_granted_job()), proposer).handler(
         {"prompt": "assistant", "text": "", "reason": "x"}
     )
     assert result["is_error"]
@@ -191,7 +192,7 @@ async def test_propose_prompt_refuses_bad_input_before_core() -> None:
 
 async def test_propose_prompt_reports_core_refusals() -> None:
     error = CoreConflictError('the config of the candidate has no "model"', status=422)
-    result = await propose_prompt_tool(_granted_job(), _Proposer(error)).handler(
+    result = await propose_prompt_tool(CurrentJob(_granted_job()), _Proposer(error)).handler(
         {"prompt": "assistant", "text": "x", "reason": "y"}
     )
     assert result["is_error"]
@@ -206,12 +207,14 @@ def test_read_prompt_goes_with_propose_prompt() -> None:
 async def test_read_prompt_asks_core_and_shows_the_text() -> None:
     job = _granted_job()
     proposer = _Proposer()
-    result = await read_prompt_tool(job, proposer).handler({"prompt": "developer", "version": 4})
+    result = await read_prompt_tool(CurrentJob(job), proposer).handler(
+        {"prompt": "developer", "version": 4}
+    )
     assert not result["is_error"]
     assert "You are enikk." in result["content"][0]["text"]
     [request] = proposer.reads
     assert request == PromptReadRequest(lease_id=job.lease_id, prompt="developer", version=4)
-    both = await read_prompt_tool(job, proposer).handler(
+    both = await read_prompt_tool(CurrentJob(job), proposer).handler(
         {"prompt": "developer", "label": "candidate", "version": 4}
     )
     assert both["is_error"]
@@ -236,7 +239,7 @@ def test_a_role_without_platform_defaults_gets_no_platform_tools() -> None:
     bare = _with_tools(ToolPolicy(platform_defaults=False))
     every = {"memory": True, "diagnostics": True, "prompts": True, "digests": True}
     assert granted_platform_tools(bare, **every) == []
-    assert platform_server(bare, memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
+    assert platform_server(CurrentJob(bare), memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
     usual = _with_tools(ToolPolicy())
     assert len(granted_platform_tools(usual, **every)) > 0
     assert SUMMARIZE_DAY_TOOL not in granted_platform_tools(usual, **every)
@@ -246,12 +249,12 @@ async def test_summarize_day_goes_to_granted_roles_and_asks_core() -> None:
     job = _with_tools(ToolPolicy(platform=(PlatformTool.CONVERSATION_DIGEST,)))
     assert SUMMARIZE_DAY_TOOL in granted_platform_tools(job, digests=True)
     digests = _Digests()
-    result = await summarize_day_tool(job, digests).handler({"day": "2026-11-23"})
+    result = await summarize_day_tool(CurrentJob(job), digests).handler({"day": "2026-11-23"})
     assert not result["is_error"]
     assert "2026-11-23: running" in result["content"][0]["text"]
     assert digests.calls == [
         (job.task_id, DigestRequest(lease_id=job.lease_id, day=date(2026, 11, 23)))
     ]
-    bad = await summarize_day_tool(job, digests).handler({"day": "yesterday"})
+    bad = await summarize_day_tool(CurrentJob(job), digests).handler({"day": "yesterday"})
     assert bad["is_error"]
     assert len(digests.calls) == 1

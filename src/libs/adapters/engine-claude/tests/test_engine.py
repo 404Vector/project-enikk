@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from claude_agent_sdk import (
@@ -32,6 +32,7 @@ from enikk_contracts.transcripts import (
     TranscriptSubpaths,
 )
 from enikk_engine_claude import sandbox
+from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
@@ -94,7 +95,7 @@ class FakeTranscripts:
 
 async def test_session_store_passes_the_sdk_conformance_suite() -> None:
     await run_session_store_conformance(
-        lambda: CoreSessionStore(FakeTranscripts(), uuid.uuid4(), uuid.uuid4()).as_sdk_store()
+        lambda: CoreSessionStore(FakeTranscripts(), CurrentJob(_job())).as_sdk_store()
     )
 
 
@@ -386,7 +387,7 @@ async def test_a_refused_resume_starts_a_new_session_with_the_old_conversation(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     transcripts = FakeTranscripts()
-    store = CoreSessionStore(transcripts, uuid.uuid4(), uuid.uuid4())
+    store = CoreSessionStore(transcripts, CurrentJob(_job()))
     project = project_key_for_directory(str(tmp_path / "work"))
     old_session = str(uuid.uuid4())
     entries: list[Any] = [
@@ -560,8 +561,7 @@ async def test_a_session_resumes_from_another_tasks_directory(tmp_path: Path) ->
     project = project_key_for_directory(str(tmp_path / "work" / str(earlier.task_id)))
     saved = CoreSessionStore(
         transcripts,
-        earlier.task_id,
-        earlier.lease_id,
+        CurrentJob(earlier),
         project_key=project_key_for_directory(str(tmp_path / "work")),
     )
     session = str(uuid.uuid4())
@@ -686,3 +686,31 @@ async def test_tool_env_cannot_set_the_token(tmp_path: Path) -> None:
     await engine.run(_job())
     assert script.options is not None
     assert ENV_TOKEN not in script.options.env
+
+
+async def test_the_store_writes_as_the_sessions_current_task() -> None:
+    """ADR-0041 §3: one session may serve several tasks; each write names the current one."""
+
+    class Recording(FakeTranscripts):
+        def __init__(self) -> None:
+            super().__init__()
+            self.callers: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+        async def append_transcript(
+            self, task_id: uuid.UUID, request: TranscriptAppend
+        ) -> TranscriptAppended:
+            self.callers.append((task_id, request.lease_id))
+            return await super().append_transcript(task_id, request)
+
+    transcripts = Recording()
+    first, second = _job(), _job()
+    current = CurrentJob(first)
+    store = CoreSessionStore(transcripts, current)
+    key = cast("Any", {"project_key": "p", "session_id": str(uuid.uuid4())})
+    await store.append(key, [cast("Any", {"type": "user", "uuid": str(uuid.uuid4())})])
+    current.job = second
+    await store.append(key, [cast("Any", {"type": "user", "uuid": str(uuid.uuid4())})])
+    assert transcripts.callers == [
+        (first.task_id, first.lease_id),
+        (second.task_id, second.lease_id),
+    ]

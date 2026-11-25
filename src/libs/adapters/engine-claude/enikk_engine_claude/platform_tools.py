@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool
 
     from enikk_contracts.memory import MemoryWritten
+    from enikk_engine_claude.current import CurrentJob
     from enikk_runtime.model import EngineJob
     from enikk_runtime.ports import (
         Diagnostician,
@@ -158,7 +159,7 @@ def granted_platform_tools(
 
 
 def platform_server(
-    job: EngineJob,
+    current: CurrentJob,
     memory: MemoryKeeper | None = None,
     diagnostics: Diagnostician | None = None,
     prompts: PromptProposer | None = None,
@@ -167,16 +168,16 @@ def platform_server(
     loaded: list[SkillUse] | None = None,
 ) -> McpSdkServerConfig | None:
     tools: list[SdkMcpTool[Any]] = []
-    if memory is not None and _defaults(job):
-        tools.extend(memory_tools(job, memory))
-    if diagnostics is not None and _defaults(job):
-        tools.extend(diagnostic_tools(job, diagnostics))
-    if prompts is not None and _grants_prompts(job):
-        tools.extend([read_prompt_tool(job, prompts), propose_prompt_tool(job, prompts)])
-    if digests is not None and _grants_digests(job):
-        tools.append(summarize_day_tool(job, digests))
-    if skills is not None and _has_skills(job):
-        tools.append(load_skill_tool(job, skills, [] if loaded is None else loaded))
+    if memory is not None and _defaults(current.job):
+        tools.extend(memory_tools(current, memory))
+    if diagnostics is not None and _defaults(current.job):
+        tools.extend(diagnostic_tools(current, diagnostics))
+    if prompts is not None and _grants_prompts(current.job):
+        tools.extend([read_prompt_tool(current, prompts), propose_prompt_tool(current, prompts)])
+    if digests is not None and _grants_digests(current.job):
+        tools.append(summarize_day_tool(current, digests))
+    if skills is not None and _has_skills(current.job):
+        tools.append(load_skill_tool(current, skills, [] if loaded is None else loaded))
     return create_sdk_mcp_server(SERVER, tools=tools) if tools else None
 
 
@@ -190,7 +191,7 @@ LOAD_SKILL_DESCRIPTION: Final = (
 
 
 def load_skill_tool(
-    job: EngineJob, skills: SkillLibrary, loaded: list[SkillUse]
+    current: CurrentJob, skills: SkillLibrary, loaded: list[SkillUse]
 ) -> SdkMcpTool[Any]:
     schema: dict[str, Any] = {
         "type": "object",
@@ -206,10 +207,10 @@ def load_skill_tool(
         except PromptUnavailableError:
             return _result("Langfuse is unreachable right now; try again later.", True)
         except PromptInvalidError as exc:
-            listed = ", ".join(s.name for s in job.skills or ()) or "none"
+            listed = ", ".join(s.name for s in current.job.skills or ()) or "none"
             return _result(f"No such skill: {exc.reason}. Skills: {listed}.", True)
         loaded.append(SkillUse(name=skill.name, version=skill.version))
-        _log.info("task %s loaded skill %s v%d", job.task_id, skill.name, skill.version)
+        _log.info("task %s loaded skill %s v%d", current.job.task_id, skill.name, skill.version)
         requires = ", ".join(c.value for c in skill.requires) or "none"
         return _result(
             f"[skill {skill.name} v{skill.version}; requires: {requires}]\n\n{skill.text}",
@@ -229,7 +230,7 @@ SUMMARIZE_DAY_DESCRIPTION: Final = (
 )
 
 
-def summarize_day_tool(job: EngineJob, digests: DigestRequester) -> SdkMcpTool[Any]:
+def summarize_day_tool(current: CurrentJob, digests: DigestRequester) -> SdkMcpTool[Any]:
     schema: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -242,12 +243,12 @@ def summarize_day_tool(job: EngineJob, digests: DigestRequester) -> SdkMcpTool[A
     async def summarize_day(args: dict[str, Any]) -> dict[str, Any]:
         try:
             request = DigestRequest(
-                lease_id=job.lease_id, day=date.fromisoformat(str(args.get("day", "")))
+                lease_id=current.job.lease_id, day=date.fromisoformat(str(args.get("day", "")))
             )
         except (ValidationError, ValueError):
             return _result("day must be a date: YYYY-MM-DD.", True)
         try:
-            accepted = await digests.request_digest(job.task_id, request)
+            accepted = await digests.request_digest(current.job.task_id, request)
         except CoreUnavailableError:
             return _result("The platform is unreachable right now; tell the owner.", True)
         except CoreApiError as exc:
@@ -267,7 +268,7 @@ READ_PROMPT_DESCRIPTION: Final = (
 )
 
 
-def read_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
+def read_prompt_tool(current: CurrentJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
     schema: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -282,7 +283,7 @@ def read_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]
     async def read_prompt(args: dict[str, Any]) -> dict[str, Any]:
         try:
             request = PromptReadRequest(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 prompt=str(args.get("prompt", "")),
                 label=str(args["label"]) if args.get("label") else None,
                 version=int(args["version"]) if args.get("version") else None,
@@ -290,7 +291,7 @@ def read_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]
         except (ValidationError, ValueError):
             return _result("prompt is required; give label or version, not both.", True)
         try:
-            found = await prompts.read_prompt(job.task_id, request)
+            found = await prompts.read_prompt(current.job.task_id, request)
         except CoreUnavailableError:
             return _result("The platform is unreachable right now.", True)
         except CoreApiError as exc:
@@ -313,7 +314,7 @@ def _config_change(raw: dict[str, Any]) -> PromptConfigChange:
     )
 
 
-def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
+def propose_prompt_tool(current: CurrentJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
     schema: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -344,7 +345,7 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
         try:
             config = _config_change(raw) if isinstance(raw, dict) else None
             request = PromptCandidateRequest(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 prompt=str(args.get("prompt", "")),
                 text=str(args.get("text", "")),
                 reason=str(args.get("reason", "")),
@@ -360,7 +361,7 @@ def propose_prompt_tool(job: EngineJob, prompts: PromptProposer) -> SdkMcpTool[A
                 True,
             )
         try:
-            created = await prompts.propose_prompt(job.task_id, request)
+            created = await prompts.propose_prompt(current.job.task_id, request)
         except CoreUnavailableError:
             return _result("The platform is unreachable right now; tell the owner.", True)
         except CoreApiError as exc:
@@ -382,7 +383,7 @@ DIAGNOSTICS_NOTE: Final = (
 )
 
 
-def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpTool[Any]]:
+def diagnostic_tools(current: CurrentJob, diagnostics: Diagnostician) -> list[SdkMcpTool[Any]]:
     task_id_schema: dict[str, Any] = {
         "type": "object",
         "properties": {"task_id": {"type": "string", "description": "A task ID (UUID)."}},
@@ -407,14 +408,14 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
     async def recent_tasks(args: dict[str, Any]) -> dict[str, Any]:
         try:
             query = RecentTasksQuery(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 status=TaskStatus(args["status"]) if args.get("status") else None,
                 role=str(args["role"]) if args.get("role") else None,
                 hours=int(args.get("hours") or 24),
             )
         except (ValidationError, ValueError):
             return _result("Invalid filters.", True)
-        return await _shown(diagnostics.diagnose_recent_tasks(job.task_id, query))
+        return await _shown(diagnostics.diagnose_recent_tasks(current.job.task_id, query))
 
     @tool(
         "task_detail",
@@ -424,10 +425,12 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
     )
     async def task_detail(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            query = TaskDetailQuery(lease_id=job.lease_id, task_id=uuid.UUID(str(args["task_id"])))
+            query = TaskDetailQuery(
+                lease_id=current.job.lease_id, task_id=uuid.UUID(str(args["task_id"]))
+            )
         except (ValidationError, ValueError, KeyError):
             return _result("task_id must be a task UUID.", True)
-        return await _shown(diagnostics.diagnose_task_detail(job.task_id, query))
+        return await _shown(diagnostics.diagnose_task_detail(current.job.task_id, query))
 
     @tool(
         "deployments",
@@ -436,8 +439,8 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
         {"type": "object", "properties": {}},
     )
     async def deployments(args: dict[str, Any]) -> dict[str, Any]:
-        query = DeploymentsQuery(lease_id=job.lease_id)
-        return await _shown(diagnostics.diagnose_deployments(job.task_id, query))
+        query = DeploymentsQuery(lease_id=current.job.lease_id)
+        return await _shown(diagnostics.diagnose_deployments(current.job.task_id, query))
 
     @tool(
         "service_logs",
@@ -461,14 +464,14 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
     async def service_logs(args: dict[str, Any]) -> dict[str, Any]:
         try:
             query = LogsQuery(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 service=Service(str(args.get("service", ""))),
                 minutes=int(args.get("minutes") or 30),
                 contains=str(args["contains"]) if args.get("contains") else None,
             )
         except (ValidationError, ValueError):
             return _result("Invalid query: check service, task_id and minutes.", True)
-        return await _shown(diagnostics.diagnose_logs(job.task_id, query))
+        return await _shown(diagnostics.diagnose_logs(current.job.task_id, query))
 
     @tool(
         "pull_requests",
@@ -477,8 +480,8 @@ def diagnostic_tools(job: EngineJob, diagnostics: Diagnostician) -> list[SdkMcpT
         {"type": "object", "properties": {}},
     )
     async def pull_requests(args: dict[str, Any]) -> dict[str, Any]:
-        query = PullsQuery(lease_id=job.lease_id)
-        return await _shown(diagnostics.diagnose_pulls(job.task_id, query))
+        query = PullsQuery(lease_id=current.job.lease_id)
+        return await _shown(diagnostics.diagnose_pulls(current.job.task_id, query))
 
     return [recent_tasks, task_detail, deployments, service_logs, pull_requests]
 
@@ -493,7 +496,7 @@ async def _shown(call: Awaitable[BaseModel]) -> dict[str, Any]:
     return _result(found.model_dump_json(indent=1, exclude_none=True), False)
 
 
-def memory_tools(job: EngineJob, memory: MemoryKeeper) -> list[SdkMcpTool[Any]]:
+def memory_tools(current: CurrentJob, memory: MemoryKeeper) -> list[SdkMcpTool[Any]]:
     kinds = [NoteKind.PREFERENCE.value, NoteKind.FACT.value, NoteKind.WORK.value]
     remember_schema: dict[str, Any] = {
         "type": "object",
@@ -527,7 +530,7 @@ def memory_tools(job: EngineJob, memory: MemoryKeeper) -> list[SdkMcpTool[Any]]:
             return _result("kind must be preference, fact or work.", True)
         try:
             request = RememberRequest(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 kind=kind,
                 title=str(args.get("title", "")),
                 text=str(args.get("text", "")),
@@ -536,36 +539,36 @@ def memory_tools(job: EngineJob, memory: MemoryKeeper) -> list[SdkMcpTool[Any]]:
             return _result(
                 "title and text are required (title 80, text 1000 characters at most).", True
             )
-        return await _written(memory.remember(job.task_id, request))
+        return await _written(memory.remember(current.job.task_id, request))
 
     @tool("update_memory", UPDATE_DESCRIPTION, path_text)
     async def update_memory(args: dict[str, Any]) -> dict[str, Any]:
         try:
             request = UpdateMemoryRequest(
-                lease_id=job.lease_id,
+                lease_id=current.job.lease_id,
                 path=str(args.get("path", "")),
                 text=str(args.get("text", "")),
             )
         except ValidationError:
             return _result("path and text are required (text 1000 characters at most).", True)
-        return await _written(memory.update_memory(job.task_id, request))
+        return await _written(memory.update_memory(current.job.task_id, request))
 
     @tool("forget_memory", FORGET_DESCRIPTION, path_only)
     async def forget_memory(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            request = ForgetRequest(lease_id=job.lease_id, path=str(args.get("path", "")))
+            request = ForgetRequest(lease_id=current.job.lease_id, path=str(args.get("path", "")))
         except ValidationError:
             return _result("path is required.", True)
-        return await _written(memory.forget_memory(job.task_id, request))
+        return await _written(memory.forget_memory(current.job.task_id, request))
 
     @tool("recall", RECALL_DESCRIPTION, query)
     async def recall(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            request = MemorySearch(lease_id=job.lease_id, query=str(args.get("query", "")))
+            request = MemorySearch(lease_id=current.job.lease_id, query=str(args.get("query", "")))
         except ValidationError:
             return _result("query is required (200 characters at most).", True)
         try:
-            found = await memory.search_memory(job.task_id, request)
+            found = await memory.search_memory(current.job.task_id, request)
         except CoreUnavailableError:
             return _result("The platform is unreachable right now.", True)
         except CoreApiError as exc:

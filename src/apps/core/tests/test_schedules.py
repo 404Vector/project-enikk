@@ -211,3 +211,18 @@ async def test_update_pause_resume_and_delete(harness: Harness, api: Api) -> Non
     assert deleted.status_code == 200
     missing = await api.post(routes.SCHEDULE_GET.format(name="news"), ScheduleQuery(caller=caller))
     assert missing.status_code == 404
+
+
+async def test_a_session_caller_is_its_running_task(harness: Harness, api: Api) -> None:
+    """ADR-0041 §3: the gateway names the session; core finds its running task."""
+    by_task = await _caller(harness)
+    async with harness.db.unit_of_work() as uow:
+        work = await uow.tasks.get_for_update(by_task.task_id)  # type: ignore[arg-type]
+    assert work is not None
+    caller = Caller(session_id=work.session_id)
+    listed = await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=caller))
+    assert listed.status_code == 200, listed.text
+    nobody = Caller(session_id=uuid.uuid4())
+    assert (await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=nobody))).status_code == 403
+    harness.clock.advance(timedelta(hours=2))
+    assert (await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=caller))).status_code == 403

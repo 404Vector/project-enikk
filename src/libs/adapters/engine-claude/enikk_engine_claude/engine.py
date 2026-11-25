@@ -43,6 +43,7 @@ from enikk_contracts.agents import Execution
 from enikk_contracts.common import Engine
 from enikk_engine_claude import github_access, kube_access, sandbox
 from enikk_engine_claude.audit import audit_hooks
+from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.failures import RunTrace, failure_of_exception, failure_of_result
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN as MCP_ENV_TOKEN
 from enikk_engine_claude.mcp_gateway import gateway_tools
@@ -212,7 +213,8 @@ class ClaudeEngine:
         return await self._attempt(job, None, with_history(job.input, history))
 
     async def _attempt(self, job: EngineJob, resume: str | None, prompt: str) -> EngineResult:
-        store = self._store(job)
+        current = CurrentJob(job)
+        store = self._store(current)
         self._config.scratch_dir.mkdir(parents=True, exist_ok=True)
         trace = RunTrace()
         cwd = self._cwd(job)
@@ -225,7 +227,7 @@ class ClaudeEngine:
             ):
                 _log.warning("task %s: Kubernetes credentials are not mounted", job.task_id)
             cwd.mkdir(parents=True, exist_ok=True)
-            options = self._options(job, store, Path(home), cwd, resume, trace)
+            options = self._options(current, store, Path(home), cwd, resume, trace)
             try:
                 with _temp_root(self._config.scratch_dir):
                     await self._consume(job, self._query(prompt=prompt, options=options), trace)
@@ -250,7 +252,7 @@ class ClaudeEngine:
         """The saved transcript of the session that could not be resumed, if core has it."""
         if job.engine_session_id is None:
             return []
-        store = self._store(job)
+        store = self._store(CurrentJob(job))
         key: SessionKey = {
             "project_key": self._project_key(),
             "session_id": job.engine_session_id,
@@ -266,10 +268,8 @@ class ClaudeEngine:
         """The transcript key of every session: from ``workdir``, whatever the cwd."""
         return project_key_for_directory(str(self._config.workdir))
 
-    def _store(self, job: EngineJob) -> CoreSessionStore:
-        return CoreSessionStore(
-            self._transcripts, job.task_id, job.lease_id, project_key=self._project_key()
-        )
+    def _store(self, current: CurrentJob) -> CoreSessionStore:
+        return CoreSessionStore(self._transcripts, current, project_key=self._project_key())
 
     def _cwd(self, job: EngineJob) -> Path:
         """A shared role runs in its own directory under ``workdir``, so tasks running
@@ -280,20 +280,21 @@ class ClaudeEngine:
 
     def _options(
         self,
-        job: EngineJob,
+        current: CurrentJob,
         store: CoreSessionStore,
         home: Path,
         cwd: Path,
         resume: str | None,
         trace: RunTrace,
     ) -> ClaudeAgentOptions:
+        job = current.job
         effort = job.prompt.parameters.get("effort")
         unknown = sorted(set(job.prompt.parameters) - _KNOWN_CONFIG)
         if unknown:
             _log.warning("prompt %s: ignoring unsupported config keys %s", job.prompt.name, unknown)
         builtin = self._builtin(job)
         server = platform_server(
-            job,
+            current,
             self._memory,
             self._diagnostics,
             self._prompts,
@@ -323,7 +324,7 @@ class ClaudeEngine:
             session_store=store.as_sdk_store(),
             client_app=self._config.client_app,
             cli_path=self._config.launcher,
-            hooks=audit_hooks(job),
+            hooks=audit_hooks(current),
             env={
                 **{k: v for k, v in self._config.tool_env.items() if k not in _TOKEN_NAMES},
                 **self._sandbox_env(home, cwd, job),

@@ -19,7 +19,7 @@ from enikk_kernel.redaction import redact
 if TYPE_CHECKING:
     from claude_agent_sdk.types import HookContext, HookEvent, HookInput, HookJSONOutput
 
-    from enikk_runtime.model import EngineJob
+    from enikk_engine_claude.current import CurrentJob
 
 AUDITED: Final = ("Bash", "Monitor", "WebFetch", "WebSearch")
 MAX_LOGGED: Final = 2_000
@@ -56,9 +56,9 @@ def described(tool: str, tool_input: dict[str, Any]) -> str:
     return str(tool_input)
 
 
-def audit_hooks(job: EngineJob) -> dict[HookEvent, list[HookMatcher]]:
-    """PreToolUse hooks for ``job``. A failing hook blocks the tool instead of skipping
-    the record (``on_failure="block"``)."""
+def audit_hooks(current: CurrentJob) -> dict[HookEvent, list[HookMatcher]]:
+    """PreToolUse hooks for the session's current task. A failing hook blocks the tool
+    instead of skipping the record (``on_failure="block"``)."""
 
     async def audit(
         data: HookInput, tool_use_id: str | None, context: HookContext
@@ -70,15 +70,15 @@ def audit_hooks(job: EngineJob) -> dict[HookEvent, list[HookMatcher]]:
         audit_log.info(
             "tool %s role %s task %s: %s",
             tool,
-            job.definition.name,
-            job.task_id,
+            current.job.definition.name,
+            current.job.task_id,
             redact(detail)[:MAX_LOGGED],
         )
         if tool == "WebFetch" and internal_url(detail):
             audit_log.warning(
                 "tool WebFetch role %s task %s: refused an internal address",
-                job.definition.name,
-                job.task_id,
+                current.job.definition.name,
+                current.job.task_id,
             )
             return {
                 "hookSpecificOutput": {
