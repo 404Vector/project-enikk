@@ -150,18 +150,6 @@ class MemorySettings(SettingsModel):
     context_chars: int = Field(default=4_000, ge=0, le=20_000)
 
 
-class DigestSettings(SettingsModel):
-    """Daily conversation summaries in the vault (ADR-0035). Needs enikk's memory."""
-
-    enabled: bool = False
-    interval_seconds: float = Field(default=300.0, ge=15, le=3600)
-    timezone: str = "Asia/Seoul"
-    run_hour: int = Field(default=4, ge=0, le=23)
-    catchup_days: int = Field(default=2, ge=1, le=14)
-    max_auto_attempts: int = Field(default=2, ge=1, le=5)
-    agent: str = "summarizer"
-
-
 class DiagnosticsSettings(SettingsModel):
     """Read-only diagnostics for enikk (ADR-0029)."""
 
@@ -201,7 +189,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     approval: ApprovalSettings = ApprovalSettings()
     deployments: DeploymentSettings = DeploymentSettings()
     memory: MemorySettings = MemorySettings()
-    digests: DigestSettings = DigestSettings()
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
     prompts: PromptSettings = PromptSettings()
     wakeups: WakeupSettings = WakeupSettings()

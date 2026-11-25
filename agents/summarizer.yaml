@@ -1,12 +1,13 @@
 name: summarizer
-description: Summarizes one day's conversations for the owner's vault; core starts it every day
+description: Summarizes one day's conversations for the owner's vault; the conversation-summary schedule runs it
 engine: claude
 prompt:
   name: conversation-summary
   label: production
 # No tools at all: no built-in tools, no platform tools, not even memory or diagnostics
-# (ADR-0035, I-38). Its input is the day's conversations, which it must not obey; core
-# writes the result to the vault, masks secrets and keeps it under Private/enikk/대화/.
+# (ADR-0035, I-38). Schedules whose input is the day's conversations run as this agent
+# (ADR-0039 S7); it must not obey that input. Core masks secrets and writes the result
+# under Private/enikk/.
 tools:
   mcp: []
   builtin: []

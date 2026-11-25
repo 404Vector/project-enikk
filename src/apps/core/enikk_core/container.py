@@ -13,7 +13,6 @@ from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
 from enikk_core.diagnostics import DiagnosticsPolicy, DiagnosticsService
-from enikk_core.digests import DigestPolicy, DigestService
 from enikk_core.github import (
     GitHubHealthCheck,
     load_repository_policy,
@@ -30,7 +29,6 @@ from enikk_core.usecases import CoreUseCases
 from enikk_core.wakeups import SessionWaker
 from enikk_core_domain.auth import RoleDirectory
 from enikk_core_domain.deployments import WatchTiming
-from enikk_core_domain.digests import DigestSchedule
 from enikk_core_domain.memory import MemoryLayout
 from enikk_github.activity import RepositoryActivity
 from enikk_github.app import GitHubApp
@@ -104,8 +102,6 @@ def build_services(settings: CoreSettings) -> CoreServices:
         memory_interval_seconds=settings.memory.interval_seconds,
         diagnostics=_diagnostics(settings, store, clock, uow),
         prompts=_prompts(settings, store, catalog, clock, uow, ids, waker),
-        digests=_digests(settings, memory, catalog, clock, uow, ids),
-        digest_interval_seconds=settings.digests.interval_seconds,
         schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids, memory=memory),
     )
 
@@ -128,36 +124,6 @@ def _github_tokens(
         GitHubApp.create(config, private_key, clock),
         settings.github.self_repository,
         workflows=policy.own.workflows,
-    )
-
-
-def _digests(
-    settings: CoreSettings,
-    memory: MemoryService | None,
-    catalog: YamlAgentCatalog,
-    clock: SystemClock,
-    uow: SqlUnitOfWorkFactory,
-    ids: RandomIdGenerator,
-) -> DigestService | None:
-    d = settings.digests
-    if memory is None or not d.enabled:
-        return None
-    return DigestService(
-        uow=uow,
-        catalog=catalog,
-        memory=memory,
-        clock=clock,
-        ids=ids,
-        policy=DigestPolicy(
-            schedule=DigestSchedule(
-                timezone=d.timezone,
-                run_hour=d.run_hour,
-                catchup_days=d.catchup_days,
-                max_auto_attempts=d.max_auto_attempts,
-            ),
-            agent=d.agent,
-            max_task_attempts=settings.tasks.max_attempts,
-        ),
     )
 
 

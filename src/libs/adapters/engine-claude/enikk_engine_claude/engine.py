@@ -69,7 +69,6 @@ if TYPE_CHECKING:
     from enikk_runtime.model import EngineJob, SkillUse
     from enikk_runtime.ports import (
         Diagnostician,
-        DigestRequester,
         MemoryKeeper,
         PromptProposer,
         SkillLibrary,
@@ -166,7 +165,6 @@ class ClaudeEngine:
         memory: MemoryKeeper | None = None,
         diagnostics: Diagnostician | None = None,
         prompts: PromptProposer | None = None,
-        digests: DigestRequester | None = None,
         skills: SkillLibrary | None = None,
         query_fn: QueryFn = query,
         client_fn: ClientFn = ClaudeSDKClient,
@@ -178,7 +176,6 @@ class ClaudeEngine:
         self._memory = memory
         self._diagnostics = diagnostics
         self._prompts = prompts
-        self._digests = digests
         self._skills = skills
         self._query = query_fn
         self._client = client_fn
@@ -398,7 +395,6 @@ class ClaudeEngine:
             self._memory,
             self._diagnostics,
             self._prompts,
-            self._digests,
             self._skills,
             loaded,
         )
@@ -492,7 +488,6 @@ class ClaudeEngine:
             memory=self._memory is not None,
             diagnostics=self._diagnostics is not None,
             prompts=self._prompts is not None,
-            digests=self._digests is not None,
             skills=self._skills is not None,
         )
 
