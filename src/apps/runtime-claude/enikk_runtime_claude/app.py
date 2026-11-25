@@ -102,6 +102,7 @@ class RuntimeClaudeApp:
                 diagnostics=core,
                 prompts=core,
                 skills=skills,
+                thread=core,
             )
             worker = TaskWorker(
                 core=core,

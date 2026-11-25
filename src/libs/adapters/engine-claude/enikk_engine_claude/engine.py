@@ -72,6 +72,7 @@ if TYPE_CHECKING:
         MemoryKeeper,
         PromptProposer,
         SkillLibrary,
+        ThreadPoster,
     )
 
     QueryFn = Callable[..., AsyncIterator[Message]]
@@ -166,6 +167,7 @@ class ClaudeEngine:
         diagnostics: Diagnostician | None = None,
         prompts: PromptProposer | None = None,
         skills: SkillLibrary | None = None,
+        thread: ThreadPoster | None = None,
         query_fn: QueryFn = query,
         client_fn: ClientFn = ClaudeSDKClient,
         landlock: bool | None = None,
@@ -177,6 +179,7 @@ class ClaudeEngine:
         self._diagnostics = diagnostics
         self._prompts = prompts
         self._skills = skills
+        self._thread = thread
         self._query = query_fn
         self._client = client_fn
         self._live = None if config.live is None else LivePool(config.live)
@@ -401,6 +404,7 @@ class ClaudeEngine:
             self._prompts,
             self._skills,
             loaded,
+            self._thread,
         )
         platform = self._platform(job) if server is not None else []
         mcp = gateway_tools(job, self._config.mcp_gateway, reserved=PLATFORM_SERVER)
@@ -493,6 +497,7 @@ class ClaudeEngine:
             diagnostics=self._diagnostics is not None,
             prompts=self._prompts is not None,
             skills=self._skills is not None,
+            thread=self._thread is not None,
         )
 
     async def _consume(

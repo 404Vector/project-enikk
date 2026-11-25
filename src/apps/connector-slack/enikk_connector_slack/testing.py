@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from enikk_connector_slack.events import MessageRef
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
     from enikk_contracts.events import InboundEvent
-    from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxPoll
+    from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxFile, OutboxPoll
     from enikk_contracts.prompts import PromotionDecision, PromotionPosted
     from enikk_contracts.threads import ReviewThreadOpened
 
@@ -69,6 +69,13 @@ class FakeCore:
         self.promotions_posted: list[tuple[uuid.UUID, PromotionPosted]] = []
         self.cancels: list[uuid.UUID] = []
         self.cancel_finds_nothing = False
+        self.files: dict[uuid.UUID, OutboxFile] = {}
+
+    async def outbox_file(self, message_id: uuid.UUID) -> OutboxFile:
+        found = self.files.get(message_id)
+        if found is None:
+            raise CoreNotFoundError("no file")
+        return found
 
     async def submit_event(self, event: InboundEvent) -> EventAccepted:
         if self.fail_with is not None:
@@ -150,6 +157,8 @@ class FakeSlack:
         self.replies: list[tuple[str, str, Message]] = []
         self.fail_replies: list[Exception] = []
         self.uploads: list[tuple[str, str, str, str]] = []
+        self.files: list[tuple[str, str, str, bytes, str]] = []
+        self.fail_files: list[Exception] = []
         self.updates: list[tuple[str, str, list[dict[str, JsonValue]]]] = []
         self.no_permalinks = False
         self.ephemerals: list[tuple[str, str, str]] = []
@@ -185,6 +194,13 @@ class FakeSlack:
         self, channel: str, thread: str, filename: str, content: str, title: str
     ) -> None:
         self.uploads.append((channel, thread, filename, content))
+
+    async def upload_file(
+        self, channel: str, thread: str, filename: str, content: bytes, title: str
+    ) -> None:
+        if self.fail_files:
+            raise self.fail_files.pop(0)
+        self.files.append((channel, thread, filename, content, title))
 
     async def update_message(
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]

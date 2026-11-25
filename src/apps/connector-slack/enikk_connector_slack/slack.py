@@ -91,6 +91,18 @@ class SlackWebApi:
         except (aiohttp.ClientError, TimeoutError) as exc:
             _log.warning("could not attach %s: %r", filename, exc)
 
+    async def upload_file(
+        self, channel: str, thread: str, filename: str, content: bytes, title: str
+    ) -> None:
+        try:
+            await self._web.files_upload_v2(
+                channel=channel, thread_ts=thread, filename=filename, content=content, title=title
+            )
+        except SlackApiError as exc:
+            raise _delivery_error("files.uploadV2", exc) from exc
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise SlackDeliveryError(f"files.uploadV2: {exc!r}", transient=True) from exc
+
     async def update_message(
         self, channel: str, ts: str, text: str, blocks: list[dict[str, JsonValue]]
     ) -> None:

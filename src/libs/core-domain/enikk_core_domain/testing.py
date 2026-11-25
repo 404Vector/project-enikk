@@ -38,6 +38,7 @@ from enikk_core_domain.model import (
     Dispatch,
     Notice,
     NoticeStatus,
+    OutboxFile,
     OutboxMessage,
     OutboxStatus,
     ReviewMessageRef,
@@ -131,6 +132,7 @@ class InMemoryDatabase:
         self.sessions: dict[uuid.UUID, Session] = {}
         self.tasks: dict[uuid.UUID, Task] = {}
         self.outbox: dict[uuid.UUID, OutboxMessage] = {}
+        self.outbox_files: dict[uuid.UUID, OutboxFile] = {}
         self.transcripts: dict[_Slot, tuple[TranscriptEntry, ...]] = {}
         self.dispatches: dict[uuid.UUID, Dispatch] = {}
         self.approvals: dict[uuid.UUID, Approval] = {}
@@ -154,6 +156,7 @@ class _Staged:
         self.sessions = dict(db.sessions)
         self.tasks = dict(db.tasks)
         self.outbox = dict(db.outbox)
+        self.outbox_files = dict(db.outbox_files)
         self.transcripts = dict(db.transcripts)
         self.dispatches = dict(db.dispatches)
         self.approvals = dict(db.approvals)
@@ -490,6 +493,18 @@ class _Outbox:
     async def update(self, message: OutboxMessage) -> None:
         self._s.outbox[message.id] = message
 
+    async def add_file(self, file: OutboxFile) -> None:
+        self._s.outbox_files[file.message_id] = file
+
+    async def file(self, message_id: uuid.UUID) -> OutboxFile | None:
+        return self._s.outbox_files.get(message_id)
+
+    async def drop_file(self, message_id: uuid.UUID) -> None:
+        self._s.outbox_files.pop(message_id, None)
+
+    async def count_of_task(self, task_id: uuid.UUID, kind: OutboundKind) -> int:
+        return sum(1 for m in self._s.outbox.values() if m.task_id == task_id and m.kind is kind)
+
 
 type _Slot = tuple[uuid.UUID, str, str, str]
 
@@ -638,6 +653,7 @@ class InMemoryUnitOfWork:
         self._db.sessions = dict(self._staged.sessions)
         self._db.tasks = dict(self._staged.tasks)
         self._db.outbox = dict(self._staged.outbox)
+        self._db.outbox_files = dict(self._staged.outbox_files)
         self._db.transcripts = dict(self._staged.transcripts)
         self._db.dispatches = dict(self._staged.dispatches)
         self._db.approvals = dict(self._staged.approvals)
@@ -735,6 +751,28 @@ async def check_round_trip(new_uow: UnitOfWorkFactory) -> None:
         _expect(list(await uow.outbox.pending(ConnectorKind.SLACK, 10)) == [message], "pending")
         many = await uow.outbox.get_many(ConnectorKind.SLACK, [message.id, uuid.uuid4()])
         _expect(list(many) == [message], "get_many")
+
+
+async def check_outbox_files(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    message = outbox_message(owner, work).model_copy(update={"kind": OutboundKind.FILE})
+    file = OutboxFile(message_id=message.id, filename="a.png", content=b"\x89PNG")
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.outbox.add(message)
+        await uow.outbox.add_file(file)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.outbox.file(message.id) == file, "file by message")
+        _expect(await uow.outbox.count_of_task(work.id, OutboundKind.FILE) == 1, "file count")
+        _expect(await uow.outbox.count_of_task(work.id, OutboundKind.REPLY) == 0, "reply count")
+        await uow.outbox.drop_file(message.id)
+        await uow.outbox.drop_file(message.id)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.outbox.file(message.id) is None, "file dropped")
 
 
 async def check_updates_persist(new_uow: UnitOfWorkFactory) -> None:
@@ -1340,6 +1378,7 @@ async def check_active_in_session(new_uow: UnitOfWorkFactory) -> None:
 
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
+    check_outbox_files,
     check_updates_persist,
     check_rollback_without_commit,
     check_duplicate_event_rejected,

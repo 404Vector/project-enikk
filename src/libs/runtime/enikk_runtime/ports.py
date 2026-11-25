@@ -45,6 +45,11 @@ if TYPE_CHECKING:
         ResultAccepted,
         ResultReport,
     )
+    from enikk_contracts.thread_actions import (
+        ThreadActionDone,
+        ThreadFileRequest,
+        ThreadReactionRequest,
+    )
     from enikk_runtime.model import (
         EngineJob,
         EngineResult,
@@ -77,6 +82,18 @@ class MemoryKeeper(Protocol):
     ) -> MemoryWritten: ...
     async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten: ...
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches: ...
+
+
+class ThreadPoster(Protocol):
+    """Files and reactions for the thread a task answers (ADR-0042). ``CoreClient``."""
+
+    async def post_thread_file(
+        self, task_id: uuid.UUID, request: ThreadFileRequest
+    ) -> ThreadActionDone: ...
+
+    async def react_in_thread(
+        self, task_id: uuid.UUID, request: ThreadReactionRequest
+    ) -> ThreadActionDone: ...
 
 
 class PromptProposer(Protocol):

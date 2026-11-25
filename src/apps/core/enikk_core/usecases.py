@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final
@@ -9,7 +11,13 @@ from typing import TYPE_CHECKING, Final
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.events import EventAccepted
-from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxAcked, OutboxBatch
+from enikk_contracts.outbox import (
+    OutboundKind,
+    OutboundMessage,
+    OutboxAcked,
+    OutboxBatch,
+    OutboxFile,
+)
 from enikk_contracts.tasks import (
     HELD_EVENT_PREFIX,
     CancelResult,
@@ -20,14 +28,18 @@ from enikk_contracts.tasks import (
     TaskAssignment,
     TaskStatus,
 )
+from enikk_contracts.thread_actions import MAX_FILE_BYTES, MAX_FILES_PER_TASK
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core.threads import delegated_status
 from enikk_core_domain.errors import (
+    InvalidRequestError,
     NotFoundError,
     PermissionDeniedError,
     UnknownAgentError,
 )
+from enikk_core_domain.model import OutboxFile as StoredFile
 from enikk_core_domain.model import OutboxMessage, Session, Task
+from enikk_core_domain.redaction import looks_secret
 from enikk_core_domain.thread_context import MAX_MESSAGES, with_thread_context
 
 if TYPE_CHECKING:
@@ -42,6 +54,7 @@ if TYPE_CHECKING:
     from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.thread_actions import ThreadFileRequest, ThreadReactionRequest
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core.github_tokens import SessionGitHubTokens
     from enikk_core.mcp_tokens import McpTokenIssuer
@@ -161,8 +174,21 @@ class CoreUseCases:
                 if delivered is not message:
                     await uow.outbox.update(delivered)
                     changed += 1
+                if message.kind is OutboundKind.FILE:
+                    await uow.outbox.drop_file(message.id)
             await uow.commit()
         return OutboxAcked(acknowledged=changed)
+
+    async def outbox_file(self, connector: ConnectorKind, message_id: uuid.UUID) -> OutboxFile:
+        """The bytes of an undelivered ``FILE`` message of ``connector`` (ADR-0042)."""
+        async with self._uow() as uow:
+            found = await uow.outbox.get_many(connector, [message_id])
+            file = await uow.outbox.file(message_id) if found else None
+        if file is None:
+            raise NotFoundError(f"no file for outbox message {message_id}")
+        return OutboxFile(
+            filename=file.filename, content_base64=base64.b64encode(file.content).decode()
+        )
 
     async def cancel_task(self, connector: ConnectorKind, task_id: uuid.UUID) -> CancelResult:
         """Cancel the queued and running tasks of ``task_id``'s session (ADR-0037 3b).
@@ -348,6 +374,59 @@ class CoreUseCases:
         async with self._uow() as uow:
             await self._leased_task(uow, scope, task_id, lease_id)
 
+    # ------------------------------------------------------------ thread actions (ADR-0042)
+
+    async def post_file(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: ThreadFileRequest
+    ) -> None:
+        """Queue a file for the Slack thread the task answers."""
+        content = _decoded(request.content_base64)
+        if _text_with_secret(content):
+            raise InvalidRequestError("this file looks like it holds a secret; it was not sent")
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
+            session = await self._slack_session(uow, task)
+            if await uow.outbox.count_of_task(task.id, OutboundKind.FILE) >= MAX_FILES_PER_TASK:
+                raise InvalidRequestError(f"at most {MAX_FILES_PER_TASK} files per task")
+            message = self._thread_message(task, session, OutboundKind.FILE, request.title)
+            await uow.outbox.add(message)
+            await uow.outbox.add_file(
+                StoredFile(message_id=message.id, filename=request.filename, content=content)
+            )
+            await uow.commit()
+        _log.info("task %s queued file %s (%d bytes)", task.id, request.filename, len(content))
+
+    async def react(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: ThreadReactionRequest
+    ) -> None:
+        """Queue an emoji for the owner's message the task answers."""
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
+            session = await self._slack_session(uow, task)
+            await uow.outbox.add(
+                self._thread_message(task, session, OutboundKind.REACTION, request.name)
+            )
+            await uow.commit()
+
+    async def _slack_session(self, uow: UnitOfWork, task: Task) -> Session:
+        session = await self._session_of(uow, task)
+        if session.conversation.connector is not ConnectorKind.SLACK:
+            raise PermissionDeniedError("only a Slack thread takes files and reactions")
+        return session
+
+    def _thread_message(
+        self, task: Task, session: Session, kind: OutboundKind, text: str
+    ) -> OutboxMessage:
+        return OutboxMessage(
+            id=self._ids.new(),
+            task_id=task.id,
+            source_event_id=task.source_event_id,
+            conversation=session.outbox_conversation,
+            kind=kind,
+            text=text,
+            created_at=self._clock.now(),
+        )
+
     # ------------------------------------------------------------ transcripts (ADR-0014)
 
     async def append_transcript(
@@ -462,3 +541,21 @@ def _outbound(message: OutboxMessage) -> OutboundMessage:
         kind=message.kind,
         text=message.text,
     )
+
+
+def _decoded(content_base64: str) -> bytes:
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise InvalidRequestError("content_base64 is not base64") from exc
+    if not content or len(content) > MAX_FILE_BYTES:
+        raise InvalidRequestError(f"a file must have 1 to {MAX_FILE_BYTES} bytes")
+    return content
+
+
+def _text_with_secret(content: bytes) -> bool:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return looks_secret(text)

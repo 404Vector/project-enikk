@@ -17,7 +17,7 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
 from enikk_contracts.memory import MemoryMatches, MemoryWritten
-from enikk_contracts.outbox import OutboxAcked, OutboxBatch
+from enikk_contracts.outbox import OutboxAcked, OutboxBatch, OutboxFile, OutboxFileQuery
 from enikk_contracts.prompts import (
     PromotionLinked,
     PromotionResult,
@@ -39,6 +39,7 @@ from enikk_contracts.tasks import (
     LeaseResponse,
     ResultAccepted,
 )
+from enikk_contracts.thread_actions import ThreadActionDone
 from enikk_contracts.threads import ReviewThreadLinked
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core_client.errors import ERRORS_BY_CODE, CoreApiError, CoreUnavailableError
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
         ScheduleUpdate,
     )
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
+    from enikk_contracts.thread_actions import ThreadFileRequest, ThreadReactionRequest
     from enikk_contracts.threads import ReviewThreadOpened
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core_client.tokens import TokenSource
@@ -151,6 +153,11 @@ class CoreClient:
 
     async def ack_outbox(self, ack: OutboxAck) -> OutboxAcked:
         return _parse(OutboxAcked, await self._post(routes.OUTBOX_ACK, ack))
+
+    async def outbox_file(self, message_id: uuid.UUID) -> OutboxFile:
+        """The bytes of a ``FILE`` outbox message (ADR-0042)."""
+        path = routes.OUTBOX_FILE.format(message_id=message_id)
+        return _parse(OutboxFile, await self._post(path, OutboxFileQuery(), 60))
 
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult:
         """Slack connector only: cancel the queued and running work of the task's thread."""
@@ -238,6 +245,20 @@ class CoreClient:
     async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten:
         path = routes.MEMORY_FORGET.format(task_id=task_id)
         return _parse(MemoryWritten, await self._post(path, request, 60))
+
+    async def post_thread_file(
+        self, task_id: uuid.UUID, request: ThreadFileRequest
+    ) -> ThreadActionDone:
+        """Post a file to the thread the task answers (ADR-0042)."""
+        path = routes.THREAD_FILE.format(task_id=task_id)
+        return _parse(ThreadActionDone, await self._post(path, request, 60))
+
+    async def react_in_thread(
+        self, task_id: uuid.UUID, request: ThreadReactionRequest
+    ) -> ThreadActionDone:
+        """Put an emoji on the owner's message the task answers (ADR-0042)."""
+        path = routes.THREAD_REACTION.format(task_id=task_id)
+        return _parse(ThreadActionDone, await self._post(path, request))
 
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches:
         path = routes.MEMORY_SEARCH.format(task_id=task_id)
