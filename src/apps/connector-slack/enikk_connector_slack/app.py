@@ -14,6 +14,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from enikk_connector_slack.approvals import ApprovalActions, NoticeRelay
 from enikk_connector_slack.config import SlackConfig
 from enikk_connector_slack.inbound import InboundHandler
+from enikk_connector_slack.marks import Marker
 from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
 from enikk_connector_slack.routing import Router
 from enikk_connector_slack.slack import SlackWebApi, SocketListener
@@ -54,7 +55,8 @@ class ConnectorSlackApp:
             web = AsyncWebClient(token=bot_token.get_secret_value())
             slack = SlackWebApi(web)
             router = Router(config, bot_user_id=await slack.bot_user_id())
-            handler = InboundHandler(core, slack, router, s.submit_timeout_seconds)
+            marker = Marker(slack, config.reactions)
+            handler = InboundHandler(core, slack, router, s.submit_timeout_seconds, marker)
             relay = OutboxRelay(
                 core,
                 slack,
@@ -63,6 +65,7 @@ class ConnectorSlackApp:
                     batch=s.outbox.batch,
                     backoff_max_seconds=s.outbox.backoff_max_seconds,
                 ),
+                marker=marker,
             )
             socket = SocketModeClient(app_token=app_token.get_secret_value(), web_client=web)
             notices = NoticeRelay(

@@ -8,14 +8,17 @@ import pytest
 
 from enikk_connector_slack import blocks
 from enikk_connector_slack.approvals import ApprovalActions
-from enikk_connector_slack.inbound import RECEIVED, WAITING
-from enikk_connector_slack.outbound import CANCELLED, REPLIED, OutboxRelay, RelayPolicy
+from enikk_connector_slack.marks import STANDARD, Mark
+from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
 from enikk_connector_slack.testing import CONFIG, OWNER, FakeCore, FakeSlack
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.outbox import OutboundKind, OutboundMessage
 from enikk_core_client import CoreUnavailableError
 
 pytestmark = pytest.mark.anyio
+
+WAITING, RECEIVED = STANDARD[Mark.WAITING], STANDARD[Mark.RUNNING]
+CANCELLED, REPLIED = STANDARD[Mark.CANCELLED], STANDARD[Mark.REPLIED]
 
 POLICY = RelayPolicy(wait_seconds=0, batch=10, backoff_max_seconds=4)
 TASK = uuid.uuid4()

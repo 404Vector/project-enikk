@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final
 
 from enikk_connector_slack import blocks
 from enikk_connector_slack.events import MessageRef
-from enikk_connector_slack.inbound import RECEIVED, WAITING
+from enikk_connector_slack.marks import Mark, Marker, Reactions
 from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
 from enikk_core_client import CoreNotFoundError, CoreUnavailableError
@@ -25,9 +25,11 @@ if TYPE_CHECKING:
 
     Sleep = Callable[[float], Awaitable[None]]
 
-REPLIED: Final = "white_check_mark"
-FAILED: Final = "x"
-CANCELLED: Final = "no_entry_sign"
+MEMORY_MARKS: Final = {
+    OutboundKind.REMEMBERED: Mark.REMEMBERED,
+    OutboundKind.MEMORY_UPDATED: Mark.MEMORY_UPDATED,
+    OutboundKind.FORGOTTEN: Mark.FORGOTTEN,
+}
 FAILURE_PREFIX: Final = ":warning: 요청을 처리하지 못했습니다.\n"
 FILE_FAILED: Final = ":warning: 파일 {name} 을 올리지 못했습니다."
 
@@ -52,9 +54,11 @@ class OutboxRelay:
         slack: SlackApi,
         policy: RelayPolicy,
         sleep: Sleep = asyncio.sleep,
+        marker: Marker | None = None,
     ) -> None:
         self._core = core
         self._slack = slack
+        self._marker = Marker(slack, Reactions()) if marker is None else marker
         self._policy = policy
         self._sleep = sleep
         self._buttons: dict[uuid.UUID, PostedMessage] = {}
@@ -98,6 +102,11 @@ class OutboxRelay:
             if source is not None:
                 await self._slack.react(source, message.text)
             return
+        if message.kind in MEMORY_MARKS:
+            source = MessageRef.parse(message.source_event_id)
+            if source is not None:
+                await self._marker.mark(source, MEMORY_MARKS[message.kind])
+            return
         conversation = message.conversation
         replied = message.kind is OutboundKind.REPLY
         try:
@@ -114,9 +123,9 @@ class OutboxRelay:
             await self._slack.delete_message(button.channel, button.ts)
         source = MessageRef.parse(message.source_event_id)
         if source is not None:
-            await self._slack.unreact(source, WAITING)
-            await self._slack.unreact(source, RECEIVED)
-            await self._slack.react(source, _mark(message.kind, replied=replied))
+            await self._marker.unmark(source, Mark.WAITING)
+            await self._marker.unmark(source, Mark.RUNNING)
+            await self._marker.mark(source, _mark(message.kind, replied=replied))
 
     async def _file(self, message: OutboundMessage) -> None:
         """Attach the message's file in its thread (ADR-0042); say so when Slack refuses it."""
@@ -148,8 +157,8 @@ class OutboxRelay:
             return
         source = MessageRef.parse(message.source_event_id)
         if source is not None:
-            await self._slack.unreact(source, WAITING)
-            await self._slack.react(source, RECEIVED)
+            await self._marker.unmark(source, Mark.WAITING)
+            await self._marker.mark(source, Mark.RUNNING)
         conversation = message.conversation
         try:
             posted = await self._slack.post_message(
@@ -165,10 +174,10 @@ class OutboxRelay:
         self._buttons[message.task_id] = posted
 
 
-def _mark(kind: OutboundKind, *, replied: bool) -> str:
+def _mark(kind: OutboundKind, *, replied: bool) -> Mark:
     if kind is OutboundKind.CANCELLED:
-        return CANCELLED
-    return REPLIED if replied else FAILED
+        return Mark.CANCELLED
+    return Mark.REPLIED if replied else Mark.FAILED
 
 
 def _text(message: OutboundMessage) -> str:

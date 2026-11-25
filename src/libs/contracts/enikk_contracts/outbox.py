@@ -27,6 +27,10 @@ class OutboundKind(StrEnum):
     """A file for the thread; ``text`` is its title, the bytes come from ``OUTBOX_FILE``."""
     REACTION = "reaction"
     """An emoji on the message the task answers; ``text`` is the emoji name (ADR-0042)."""
+    REMEMBERED = "remembered"
+    """The task kept a memory note; shown as a mark on the message, ``text`` is the record."""
+    MEMORY_UPDATED = "memory_updated"
+    FORGOTTEN = "forgotten"
 
 
 class OutboundMessage(Contract):

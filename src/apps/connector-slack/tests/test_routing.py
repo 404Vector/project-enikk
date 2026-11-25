@@ -73,6 +73,7 @@ def test_message_ref_round_trips_through_the_event_id() -> None:
 
 def test_repository_config_is_valid_and_names_defined_agents() -> None:
     config = SlackConfig.load(REPO / "config" / "slack.yaml")
+    assert config.reactions.replied == "e-done"
     assert config.owner == "U04CF12EKRA"
     for agent in (config.routes.direct_message, config.routes.mention):
         assert (REPO / "agents" / f"{agent}.yaml").is_file()

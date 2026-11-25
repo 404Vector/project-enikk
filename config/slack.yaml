@@ -19,3 +19,16 @@ deploy_notify_channel: C0CKT1ZNZ43  # #release
 # member (a private channel needs /invite). If posting there fails, the request goes
 # to the owner's DM instead. ENIKK_CONNECTOR_APPROVAL_CHANNEL overrides it.
 approval_channel: C0CL7HZ5UQ1  # approval channel
+
+# Custom emoji for the marks on the owner's messages (ADR-0042). Upload them to the
+# workspace first. A mark that is not set, or not in the workspace, uses Slack's own
+# emoji (hourglass, eyes, check mark, x, no entry, bookmark, pencil, wastebasket).
+reactions:
+  waiting: e-wait
+  running: e-working
+  replied: e-done
+  failed: e-fail
+  cancelled: e-cancel
+  remembered: e-remember
+  memory_updated: e-update
+  forgotten: e-forget

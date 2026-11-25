@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from enikk_connector_slack.events import MessageRef
+from enikk_connector_slack.marks import Mark, Marker, Reactions
 from enikk_core_client import CoreApiError, CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
 
@@ -15,10 +16,6 @@ if TYPE_CHECKING:
     from enikk_connector_slack.ports import CoreApi, SlackApi
     from enikk_connector_slack.routing import Router
 
-RECEIVED: Final = "eyes"
-"""Shown while the task runs."""
-WAITING: Final = "hourglass_flowing_sand"
-"""Shown from acceptance until a worker takes the task (ADR-0037 3b)."""
 
 _log = logging.getLogger(__name__)
 
@@ -32,10 +29,16 @@ class Decision(FrozenModel):
 
 class InboundHandler:
     def __init__(
-        self, core: CoreApi, slack: SlackApi, router: Router, submit_timeout: float
+        self,
+        core: CoreApi,
+        slack: SlackApi,
+        router: Router,
+        submit_timeout: float,
+        marker: Marker | None = None,
     ) -> None:
         self._core = core
         self._slack = slack
+        self._marker = Marker(slack, Reactions()) if marker is None else marker
         self._router = router
         self._timeout = submit_timeout
 
@@ -67,4 +70,4 @@ class InboundHandler:
     async def mark_received(self, decision: Decision) -> None:
         """Runs after the acknowledgement, so Slack's 3-second limit does not include it."""
         if decision.received is not None:
-            await self._slack.react(decision.received, WAITING)
+            await self._marker.mark(decision.received, Mark.WAITING)

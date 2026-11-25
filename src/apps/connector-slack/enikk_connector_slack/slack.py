@@ -34,6 +34,7 @@ TRANSIENT_ERRORS: Final = frozenset(
     {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}
 )
 IGNORED_REACTION_ERRORS: Final = frozenset({"already_reacted", "no_reaction"})
+UNKNOWN_EMOJI: Final = "invalid_name"
 
 _log = logging.getLogger(__name__)
 
@@ -166,13 +167,16 @@ class SlackWebApi:
             _log.warning("could not look up channel %s: %r", name, exc)
         return None
 
-    async def react(self, message: MessageRef, emoji: str) -> None:
+    async def react(self, message: MessageRef, emoji: str) -> bool:
         try:
             await self._web.reactions_add(channel=message.channel, timestamp=message.ts, name=emoji)
         except SlackApiError as exc:
-            self._reaction_failed("add", emoji, _error_code(exc))
+            error = _error_code(exc)
+            self._reaction_failed("add", emoji, error)
+            return error != UNKNOWN_EMOJI
         except (aiohttp.ClientError, TimeoutError) as exc:
             self._reaction_failed("add", emoji, repr(exc))
+        return True
 
     async def unreact(self, message: MessageRef, emoji: str) -> None:
         try:
