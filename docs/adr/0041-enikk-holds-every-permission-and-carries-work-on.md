@@ -97,7 +97,11 @@
    - 3a. 세션의 GitHub 토큰 **(구현됨)**. 플랫폼 도구 `github` 를 받은 정의의 작업은 임대(`TaskAssignment.github_token`)와 함께 core 가 발급한 `develop` 토큰을 받는다(`enikk_core/github_tokens.py`, 플랫폼 저장소 하나, `workflows` 는 `config/github.yaml` 을 따름, `actions` 읽기 추가). 엔진은 실행의 홈에 git 자격 증명 파일과 `.gitconfig` 의 credential helper, 토큰 파일을 쓰고(`enikk_engine_claude/github_access.py`), 셸의 git 은 github.com 에 그대로 push 한다. `enikk-github METHOD PATH [--data FILE]` 가 같은 토큰으로 GitHub API 를 부른다(PR 열기·닫기·검사 결과). 홈은 실행이 끝나면 지워진다. 발급이 실패해도 작업은 토큰 없이 돈다. core 의 제출 경로(`pull-requests`)는 `skill-developer` 가 직접 push 로 옮겨 간 뒤 3b 에서 없앤다. 같은 단위에서 깨우기를 건너뛴 이유를 로그에 남기고, 배포 결과로 깨우는 테스트를 더했다.
    - 3b. core 제출 경로 삭제 **(구현됨)**. `skill-developer` v3(2026-11-25 승격)이 세션의 토큰으로 직접 push 하고 `enikk-github` 로 PR 을 열므로, core 의 `submit_pull_request`·`/v1/tasks/{id}/pulls`·`PullSubmissions`·core 의 clone(`enikk_github.clone`)·runtime 의 bundle·플랫폼 도구 `pull-requests`·Helm `submissions`·`pulls` 를 없앴다. 토큰 발급이 실패하면 같은 GitHub App 이 실패한 것이라 대체 경로의 실익이 없다. 같은 단위에서 스킬 승격 결과의 "반영" 문구를 고쳤다(스킬은 역할의 프롬프트가 아니라 "이 프롬프트를 쓰는 역할이 없습니다"로 나왔다). 정의의 `*`, 스킬 `requires`, 스케줄 `pending` 은 지금 막는 것이 없어(정의가 이미 모든 도구를 나열하고, `requires` 는 승격 카드의 경고뿐이며, 스케줄러에는 아직 바꾸는 도구가 없다) 그것을 건드리는 작업(새 MCP 서버, 스케줄러 S5)에서 함께 정리한다.
    - 3c. 클러스터 읽기 **(구현됨)**. `deploy/helm/runtime-claude` 의 `kube.enabled` 가 ClusterRole `enikk-runtime-claude-reader`(workload·이벤트·Pod 로그·ConfigMap·RBAC·Argo CD Application 읽기, Secret 없음, 쓰기 없음)와 API audience 의 projected 토큰(+ `kube-root-ca.crt`)을 `/var/run/secrets/enikk/kube` 에 둔다. 엔진은 실행마다 그 토큰과 CA 를 홈에 복사하고 `~/.kube/config` 를 쓴다(`enikk_engine_claude/kube_access.py`). 셸에서는 `enikk-kube PATH`(GET 한 번)로 부른다. `kubectl` 은 이미지에 넣지 않았다(아키텍처별 바이너리 관리가 늘기 때문, kubeconfig 는 준비됨). 그 토큰도 샌드박스 안에서 읽히는 예외로 둔다(소유자 결정 2026-11-25). 3b 보다 먼저 했다(3b 는 지금 쓰이지 않는 제한의 정리라 실익이 적음).
-4. 세션 유지.
+4. 세션 유지. 둘로 나눈다(소유자 결정 2026-11-25: MCP 토큰의 세션 단위 허용, 바로 구현).
+   - 4a. 토대 **(구현됨)**. 동작은 그대로이고, 오래 사는 CLI 가 여러 작업을 이어받을 수 있게 한다.
+     - MCP: gateway 가 토큰의 `session` 을 `x-enikk-session-id` 로 넘기고, 스케줄러는 그것으로 호출자를 정하며, core 는 그 세션에서 임대가 살아 있는 작업을 호출자로 삼는다(`Caller.session_id`). 토큰이 이미 `session` 을 담고 있어 지금 토큰과도 맞는다. 작업·임대 헤더는 옛 방식으로 함께 남는다.
+     - 엔진: 대화 이력 저장(`CoreSessionStore`), 플랫폼 도구, 도구 기록 훅이 만들 때의 작업이 아니라 부를 때의 작업(`CurrentJob`)을 읽는다.
+   - 4b. 세션별 장수 클라이언트(`ClaudeSDKClient`), 세션 단위 홈·작업 폴더, 작업마다 토큰 파일 갱신, 10분 유휴 종료와 메모리 상한, 토큰 수명.
 
 ### 되돌리기
 - 1단계: `config/sensitive-paths.yaml` 을 이전 목록으로 되돌린다.
