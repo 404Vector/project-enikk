@@ -6,3 +6,4 @@ apps:
   - runtime-claude
   - connector-slack
   - scheduler
+  - imagegen

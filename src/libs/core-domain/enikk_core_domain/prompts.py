@@ -23,6 +23,7 @@ from enikk_contracts.skills import (
     valid_skill_name,
     widened,
 )
+from enikk_contracts.styles import is_style, style_config, valid_style_name
 from enikk_core_domain.errors import InvalidRequestError, InvalidTransitionError
 from enikk_core_domain.model import Entity
 from enikk_core_domain.redaction import looks_secret
@@ -128,12 +129,17 @@ def check_candidate(
         raise InvalidRequestError(
             f"'{prompt}' is not a valid skill name: skill- then lowercase letters, digits, '-'"
         )
-    if (
-        not skill
-        and change is not None
-        and (change.description is not None or change.requires is not None)
-    ):
-        raise InvalidRequestError("description and requires are only for skill prompts (skill-*)")
+    style = is_style(prompt)
+    if style and not valid_style_name(prompt):
+        raise InvalidRequestError(
+            f"'{prompt}' is not a valid style name: style- then lowercase letters, digits, '-'"
+        )
+    if not skill and change is not None and change.requires is not None:
+        raise InvalidRequestError("requires is only for skill prompts (skill-*)")
+    if not skill and not style and change is not None and change.description is not None:
+        raise InvalidRequestError(
+            "description is only for skill prompts (skill-*) and style prompts (style-*)"
+        )
     if not text.strip():
         raise InvalidRequestError("the prompt text is empty")
     if looks_secret(text):
@@ -156,6 +162,11 @@ def check_candidate(
             raise InvalidRequestError(str(exc)) from exc
         before_requires = declared_requires(production.config) if production is not None else ()
         requires_added = widened(before_requires, checked.requires)
+    if style:
+        try:
+            style_config(config)
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from exc
     before_text = (production.text or "") if production is not None else ""
     before_config = production.config if production is not None else {}
     if production is not None and before_text == text and before_config == config:

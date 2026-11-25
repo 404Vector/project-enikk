@@ -49,6 +49,16 @@ async def test_credentials_of_another_role_are_forbidden(harness: Harness) -> No
 
 
 @pytest.mark.anyio
+async def test_a_tool_server_receives_only_its_own_key(harness: Harness) -> None:
+    gemini = CredentialRequest(names=(CredentialName.GEMINI_API_KEY,))
+    async with harness.client("imagegen") as client:
+        credentials = await client.fetch_credentials(gemini)
+        assert credentials.values[CredentialName.GEMINI_API_KEY].get_secret_value() == "gemini-test"
+        with pytest.raises(CoreForbiddenError, match=r"slack\.bot-token"):
+            await client.fetch_credentials(SLACK_TOKENS)
+
+
+@pytest.mark.anyio
 async def test_unbound_caller_is_forbidden(harness: Harness) -> None:
     async with harness.client("stranger") as client:
         with pytest.raises(CoreForbiddenError):

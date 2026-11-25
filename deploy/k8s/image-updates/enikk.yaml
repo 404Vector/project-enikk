@@ -47,3 +47,11 @@ spec:
             helm:
               name: image.repository
               tag: image.tag
+    - namePattern: enikk-imagegen
+      images:
+        - alias: imagegen
+          imageName: ghcr.io/404vector/enikk-imagegen
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag
