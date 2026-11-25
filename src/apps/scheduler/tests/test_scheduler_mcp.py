@@ -13,10 +13,13 @@ from enikk_contracts import routes
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.schedules import (
     Caller,
+    InputKind,
+    OutputKind,
     RunList,
     RunsQuery,
     RunStatus,
     RunView,
+    ScheduleCreate,
     ScheduleList,
     SchedulePause,
     ScheduleQuery,
@@ -197,3 +200,19 @@ def test_the_session_header_names_the_caller() -> None:
     assert caller.session_id == session
     with pytest.raises(MissingCallerError):
         caller_from({"x-enikk-session-id": "x"})
+
+
+def test_create_reads_a_plain_json_spec(client: TestClient, requests: list[httpx.Request]) -> None:
+    """Enums and times arrive as JSON strings from the model (the S4 smoke test)."""
+    spec = {
+        "description": "smoke",
+        "timing": {"cron": "0 7 * * *"},
+        "agent": "enikk",
+        "input": {"kind": "text", "text": "s"},
+        "output": {"kind": "discard"},
+    }
+    _call(client, "create_schedule", {"name": "smoke", "spec": spec}, CALLER_HEADERS)
+    (request,) = requests
+    sent = ScheduleCreate.model_validate_json(request.content)
+    assert sent.spec.output.kind is OutputKind.DISCARD
+    assert sent.spec.input.kind is InputKind.TEXT
