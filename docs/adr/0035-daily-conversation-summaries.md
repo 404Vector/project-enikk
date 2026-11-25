@@ -1,6 +1,6 @@
 # ADR-0035: 날짜별 대화 요약 — 도구 없는 요약 역할이 쓰고, core 가 볼트에 남긴다
 
-- 상태: 승인 (frontmatter 의 `by` 는 ADR-0037 5b 에서 `enikk` 로 바뀜)
+- 상태: 승인 → 실행 방식은 ADR-0039 S7 로 대체: core 의 요약 루프·`summarize_day`·`conversation-digest` 는 없어지고, 같은 일을 스케줄 하나(`summarizer`, 하루치 대화 입력, 볼트 노트 출력 `대화`)가 한다. 입력·결과 형식과 비밀값 가리기는 그대로. (frontmatter 의 `by` 는 ADR-0037 5b 에서 `enikk` 로 바뀜)
 - 날짜: 2026-11-23
 - 관련: ADR-0006, ADR-0010, ADR-0014, ADR-0020, ADR-0027, ADR-0028, ADR-0032, ADR-0033, I-07, I-13, I-14, I-23, I-35, I-38
 

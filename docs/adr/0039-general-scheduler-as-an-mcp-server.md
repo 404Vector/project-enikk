@@ -1,6 +1,6 @@
 # ADR-0039: 일반 스케줄러 — MCP 서버, 에이전트가 대화로 관리하고 자기 범위 밖은 소유자 승인
 
-- 상태: 승인 (S1~S5 구현. §5 의 승인 규칙은 ADR-0041 §1 로 대체. 남은 단위 S6·S7 은 아래 "이행 순서")
+- 상태: 승인 (S1~S5·S7 구현. §5 의 승인 규칙은 ADR-0041 §1 로 대체. S6 은 소유자가 대화로 만든다)
 - 날짜: 2026-11-24
 - 관련: ADR-0004, ADR-0023, ADR-0028, ADR-0032, ADR-0035, ADR-0036, ADR-0037, I-01, I-05, I-16, I-23, I-24, I-26, I-35, I-38
 
@@ -126,7 +126,7 @@
 6. **S6**: 경제 이슈 요약. 소유자가 대화로 직접 만들어 첫 실사용 시험으로 삼는다.
 7. **S7**: 대화 요약 이전. 둘로 나눈다.
    - S7a **(구현됨)**: 출력 `owner-dm`(core 알림 `schedule-delivered` → 커넥터가 소유자 DM 에 한 블록), `vault-note`(`MemoryService.write_scheduled`, `Private/enikk/<folder>/` 아래, 하루치 대화 입력이면 `<그날>.md`·종류 `conversation`·제목 `<그날> <설명>`, 아니면 `<날짜-시각>-<이름>.md`·종류 `note`), 입력 `day-conversations`(예정 시각의 전날, 스펙의 시간대, 대화 요약과 같은 `day_conversations`·`summary_input`; 대화가 없으면 작업 없이 성공으로 남김). 신뢰하지 않는 대화 원문을 다루는 스케줄은 도구 없는 에이전트(`summarizer`)를 고른다(I-38).
-   - S7b: 아래 이전. `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
+   - S7b **(구현됨)**: core 의 요약 루프(`DigestService`, `_digest_forever`), 요청 API, 플랫폼 도구 `summarize_day`·`conversation-digest`, Helm `digests` 를 없앴다. `day_conversations` 만 남겨 스케줄이 쓴다. 요약 스케줄은 배포 뒤 에닉이 도구로 한 번 만든다: 이름 `conversation-summary`, 에이전트 `summarizer`, 매일 04:00 Asia/Seoul, 입력 `day-conversations`, 출력 `vault-note` 폴더 `대화`, 설명 `대화`(제목이 `<그날> 대화` 가 된다), `catchup` 1, `retries` 1. 특정 날의 요약을 다시 만드는 길(옛 `summarize_day`)은 `run_now` 가 대신하되, `run_now` 는 늘 전날을 요약한다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34). 실패 알림은 회차 기록(`list_runs`)으로 본다(옛 DM 알림 없음). `agents/summarizer.yaml`·`_digest_forever`·`summarize_day` 를 없애고 I-38·ADR-0035 에 대체 표시를 단다. 옛 `conversation_digests` 테이블은 마이그레이션 0004·0005 정리 때 지운다(I-34).
 
 ### 되돌리기
 - S1~S5: 기능 플래그(스케줄러 `enabled`, 엔진의 MCP 연결)로 끈다. 그동안 대화 요약은 옛 경로로 돈다.
