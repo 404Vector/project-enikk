@@ -108,6 +108,11 @@ class SlackApi(Protocol):
         """The message's permalink. Failures are logged and give ``None``."""
         ...
 
+    async def channel_id(self, name: str) -> str | None:
+        """The ID of the channel called ``name`` (without ``#``) that the bot can see.
+        Failures are logged and give ``None``."""
+        ...
+
     async def react(self, message: MessageRef, emoji: str) -> None:
         """Add a reaction. Failures are logged, never raised."""
         ...

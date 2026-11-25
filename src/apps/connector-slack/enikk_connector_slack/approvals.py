@@ -77,6 +77,7 @@ class NoticeRelay:
         self._deploy_channel = config.deploy_notify_channel
         self._approval_channel = config.approval_channel
         self._schedule_channels = frozenset(config.schedule_channels)
+        self._channel_ids: dict[str, str] = {}
         self._policy = policy
         self._sleep = sleep
 
@@ -220,7 +221,13 @@ class NoticeRelay:
             _log.warning("schedule %s: channel %s is not allowed", body.name, body.channel)
             await self._deliver_to_owner(notice, blocks.schedule_delivered(body, refused=True))
             return
-        await self._post_or_dm(notice, f"#{body.channel}", blocks.schedule_delivered(body))
+        channel = self._channel_ids.get(body.channel) or await self._slack.channel_id(body.channel)
+        if channel is None:
+            _log.warning("schedule %s: no channel %s the bot can see", body.name, body.channel)
+            await self._deliver_to_owner(notice, blocks.schedule_delivered(body, missing=True))
+            return
+        self._channel_ids[body.channel] = channel
+        await self._post_or_dm(notice, channel, blocks.schedule_delivered(body))
 
     async def _deliver_to_owner(self, notice: OwnerNotice, message: blocks.Message) -> None:
         try:

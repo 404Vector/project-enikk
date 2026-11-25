@@ -234,6 +234,7 @@ async def test_a_schedule_posts_to_an_allowed_channel_and_otherwise_to_the_dm() 
     from enikk_contracts.digests import ScheduleDelivered
 
     core, slack = FakeCore(), FakeSlack()
+    slack.channel_ids["general"] = "C0GENERAL"
     config = CONFIG.model_copy(update={"schedule_channels": ("general",)})
     allowed = ScheduleDelivered(name="economy", text="오늘의 경제", channel="general")
     other = ScheduleDelivered(name="economy", text="오늘의 경제", channel="random")
@@ -241,7 +242,20 @@ async def test_a_schedule_posts_to_an_allowed_channel_and_otherwise_to_the_dm() 
         core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
     assert await NoticeRelay(core, slack, config, POLICY).relay_once() == 2
     [(first, posted), (second, refused)] = slack.messages
-    assert first == "#general"
+    assert first == "C0GENERAL"
     assert "오늘의 경제" in str(posted.payload())
     assert second == OWNER
     assert "허용된 채널이 아니라" in str(refused.payload())
+
+
+async def test_a_channel_the_bot_cannot_see_goes_to_the_dm_with_what_to_do() -> None:
+    from enikk_contracts.digests import ScheduleDelivered
+
+    core, slack = FakeCore(), FakeSlack()
+    config = CONFIG.model_copy(update={"schedule_channels": ("general",)})
+    body = ScheduleDelivered(name="economy", text="오늘의 경제", channel="general")
+    core.notices.append(OwnerNotice(notice_id=uuid.uuid4(), body=body))
+    assert await NoticeRelay(core, slack, config, POLICY).relay_once() == 1
+    [(channel, message)] = slack.messages
+    assert channel == OWNER
+    assert "/invite @enikk" in str(message.payload())
