@@ -25,6 +25,7 @@ from enikk_core_domain.auth import (
     RoleDirectory,
     RuntimeRole,
     SchedulerRole,
+    ToolRole,
     ServiceIdentity,
 )
 from enikk_core_domain.repositories import RepositoryPolicy
@@ -51,6 +52,7 @@ GEMINI = ServiceIdentity(namespace="enikk", name="enikk-runtime-gemini")
 STRANGER = ServiceIdentity(namespace="enikk", name="default")
 SMOKE = ServiceIdentity(namespace="enikk", name="enikk-smoke")
 SCHEDULER = ServiceIdentity(namespace="enikk", name="enikk-scheduler")
+IMAGEGEN = ServiceIdentity(namespace="enikk", name="enikk-imagegen")
 
 TOKENS = {
     "slack": SLACK,
@@ -59,6 +61,7 @@ TOKENS = {
     "stranger": STRANGER,
     "smoke": SMOKE,
     "scheduler": SCHEDULER,
+    "imagegen": IMAGEGEN,
 }
 
 POLICY = RepositoryPolicy.model_validate_json(
@@ -163,12 +166,18 @@ def harness() -> Harness:
             RoleBinding(identity=GEMINI, role=RuntimeRole(engine=Engine.GEMINI)),
             RoleBinding(identity=SMOKE, role=ConnectorRole(connector=ConnectorKind.SMOKE)),
             RoleBinding(identity=SCHEDULER, role=SchedulerRole()),
+            RoleBinding(
+                identity=IMAGEGEN,
+                role=ToolRole(),
+                credentials=frozenset({CredentialName.GEMINI_API_KEY}),
+            ),
         )
     )
     store = StaticCredentialStore(
         {
             CredentialName.SLACK_BOT_TOKEN: SecretStr("xoxb-test"),
             CredentialName.SLACK_APP_TOKEN: SecretStr("xapp-test"),
+            CredentialName.GEMINI_API_KEY: SecretStr("gemini-test"),
         }
     )
     github = FakeGitHubApp()

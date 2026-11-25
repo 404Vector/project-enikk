@@ -1,0 +1,5 @@
+apiVersion: v2
+name: enikk-imagegen
+description: Image generation with the Gemini API as MCP tools (ADR-0043)
+type: application
+version: 0.1.0

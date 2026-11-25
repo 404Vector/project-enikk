@@ -83,6 +83,7 @@ class Service(StrEnum):
     RUNTIME_CLAUDE = "runtime-claude"
     CONNECTOR_SLACK = "connector-slack"
     SCHEDULER = "scheduler"
+    IMAGEGEN = "imagegen"
     AGENTGATEWAY = "agentgateway"
 
 

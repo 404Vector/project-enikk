@@ -45,7 +45,8 @@ deployments:
   intervalSeconds: 30
   argocdNamespace: argocd
   apps:
-    [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-scheduler, enikk-agentgateway]
+    [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-scheduler, enikk-imagegen,
+     enikk-agentgateway]
   timeoutSeconds: 600
   settleSeconds: 60
 
@@ -89,6 +90,11 @@ roleBindings:
   - namespace: enikk
     service_account: enikk-scheduler
     role: scheduler
+  # A tool server behind agentgateway: its keys and nothing else (ADR-0043, I-09).
+  - namespace: enikk
+    service_account: enikk-imagegen
+    role: tool
+    credentials: [gemini.api-key, langfuse.public-key, langfuse.secret-key]
   - namespace: enikk
     service_account: enikk-smoke
     role: connector
