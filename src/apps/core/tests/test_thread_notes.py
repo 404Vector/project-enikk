@@ -11,7 +11,7 @@ from enikk_contracts.approvals import PullStage, PullStatusCard
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.threads import ReviewThreadOpened
-from enikk_core.threads import ReviewLinks, ThreadNotes, branch_owner, delegated_status
+from enikk_core.threads import ReviewLinks, ThreadNotes, branch_owner
 from enikk_core_domain.model import Session
 from enikk_core_domain.testing import T0, agent, conversation, task
 from enikk_core_domain.testing import session as thread_session
@@ -117,22 +117,3 @@ async def test_branches_without_a_thread_are_skipped(harness: Harness) -> None:
     async with harness.db.unit_of_work() as uow:
         assert not await notes.post(uow, f"agent/{uuid.uuid4()}", "x")
         assert not await notes.post(uow, "feat/owner", "x")
-
-
-def test_a_delegated_answer_with_a_pull_request_becomes_a_status_line() -> None:
-    url = "https://github.com/404Vector/project-enikk/pull/7"
-    report = f"PR 을 만들었습니다: {url}\n- src/a.py 수정\n```py\nx = 1\n```\n다시 {url}"
-    status = delegated_status("developer", report)
-    # No GitHub link in the asking thread: the approval thread link follows (2026-11-24).
-    assert "github.com" not in status
-    assert status.count("#7") == 1
-    assert "src/a.py" not in status
-    assert "x = 1" not in status
-    assert "승인 채널 스레드" in status
-    assert status.startswith("에닉의 developer 역할이 작업을 마쳤습니다.")  # ADR-0031
-
-
-def test_a_delegated_answer_without_a_pull_request_is_kept() -> None:
-    assert delegated_status("developer", "모호해서 PR 을 만들지 않았습니다.") == (
-        "모호해서 PR 을 만들지 않았습니다."
-    )

@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Final
 from pydantic import HttpUrl
 
 from enikk_contracts.agents import Execution
-from enikk_contracts.common import ConnectorKind
+from enikk_contracts.common import ConnectorKind, ConversationRef
+from enikk_contracts.delegation import Delegated, delegated_session_id, delegated_thread
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import (
     SCHEDULED_KINDS,
@@ -47,7 +48,7 @@ from enikk_contracts.thread_actions import (
 )
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
 from enikk_core.slack_links import SlackMessage, event_message, permalink
-from enikk_core.threads import delegated_status
+from enikk_core.wakeups import delegation_event_text
 from enikk_core_domain.errors import (
     InvalidRequestError,
     NotFoundError,
@@ -62,11 +63,13 @@ from enikk_core_domain.thread_context import MAX_MESSAGES, with_thread_context
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Awaitable, Callable
+    from datetime import datetime
 
     from pydantic import SecretStr
 
     from enikk_contracts.agents import AgentDefinition
     from enikk_contracts.common import Engine
+    from enikk_contracts.delegation import DelegateRequest
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
@@ -86,6 +89,7 @@ if TYPE_CHECKING:
     from enikk_core.mcp_tokens import McpTokenIssuer
     from enikk_core.memory import MemoryService
     from enikk_core.settings import TaskSettings
+    from enikk_core.wakeups import SessionWaker
     from enikk_core_domain.model import WorkerScope
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_kernel.clock import Clock
@@ -97,6 +101,13 @@ _log = logging.getLogger(__name__)
 
 STARTED_TEXT: Final = "작업 중"
 CANCELLED_TEXT: Final = "취소했습니다."
+DELEGATED_CANCELLED_TEXT: Final = "{agent} 에게 맡긴 작업도 취소했습니다."
+DELEGATED_DONE_TEXT: Final = "{agent} 가 맡은 작업을 마쳤습니다. 결과는 에닉이 이어서 전합니다."
+DELEGATION_INPUT: Final = (
+    "[위임] 에닉(소유자의 주 에이전트)이 소유자와 대화하다가 맡긴 일입니다. 당신의 답은 "
+    "소유자가 아니라 에닉에게 갑니다. 끝나면 무엇을 했는지, 만든 파일의 절대 경로, 남은 "
+    "문제를 답에 적으십시오.\n\n"
+)
 
 
 class CoreUseCases:
@@ -113,6 +124,7 @@ class CoreUseCases:
         mcp_tokens: McpTokenIssuer | None = None,
         github_tokens: SessionGitHubTokens | None = None,
         self_repository: str | None = None,
+        waker: SessionWaker | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -124,6 +136,7 @@ class CoreUseCases:
         self._mcp_tokens = mcp_tokens
         self._github_tokens = github_tokens
         self._self_repository = self_repository
+        self._waker = waker
         self._workspace: SlackWorkspaceReport | None = None
 
     # ------------------------------------------------------------ connector
@@ -233,6 +246,7 @@ class CoreUseCases:
             for active in await uow.tasks.active_in_session(session.id):
                 await uow.tasks.update(active.cancel(now))
                 cancelled.append(active.id)
+            cancelled.extend(await self._cancel_delegated(uow, session, now))
             if cancelled:
                 await uow.outbox.add(
                     OutboxMessage(
@@ -248,6 +262,105 @@ class CoreUseCases:
             await uow.commit()
         _log.info("task %s: cancelled %d task(s) of its session", task_id, len(cancelled))
         return CancelResult(task_id=task_id, cancelled=tuple(cancelled))
+
+    async def _cancel_delegated(
+        self, uow: UnitOfWork, session: Session, now: datetime
+    ) -> list[uuid.UUID]:
+        """Cancel the work ``session`` handed to other agents (ADR-0047). A running one
+        gets a line in the thread, which also takes its [취소] button away."""
+        definition = self._catalog.get(session.agent)
+        cancelled: list[uuid.UUID] = []
+        for agent in () if definition is None else definition.delegates:
+            child = await uow.sessions.get(delegated_session_id(session.id, agent))
+            if child is None:
+                continue
+            for active in await uow.tasks.active_in_session(child.id):
+                await uow.tasks.update(active.cancel(now))
+                cancelled.append(active.id)
+                if active.status is TaskStatus.LEASED:
+                    await uow.outbox.add(
+                        self._thread_message(
+                            active,
+                            child,
+                            OutboundKind.CANCELLED,
+                            DELEGATED_CANCELLED_TEXT.format(agent=agent),
+                        )
+                    )
+        return cancelled
+
+    # ------------------------------------------------------------ delegation
+
+    async def delegate(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: DelegateRequest
+    ) -> Delegated:
+        """Queue ``request`` for another agent in its own session (ADR-0047). Its result
+        wakes this task's thread; one hand-off per agent per task."""
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
+            parent = await self._slack_session(uow, task)
+            definition = self._catalog.get(parent.agent)
+            if parent.reply_to is not None or definition is None:
+                raise PermissionDeniedError("only a thread's own session hands work on")
+            target = self._catalog.get(request.agent)
+            if target is None or target.name not in definition.delegates:
+                allowed = ", ".join(definition.delegates) or "none"
+                raise PermissionDeniedError(
+                    f"'{parent.agent}' may not hand work to '{request.agent}' (allowed: {allowed})"
+                )
+            event_id = f"delegate:{task.id}:{target.name}"
+            existing = await uow.tasks.find_by_source_event(event_id)
+            if existing is not None:
+                return Delegated(
+                    agent=target.name,
+                    session_id=existing.session_id,
+                    task_id=existing.id,
+                    duplicate=True,
+                )
+            now = self._clock.now()
+            child_id = delegated_session_id(parent.id, target.name)
+            child = await uow.sessions.get(child_id)
+            if child is None:
+                child = Session.start(
+                    session_id=child_id,
+                    conversation=ConversationRef(
+                        connector=parent.conversation.connector,
+                        channel=parent.conversation.channel,
+                        thread=delegated_thread(parent.conversation.thread, target.name),
+                    ),
+                    agent=target,
+                    now=now,
+                    reply_to=parent.conversation,
+                )
+                await uow.sessions.add(child)
+            queued = Task.enqueue(
+                task_id=self._ids.new(),
+                session=child,
+                source_event_id=event_id,
+                text=DELEGATION_INPUT + request.request,
+                max_attempts=self._policy.max_attempts,
+                now=now,
+                execution=target.execution,
+            )
+            await uow.tasks.add(queued)
+            await uow.commit()
+        _log.info("task %s handed work to %s (task %s)", task.id, target.name, queued.id)
+        return Delegated(agent=target.name, session_id=child.id, task_id=queued.id, duplicate=False)
+
+    async def _wake_delegator(self, uow: UnitOfWork, session: Session, task: Task) -> bool:
+        """Wake the thread that handed ``task`` on with its result; False if it cannot."""
+        if self._waker is None or session.reply_to is None:
+            return False
+        parent = await uow.sessions.find_by_conversation(session.reply_to)
+        if parent is None:
+            return False
+        succeeded = task.status is TaskStatus.SUCCEEDED
+        text = (task.output if succeeded else task.failure) or ""
+        return await self._waker.wake(
+            uow,
+            parent,
+            key=f"delegated:{task.id}",
+            text=delegation_event_text(task.agent, succeeded=succeeded, text=text),
+        )
 
     # ------------------------------------------------------------ runtime
 
@@ -658,8 +771,12 @@ class CoreUseCases:
         session = await self._session_of(uow, task)
         if session.conversation.connector is ConnectorKind.SCHEDULE:
             return  # Core handles the outcome of its own scheduled work (ADR-0035).
-        if kind is OutboundKind.REPLY and session.reply_to is not None:
-            text = delegated_status(task.agent, text)
+        if (
+            session.reply_to is not None
+            and await self._wake_delegator(uow, session, task)
+            and kind is OutboundKind.REPLY
+        ):
+            text = DELEGATED_DONE_TEXT.format(agent=task.agent)
         await uow.outbox.add(
             OutboxMessage(
                 id=self._ids.new(),

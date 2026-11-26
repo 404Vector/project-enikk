@@ -24,6 +24,7 @@ from enikk_contracts.approvals import (
 )
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
+from enikk_contracts.delegation import Delegated, DelegateRequest
 from enikk_contracts.deployments import RevertRequest, RevertResult
 from enikk_contracts.diagnostics import (
     Deployments,
@@ -415,6 +416,13 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, ScheduledQuery)
         return _json(await usecases.scheduled_messages(scope, task_id, body))
+
+    @app.post(routes.TASK_DELEGATE, responses={200: {"model": Delegated}})
+    @requires("runtime")
+    async def task_delegate(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, DelegateRequest)
+        return _json(await usecases.delegate(scope, task_id, body))
 
     @app.post(routes.THREAD_SCHEDULED_CANCEL, responses={200: {"model": ScheduledCancelled}})
     @requires("runtime")

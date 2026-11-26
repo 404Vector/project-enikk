@@ -112,12 +112,22 @@ class AgentDefinition(Contract):
     execution: Execution = Execution.SHARED
     prompt: PromptRef
     tools: ToolPolicy = ToolPolicy()
+    delegates: Annotated[tuple[AgentName, ...], Field(max_length=10)] = ()
+    """Agents this one may hand work to; their results wake its thread (ADR-0047)."""
     limits: Limits = Limits()
 
     @model_validator(mode="after")
     def _distinct_aliases(self) -> Self:
         if self.name in self.aliases or len(set(self.aliases)) != len(self.aliases):
             raise ValueError("aliases must differ from the name and from each other")
+        return self
+
+    @model_validator(mode="after")
+    def _distinct_delegates(self) -> Self:
+        if len(set(self.delegates)) != len(self.delegates):
+            raise ValueError("delegates must differ from each other")
+        if {self.name, *self.aliases} & set(self.delegates):
+            raise ValueError("an agent does not delegate to itself")
         return self
 
     @model_validator(mode="after")

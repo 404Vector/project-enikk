@@ -325,7 +325,7 @@ class _Workspaces:
         self.sessions: list[uuid.UUID] = []
         self._broken = broken
 
-    def prepare(self, session_id: uuid.UUID) -> SessionWorkspace:
+    def prepare(self, session_id: uuid.UUID, delegates: tuple[str, ...] = ()) -> SessionWorkspace:
         self.sessions.append(session_id)
         if self._broken:
             raise OSError("volume not mounted")

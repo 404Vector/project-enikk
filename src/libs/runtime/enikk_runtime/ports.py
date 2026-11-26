@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.common import Engine
+    from enikk_contracts.delegation import Delegated, DelegateRequest
     from enikk_contracts.diagnostics import (
         Deployments,
         DeploymentsQuery,
@@ -80,7 +81,9 @@ class TaskSource(Protocol):
 class Workspaces(Protocol):
     """A session's place on the shared volume (ADR-0037 §7). Blocking; may raise."""
 
-    def prepare(self, session_id: uuid.UUID) -> SessionWorkspace: ...
+    def prepare(
+        self, session_id: uuid.UUID, delegates: tuple[str, ...] = ()
+    ) -> SessionWorkspace: ...
 
 
 class MemoryKeeper(Protocol):
@@ -123,6 +126,8 @@ class ThreadPoster(Protocol):
     async def cancel_scheduled(
         self, task_id: uuid.UUID, request: CancelScheduledRequest
     ) -> ScheduledCancelled: ...
+
+    async def delegate(self, task_id: uuid.UUID, request: DelegateRequest) -> Delegated: ...
 
 
 class PromptProposer(Protocol):

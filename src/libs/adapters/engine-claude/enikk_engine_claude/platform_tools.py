@@ -21,6 +21,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from pydantic import BaseModel, ValidationError
 
 from enikk_contracts.agents import PlatformTool
+from enikk_contracts.delegation import MAX_REQUEST_CHARS, DelegateRequest
 from enikk_contracts.diagnostics import (
     DeploymentsQuery,
     LogsQuery,
@@ -104,6 +105,7 @@ THREAD_TOOLS: Final = tuple(
         "cancel_scheduled",
     )
 )
+DELEGATE_TOOL: Final = f"mcp__{SERVER}__delegate"
 
 _log = logging.getLogger(__name__)
 
@@ -174,6 +176,7 @@ def granted_platform_tools(
     return [
         *(MEMORY_TOOLS if memory and _defaults(job) else ()),
         *(THREAD_TOOLS if thread and _defaults(job) else ()),
+        *([DELEGATE_TOOL] if thread and _defaults(job) and job.definition.delegates else ()),
         *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
         *([LOAD_SKILL_TOOL] if skills and _has_skills(job) else ()),
@@ -667,7 +670,73 @@ def thread_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[A
             return _result(f"Refused: {exc}", True)
         return _result("Done: reacted." + (f" Note: {done.note}" if done.note else ""), False)
 
-    return [send_file, react, *slack_tools(current, thread)]
+    tools = [send_file, react, *slack_tools(current, thread)]
+    if current.job.definition.delegates:
+        tools.append(delegate_tool(current, thread))
+    return tools
+
+
+def delegate_description(agents: tuple[str, ...]) -> str:
+    return (
+        "Hand a piece of work to another agent and get its result back in this thread "
+        f"(agents: {', '.join(agents)}). It works in its own session with its own tools "
+        "and sees only your request, not this conversation: write everything it needs "
+        "(goal, constraints, file paths). The call returns at once. When the agent "
+        "finishes, its result arrives in this thread as an [이벤트] input that wakes you; "
+        "carry on from there. So after delegating, tell the owner it was handed on and "
+        "end the turn unless you have other work. Its files are in its workspace (see the "
+        "workspace header); you can read, copy and send them. Delegating to the same "
+        "agent again in this thread continues its earlier session. One hand-off per agent "
+        f"per turn. request: at most {MAX_REQUEST_CHARS} characters."
+    )
+
+
+def delegate_tool(current: CurrentJob, thread: ThreadPoster) -> SdkMcpTool[Any]:
+    agents = current.job.definition.delegates
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "enum": list(agents)},
+            "request": {"type": "string", "description": "The full request for the agent."},
+        },
+        "required": ["agent", "request"],
+    }
+
+    @tool("delegate", delegate_description(agents), schema)
+    async def delegate(args: dict[str, Any]) -> dict[str, Any]:
+        job = current.job
+        try:
+            request = DelegateRequest(
+                lease_id=job.lease_id,
+                agent=str(args.get("agent", "")),
+                request=str(args.get("request", "")),
+            )
+        except ValidationError:
+            return _result(
+                f"agent must be one of {', '.join(agents)}; request must have 1 to "
+                f"{MAX_REQUEST_CHARS} characters.",
+                True,
+            )
+        try:
+            handed = await thread.delegate(job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now; tell the owner.", True)
+        except CoreApiError as exc:
+            return _result(f"Refused: {exc}", True)
+        if handed.duplicate:
+            return _result(
+                f"Already handed to {handed.agent} in this turn (task {handed.task_id}); "
+                "its result will wake this thread.",
+                False,
+            )
+        return _result(
+            f"Handed to {handed.agent} (task {handed.task_id}). Its result will wake this "
+            "thread as an [이벤트] input. Tell the owner and end this turn unless other "
+            "work remains.",
+            False,
+        )
+
+    return delegate
 
 
 def slack_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[Any]]:
@@ -759,7 +828,8 @@ def sendable_file(job: EngineJob, raw: str) -> Path | str:
     workspace = job.workspace
     if workspace is None:
         return "This session has no workspace, so there is no file to send."
-    roots = [r.resolve() for r in (workspace.worktree_dir, workspace.tmp_dir) if r is not None]
+    places = (workspace.worktree_dir, workspace.tmp_dir, *(p for _, p in workspace.delegate_dirs))
+    roots = [r.resolve() for r in places if r is not None]
     try:
         path = Path(raw).resolve(strict=True)
     except (OSError, RuntimeError):

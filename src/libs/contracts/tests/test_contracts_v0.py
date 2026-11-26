@@ -55,7 +55,19 @@ def test_agent_definition_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         AgentDefinition.model_validate_json("{" + base + ', "engine_options": {}}')
     with pytest.raises(ValidationError):
-        AgentDefinition.model_validate_json("{" + base + ', "delegates": []}')
+        AgentDefinition.model_validate_json("{" + base + ', "delegate_to": []}')
+
+
+def test_agent_definition_delegates_to_others_only() -> None:
+    base = (
+        '"name": "a", "aliases": ["old"], "description": "d", "engine": "claude", '
+        '"prompt": {"name": "a", "version": 1}'
+    )
+    found = AgentDefinition.model_validate_json("{" + base + ', "delegates": ["b"]}')
+    assert found.delegates == ("b",)
+    for delegates in ('["a"]', '["old"]', '["b", "b"]'):
+        with pytest.raises(ValidationError):
+            AgentDefinition.model_validate_json("{" + base + f', "delegates": {delegates}}}')
 
 
 def test_agent_name_pattern() -> None:
