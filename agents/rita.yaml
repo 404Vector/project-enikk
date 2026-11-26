@@ -1,0 +1,43 @@
+name: rita
+description: Rita, the owner's game-making agent in her own Slack channel (game art and the Unity editor)
+engine: claude
+# Rita's own prompt (character and rules). The connector routes her channel to her
+# (config/slack.yaml agent_channels, ADR-0045).
+prompt:
+  name: rita
+  label: production
+tools:
+  # Game art and the owner's Unity editor only; no scheduler (ADR-0045).
+  mcp:
+    # Images with the Gemini API, saved to the thread's tmp (ADR-0043).
+    - server: imagegen
+      allow:
+        [generate_image, edit_image, list_styles, add_style_reference,
+         remove_style_reference]
+    # The owner's Unity editor on the Windows PC, through the relay (ADR-0044). Every
+    # tool of MCP for Unity 10.3.0; they can change the project and run code there.
+    - server: unity
+      allow:
+        [apply_text_edits, batch_execute, blender_bridge, create_script,
+         debug_request_context, delete_script, execute_code, execute_menu_item,
+         find_gameobjects, find_in_file, generate_audio, generate_image,
+         generate_model, get_sha, get_test_job, import_model, import_model_file,
+         manage_animation, manage_asset, manage_build, manage_camera,
+         manage_components, manage_editor, manage_gameobject, manage_graphics,
+         manage_material, manage_packages, manage_physics, manage_prefabs,
+         manage_probuilder, manage_profiler, manage_scene, manage_script,
+         manage_script_capabilities, manage_scriptable_object, manage_shader,
+         manage_texture, manage_tools, manage_ui, manage_vfx, read_console,
+         refresh_unity, run_tests, script_apply_edits, set_active_instance, unity_docs,
+         unity_reflect, validate_script, list_unity_resources, read_unity_resource]
+  # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
+  # web returns is untrusted input. No browser automation.
+  builtin:
+    [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
+     WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
+  # No prompt candidates and no GitHub token: changes to enikk itself go through enikk.
+  platform: []
+# Room for long editor work in one thread.
+limits:
+  max_turns: 100
+  timeout_seconds: 3600

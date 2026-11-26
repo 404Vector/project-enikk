@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
     from enikk_connector_slack.approvals import ApprovalActions
     from enikk_connector_slack.blocks import Message
+    from enikk_connector_slack.config import Persona
     from enikk_connector_slack.events import MessageRef
     from enikk_connector_slack.inbound import InboundHandler
 
@@ -81,14 +82,24 @@ class SlackWebApi:
             return None
         return tuple(sorted(name for name in found if EMOJI_NAME.fullmatch(name)))
 
-    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
+    async def post_reply(
+        self, channel: str, thread: str | None, text: str, persona: Persona | None = None
+    ) -> None:
+        username = None if persona is None else persona.name
+        icon = None if persona is None or persona.icon_emoji is None else f":{persona.icon_emoji}:"
         try:
             if len(text) <= MARKDOWN_LIMIT:
                 await self._web.chat_postMessage(
-                    channel=channel, thread_ts=thread, markdown_text=text
+                    channel=channel,
+                    thread_ts=thread,
+                    markdown_text=text,
+                    username=username,
+                    icon_emoji=icon,
                 )
             else:
-                await self._web.chat_postMessage(channel=channel, thread_ts=thread, text=text)
+                await self._web.chat_postMessage(
+                    channel=channel, thread_ts=thread, text=text, username=username, icon_emoji=icon
+                )
         except SlackApiError as exc:
             raise _delivery_error("chat.postMessage", exc) from exc
         except (aiohttp.ClientError, TimeoutError) as exc:

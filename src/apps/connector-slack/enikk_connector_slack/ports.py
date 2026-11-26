@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from enikk_connector_slack.blocks import Message
+    from enikk_connector_slack.config import Persona
     from enikk_connector_slack.events import MessageRef, PostedMessage
     from enikk_contracts.approvals import (
         DecisionRequest,
@@ -95,8 +96,11 @@ class SlackApi(Protocol):
         """The workspace's address and custom emoji (ADR-0042). Raises ``SlackDeliveryError``."""
         ...
 
-    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
-        """Post ``text`` in the thread, or as a new message without one.
+    async def post_reply(
+        self, channel: str, thread: str | None, text: str, persona: Persona | None = None
+    ) -> None:
+        """Post ``text`` in the thread, or as a new message without one, under
+        ``persona``'s name and icon if given (ADR-0045).
 
         ``channel`` may be a user ID (their DM with the app). Raises ``SlackDeliveryError``."""
         ...

@@ -30,6 +30,8 @@ class Router:
     - Direct message: always handled.
     - Mention of the bot: handled from the ``app_mention`` event.
     - Other thread reply in a channel: continues the thread's conversation if it has one.
+    - Agent channel (ADR-0045): every top-level message, mention or not, starts a
+      conversation with that channel's agent; thread replies continue one.
     """
 
     def __init__(self, config: SlackConfig, bot_user_id: str) -> None:
@@ -49,7 +51,12 @@ class Router:
             return None
 
         routes = self._config.routes
-        if message.type == APP_MENTION:
+        own = self._config.agent_channel(message.channel)
+        if own is not None:
+            if message.type != MESSAGE:
+                return None  # the message event of the same post carries it
+            agent, continue_only = own.agent, message.thread_ts is not None
+        elif message.type == APP_MENTION:
             agent, continue_only = routes.mention, False
         elif message.type == MESSAGE and message.channel_type == DIRECT_MESSAGE:
             agent, continue_only = routes.direct_message, False
