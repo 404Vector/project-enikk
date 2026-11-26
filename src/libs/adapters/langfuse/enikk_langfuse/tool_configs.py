@@ -1,4 +1,4 @@
-"""Tool settings (``config-*``) over the Langfuse public API (ADR-0045).
+"""Tool settings (``config-*``) over the Langfuse public API (ADR-0046).
 
 Only ``production`` versions are read. A cached copy serves for ``fresh``; when
 Langfuse cannot be reached, one up to ``stale_limit`` old. A setting with no

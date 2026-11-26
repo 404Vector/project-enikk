@@ -1,6 +1,6 @@
 """Tool settings: Langfuse prompts named ``config-*`` that a tool server reads at run
 time, so the owner changes them by promoting a candidate instead of a commit
-(ADR-0045). The text is a note for people; the config holds the values. Only the
+(ADR-0046). The text is a note for people; the config holds the values. Only the
 names listed in ``TOOL_CONFIGS`` exist, each with its own contract."""
 
 from __future__ import annotations

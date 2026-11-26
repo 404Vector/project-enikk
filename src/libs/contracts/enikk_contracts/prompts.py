@@ -41,7 +41,7 @@ class PromptConfigChange(Contract):
     requires: Annotated[tuple[Capability, ...], Field(max_length=len(Capability))] | None = None
     """Skills only: the whole new list of core-enforced actions the skill relies on."""
     values: Annotated[dict[SettingKey, SettingValue], Field(max_length=20)] | None = None
-    """Tool settings only (``config-*``, ADR-0045): the setting values to change."""
+    """Tool settings only (``config-*``, ADR-0046): the setting values to change."""
 
 
 class PromptCandidateRequest(Contract):

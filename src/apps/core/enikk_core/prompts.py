@@ -133,7 +133,7 @@ class PromptService:
         """The task, its session and the roles using ``prompt``; refuse unless the task's
         role may handle prompts and ``prompt`` is a role's prompt, the base prompt, a
         skill (ADR-0037 §1, §2), an image style (ADR-0043 §3) or a tool setting
-        (ADR-0045)."""
+        (ADR-0046)."""
         task, session = await self._origin(task_id)
         definition = self._catalog.get(task.agent)
         if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:

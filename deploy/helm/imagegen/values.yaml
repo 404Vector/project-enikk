@@ -17,7 +17,7 @@ langfuseUrl: https://jp.cloud.langfuse.com
 tracing: true
 defaultModel: gemini-3.1-flash-image
 # Estimated USD per day (Asia/Seoul) while the Langfuse setting config-imagegen has
-# no production version (ADR-0045). The owner changes the budget there, not here.
+# no production version (ADR-0046). The owner changes the budget there, not here.
 defaultBudgetUsd: 1
 
 # The runtime's shared volume (ADR-0037 §7): images are saved to tmp/<session>/images

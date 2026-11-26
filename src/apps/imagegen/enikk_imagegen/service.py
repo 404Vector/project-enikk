@@ -112,7 +112,7 @@ class Limits:
 
 
 class DailySpend:
-    """Estimated USD spent today, in memory. A restart starts again from 0 (ADR-0045)."""
+    """Estimated USD spent today, in memory. A restart starts again from 0 (ADR-0046)."""
 
     def __init__(self, timezone: str, now: Callable[[], datetime]) -> None:
         self._zone = ZoneInfo(timezone)

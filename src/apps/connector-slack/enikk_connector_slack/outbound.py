@@ -17,8 +17,9 @@ from enikk_kernel.models import FrozenModel
 
 if TYPE_CHECKING:
     import uuid
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
+    from enikk_connector_slack.config import AgentChannel
     from enikk_connector_slack.events import PostedMessage
     from enikk_connector_slack.ports import CoreApi, SlackApi
     from enikk_contracts.outbox import OutboundMessage
@@ -56,9 +57,12 @@ class OutboxRelay:
         sleep: Sleep = asyncio.sleep,
         marker: Marker | None = None,
         owner: str | None = None,
+        channels: Sequence[AgentChannel] = (),
     ) -> None:
         self._core = core
         self._owner = owner
+        self._personas = {c.channel: c.persona for c in channels}
+        """Agent channels' names and icons for the messages posted there (ADR-0045)."""
         self._slack = slack
         self._marker = Marker(slack, Reactions()) if marker is None else marker
         self._policy = policy
@@ -115,7 +119,12 @@ class OutboxRelay:
         conversation = message.conversation
         replied = message.kind is OutboundKind.REPLY
         try:
-            await self._slack.post_reply(conversation.channel, conversation.thread, _text(message))
+            await self._slack.post_reply(
+                conversation.channel,
+                conversation.thread,
+                _text(message),
+                self._personas.get(conversation.channel),
+            )
         except SlackDeliveryError as exc:
             if exc.transient:
                 raise
@@ -140,7 +149,7 @@ class OutboxRelay:
         if message.kind is OutboundKind.SCHEDULED_DM and self._owner is not None:
             channel, thread = self._owner, None
         try:
-            await self._slack.post_reply(channel, thread, message.text)
+            await self._slack.post_reply(channel, thread, message.text, self._personas.get(channel))
         except SlackDeliveryError as exc:
             if exc.transient:
                 raise
