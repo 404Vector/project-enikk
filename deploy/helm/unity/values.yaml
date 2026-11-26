@@ -15,7 +15,7 @@ coreTokenSeconds: 3600
 
 # MCP for Unity on the owner's Windows PC, reached over its hotspot (ADR-0044 §1).
 upstreamUrl: http://192.168.137.1:8765/mcp
-# Put in unity_instance when a call leaves it out; "" puts nothing.
+# Selected at the start of each Unity session; "" selects none.
 instance: UnityMcp@e6485c81850c8acc
 # One call to Unity, tests and builds included.
 requestSeconds: 300

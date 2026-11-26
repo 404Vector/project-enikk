@@ -1031,6 +1031,7 @@ name = "enikk-unity"
 version = "0.1.0"
 source = { editable = "src/apps/unity" }
 dependencies = [
+    { name = "cryptography" },
     { name = "enikk-contracts" },
     { name = "enikk-core-client" },
     { name = "enikk-kernel" },
@@ -1042,6 +1043,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
