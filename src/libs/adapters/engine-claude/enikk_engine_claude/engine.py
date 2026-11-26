@@ -80,6 +80,9 @@ if TYPE_CHECKING:
 
 MAX_ANSWER_CHARS: Final = 40_000
 TRUNCATION_NOTE: Final = "\n\n…(truncated)"
+MAX_MESSAGE_BYTES: Final = 32 * 1024 * 1024
+"""Largest JSON line read from the CLI. The SDK's default (1 MiB) fails when a tool
+result holds an image the session read."""
 
 SANDBOX_READ: Final = (
     "/usr",
@@ -423,6 +426,7 @@ class ClaudeEngine:
             model=job.prompt.model,
             effort=_effort(effort),
             max_turns=job.definition.limits.max_turns,
+            max_buffer_size=MAX_MESSAGE_BYTES,
             resume=resume,
             cwd=str(cwd),
             session_store=store.as_sdk_store(),
