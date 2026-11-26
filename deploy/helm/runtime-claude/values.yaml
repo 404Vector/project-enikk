@@ -15,14 +15,15 @@ langfuseUrl: https://jp.cloud.langfuse.com
 coreTokenSeconds: 3600
 
 # The Claude Code CLI child process needs most of the memory (about 250MB per
-# running task, Python about 100MB). Requests cover two slots (ADR-0037 3a).
+# running task, Python about 100MB). Requests cover four slots; the limit leaves room
+# for check tools (mypy, pytest) on top (ADR-0037 3a, changed 2026-11-26).
 resources:
-  requests: { cpu: 100m, memory: 640Mi }
-  limits: { memory: 1536Mi }
+  requests: { cpu: 100m, memory: 1280Mi }
+  limits: { memory: 2560Mi }
 
 # Tasks leased and run at the same time (ADR-0037 3a). 1 goes back to one at a time.
 worker:
-  slots: 2
+  slots: 4
 
 # Scratch space for the CLI's per-task config directory and its working directory.
 scratch:
@@ -75,4 +76,4 @@ live:
   enabled: true
   idleSeconds: 600
   maxAgeSeconds: 3600
-  maxSessions: 3
+  maxSessions: 4
