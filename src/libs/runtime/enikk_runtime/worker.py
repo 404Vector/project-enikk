@@ -249,7 +249,9 @@ class TaskWorker:
         ):
             return None
         try:
-            return await asyncio.to_thread(self._workspaces.prepare, assignment.session_id)
+            return await asyncio.to_thread(
+                self._workspaces.prepare, assignment.session_id, definition.delegates
+            )
         except Exception:
             _log.exception("task %s: shared volume unavailable", assignment.task_id)
             return None

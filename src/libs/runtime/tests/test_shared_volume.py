@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from enikk_contracts.delegation import delegated_session_id
 from enikk_kernel.process import SubprocessRunner
 from enikk_kernel.testing import ManualClock
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
@@ -329,6 +330,16 @@ def test_the_note_names_the_commit_and_paths(tmp_path: Path, origin: Origin) -> 
     assert str(ws.worktree_dir) in text
     assert str(ws.tmp_dir) in text
     assert text.endswith("[요청]\n리뷰해 줘")
+
+
+def test_the_workspace_of_a_delegated_agent_is_shared(tmp_path: Path, origin: Origin) -> None:
+    origin.commit("a.txt", "a\n")
+    ws = _workspaces(tmp_path, origin, _clock()).prepare(SESSION, ("rita",))
+    expected = tmp_path / "data" / "tmp" / str(delegated_session_id(SESSION, "rita"))
+    assert ws.delegate_dirs == (("rita", expected),)
+    assert expected.is_dir()
+    assert expected in ws.write_paths
+    assert f"rita 의 작업 공간: {expected}" in with_workspace("그려 줘", ws)
 
 
 def test_the_note_goes_before_the_memories_with_one_request_marker(

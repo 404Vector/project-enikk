@@ -8,7 +8,7 @@ import pydantic_core
 import yaml
 from pydantic import ValidationError
 
-from enikk_contracts.agents import AgentDefinition
+from enikk_contracts.agents import AgentDefinition, Execution
 from enikk_kernel.errors import ConfigurationError
 
 if TYPE_CHECKING:
@@ -30,6 +30,18 @@ class YamlAgentCatalog:
                         "or alias"
                     )
                 self._by_alias[alias] = definition
+        for definition in definitions:
+            for target in definition.delegates:
+                found = self._by_name.get(target)
+                if found is None:
+                    raise ConfigurationError(
+                        f"'{definition.name}' delegates to '{target}', which is not an agent"
+                    )
+                if found.execution is not Execution.SHARED or found.delegates:
+                    raise ConfigurationError(
+                        f"'{definition.name}' delegates to '{target}', which must run on the "
+                        "shared runtime and delegate to no one (ADR-0047)"
+                    )
 
     @classmethod
     def load(cls, directory: Path) -> YamlAgentCatalog:

@@ -105,10 +105,32 @@ def test_the_summarizer_has_no_tools() -> None:
         assert tools.platform_defaults is False, name
 
 
+def test_enikk_hands_work_to_rita() -> None:
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    enikk = catalog.get("enikk")
+    assert enikk is not None
+    assert enikk.delegates == ("rita",)
+
+
+@pytest.mark.parametrize(
+    ("target", "fragment"),
+    [
+        ("ghost", "is not an agent"),
+        ("middle", "delegate to no one"),
+    ],
+)
+def test_delegates_must_be_plain_shared_agents(tmp_path: Path, target: str, fragment: str) -> None:
+    (tmp_path / "good.yaml").write_text(VALID.format(name="good"))
+    (tmp_path / "middle.yaml").write_text(VALID.format(name="middle") + "delegates: [good]\n")
+    (tmp_path / "top.yaml").write_text(VALID.format(name="top") + f"delegates: [{target}]\n")
+    with pytest.raises(ConfigurationError, match=fragment):
+        YamlAgentCatalog.load(tmp_path)
+
+
 def test_catalog_reports_every_problem(tmp_path: Path) -> None:
     (tmp_path / "good.yaml").write_text(VALID.format(name="good"))
     (tmp_path / "delegating.yaml").write_text(
-        VALID.format(name="delegating") + "delegates: [good]\n"
+        VALID.format(name="delegating") + "delegates: [delegating]\n"
     )
     (tmp_path / "renamed.yaml").write_text(VALID.format(name="other"))
     (tmp_path / "broken.yaml").write_text("name: broken\nengine: [")

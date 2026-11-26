@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from enikk_contracts import routes
 from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
+from enikk_contracts.delegation import Delegated
 from enikk_contracts.deployments import RevertResult
 from enikk_contracts.diagnostics import Deployments, LogLines, Pulls, RecentTasks, TaskDetail
 from enikk_contracts.errors import ErrorResponse
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
+    from enikk_contracts.delegation import DelegateRequest
     from enikk_contracts.deployments import RevertRequest
     from enikk_contracts.diagnostics import (
         DeploymentsQuery,
@@ -291,6 +293,11 @@ class CoreClient:
     ) -> ScheduledMessage:
         path = routes.THREAD_SCHEDULE.format(task_id=task_id)
         return _parse(ScheduledMessage, await self._post(path, request))
+
+    async def delegate(self, task_id: uuid.UUID, request: DelegateRequest) -> Delegated:
+        """Hand work to another agent; its result wakes the task's thread (ADR-0047)."""
+        path = routes.TASK_DELEGATE.format(task_id=task_id)
+        return _parse(Delegated, await self._post(path, request))
 
     async def scheduled_messages(
         self, task_id: uuid.UUID, query: ScheduledQuery

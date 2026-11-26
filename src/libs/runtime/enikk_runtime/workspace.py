@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Annotated, Final
 
 from pydantic import Field, StringConstraints
 
+from enikk_contracts.delegation import delegated_session_id
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.models import FrozenModel
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
@@ -123,7 +124,7 @@ class SessionWorkspaces:
         self._clock = clock
         self._wrap = wrap
 
-    def prepare(self, session_id: uuid.UUID) -> SessionWorkspace:
+    def prepare(self, session_id: uuid.UUID, delegates: tuple[str, ...] = ()) -> SessionWorkspace:
         c = self._config
         with self._locked():
             for folder in (c.snapshots_dir, c.worktrees_dir, c.tmp_dir, self._sessions_dir):
@@ -139,6 +140,12 @@ class SessionWorkspaces:
             worktree = self._worktree(session_id, commit) if commit else None
             tmp = c.tmp_dir / str(session_id)
             tmp.mkdir(exist_ok=True)
+            delegate_dirs = tuple(
+                (agent, c.tmp_dir / str(delegated_session_id(session_id, agent)))
+                for agent in delegates
+            )
+            for _, path in delegate_dirs:
+                path.mkdir(exist_ok=True)
         return SessionWorkspace(
             repository=c.repository,
             repo_dir=c.repo_dir,
@@ -149,6 +156,7 @@ class SessionWorkspaces:
             worktree_dir=worktree,
             branch=f"{BRANCH_PREFIX}{session_id}" if worktree else None,
             tmp_dir=tmp,
+            delegate_dirs=delegate_dirs,
         )
 
     # ------------------------------------------------------------ the lock
@@ -445,6 +453,11 @@ def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
         )
     lines.append(
         f"- 임시 자료: {workspace.tmp_dir} (웹에서 받은 파일처럼 신뢰하지 않는 자료는 여기에 둔다)"
+    )
+    lines.extend(
+        f"- {agent} 의 작업 공간: {path} (delegate 로 맡긴 일에서 {agent} 가 만든 파일. "
+        "읽고 쓸 수 있고 send_file 로 보낼 수 있다)"
+        for agent, path in workspace.delegate_dirs
     )
     block = "\n".join(lines)
     if text.startswith(MEMORY_HEADER):

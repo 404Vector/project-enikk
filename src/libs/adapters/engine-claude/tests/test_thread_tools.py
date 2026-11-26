@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pydantic import HttpUrl
 
+from enikk_contracts.delegation import Delegated, DelegateRequest
 from enikk_contracts.thread_actions import (
     LinkTarget,
     MessageLink,
@@ -18,7 +19,9 @@ from enikk_contracts.thread_actions import (
 )
 from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.platform_tools import (
+    DELEGATE_TOOL,
     THREAD_TOOLS,
+    delegate_tool,
     granted_platform_tools,
     sendable_file,
     slack_tools,
@@ -168,3 +171,62 @@ async def test_message_link_needs_a_known_target(tmp_path: Path) -> None:
     assert "archives/D1/p18001" in found["content"][0]["text"]
     assert [r.target for r in poster.links] == [LinkTarget.REQUEST]
     assert wrong["is_error"]
+
+
+def _delegating_job(tmp_path: Path) -> EngineJob:
+    job = _job(tmp_path)
+    assert job.workspace is not None
+    helper = tmp_path / "tmp" / "helper-session"
+    return job.model_copy(
+        update={
+            "definition": definition().model_copy(update={"delegates": ("rita",)}),
+            "workspace": job.workspace.model_copy(update={"delegate_dirs": (("rita", helper),)}),
+        }
+    )
+
+
+def test_delegate_is_granted_only_to_an_agent_with_delegates(tmp_path: Path) -> None:
+    assert DELEGATE_TOOL not in granted_platform_tools(_job(tmp_path), thread=True)
+    assert DELEGATE_TOOL in granted_platform_tools(_delegating_job(tmp_path), thread=True)
+    assert DELEGATE_TOOL not in granted_platform_tools(_delegating_job(tmp_path), thread=False)
+
+
+def test_files_of_the_delegated_agent_can_be_sent(tmp_path: Path) -> None:
+    made = tmp_path / "tmp" / "helper-session" / "images" / "tree.png"
+    made.parent.mkdir(parents=True)
+    made.write_bytes(b"png")
+    assert sendable_file(_delegating_job(tmp_path), str(made)) == made.resolve()
+    assert isinstance(sendable_file(_job(tmp_path), str(made)), str)
+
+
+class _Delegations:
+    def __init__(self) -> None:
+        self.requests: list[DelegateRequest] = []
+
+    async def delegate(self, task_id: uuid.UUID, request: DelegateRequest) -> Delegated:
+        self.requests.append(request)
+        return Delegated(
+            agent=request.agent,
+            session_id=uuid.uuid4(),
+            task_id=uuid.uuid4(),
+            duplicate=len(self.requests) > 1,
+        )
+
+
+@pytest.mark.anyio
+async def test_delegate_hands_the_request_to_core(tmp_path: Path) -> None:
+    core = _Delegations()
+    tool = delegate_tool(CurrentJob(_delegating_job(tmp_path)), core)  # type: ignore[arg-type]
+
+    handed = await tool.handler({"agent": "rita", "request": "나무를 그려 줘"})
+    again = await tool.handler({"agent": "rita", "request": "또"})
+    wrong = await tool.handler({"agent": "Rita!", "request": "x"})
+
+    assert not handed["is_error"]
+    assert "[이벤트]" in handed["content"][0]["text"]
+    assert "Already handed" in again["content"][0]["text"]
+    assert wrong["is_error"]
+    assert [(r.agent, r.request) for r in core.requests] == [
+        ("rita", "나무를 그려 줘"),
+        ("rita", "또"),
+    ]

@@ -10,7 +10,7 @@ from typing import Annotated
 from pydantic import Field, JsonValue, SecretStr, StringConstraints
 
 from enikk_contracts.agents import AgentDefinition
-from enikk_contracts.common import Identifier, NonEmptyText
+from enikk_contracts.common import AgentName, Identifier, NonEmptyText
 from enikk_contracts.skills import Capability, SkillName, SkillSummary
 from enikk_kernel.models import FrozenModel
 
@@ -46,6 +46,9 @@ class SessionWorkspace(FrozenModel):
     branch: Annotated[str, StringConstraints(min_length=1, max_length=200)] | None
     tmp_dir: Path
     """This session's place for untrusted material, such as files from the web."""
+    delegate_dirs: tuple[tuple[AgentName, Path], ...] = ()
+    """The tmp of each agent this session hands work to, where that agent's files are
+    (ADR-0047)."""
 
     @property
     def read_paths(self) -> tuple[Path, ...]:
@@ -54,7 +57,7 @@ class SessionWorkspace(FrozenModel):
     @property
     def write_paths(self) -> tuple[Path, ...]:
         worktree = () if self.worktree_dir is None else (self.repo_dir, self.worktree_dir)
-        return (*worktree, self.tmp_dir)
+        return (*worktree, self.tmp_dir, *(path for _, path in self.delegate_dirs))
 
 
 class LoadedSkill(FrozenModel):

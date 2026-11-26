@@ -13,7 +13,6 @@ needs the thread's next step also wakes its session (ADR-0041 §4).
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from typing import TYPE_CHECKING, Final
 
@@ -37,8 +36,6 @@ if TYPE_CHECKING:
 
 AGENT_PREFIX: Final = "agent/"
 MAX_NOTE: Final = 3_000
-MAX_PULL_LINKS: Final = 3
-PULL_URL: Final = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
 
 _log = logging.getLogger(__name__)
 
@@ -187,22 +184,3 @@ class ReviewLinks:
         _log.info("linked the review thread of %s#%d", review.repository, review.number)
         report = latest.output if latest.status is TaskStatus.SUCCEEDED else None
         return ReviewThreadLinked(origin=session.outbox_conversation, report=report)
-
-
-def delegated_status(agent: str, output: str) -> str:
-    """What the asking thread sees of a delegated agent's answer.
-
-    An answer that opened or updated a pull request becomes one status line with the PR
-    numbers only: the asking thread gets no GitHub links and no details, and the link to
-    the PR's approval thread follows as its status card (ADR-0036, the owner's decision
-    of 2026-11-24). The full answer goes to the owner's review thread. Other answers are
-    kept as they are.
-    """
-    links = list(dict.fromkeys(PULL_URL.findall(output)))[:MAX_PULL_LINKS]
-    if not links:
-        return output
-    numbers = ", ".join(f"#{link.rsplit('/', 1)[1]}" for link in links)
-    return (
-        f"에닉의 {agent} 역할이 작업을 마쳤습니다. PR {numbers}\n"
-        "승인 채널 스레드 링크가 곧 이 스레드에 올라옵니다."
-    )
