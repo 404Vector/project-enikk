@@ -16,8 +16,8 @@ class UnitySettings(ServiceSettings, env_prefix="ENIKK_UNITY_"):
     upstream_url: str = "http://192.168.137.1:8765/mcp"
     """The Unity MCP server on the owner's Windows PC, over its hotspot (ADR-0044)."""
     instance: str = ""
-    """Unity editor instance put in ``unity_instance`` when a call leaves it out; empty
-    puts nothing."""
+    """Unity editor instance selected at the start of each Unity session; empty selects
+    none."""
     protocol_version: str = "2025-06-18"
     """MCP revision spoken to the Unity server."""
     connect_seconds: float = Field(default=5.0, gt=0)

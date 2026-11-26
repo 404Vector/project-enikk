@@ -1,5 +1,7 @@
 """The relayed MCP server (ADR-0044): the Unity server's tools as they are, and its
-resources as two tools of our own. Each request opens its own session with Unity."""
+resources as two tools of our own. Each request opens its own session with Unity, and
+selects the configured editor instance in it first. Every request must carry core's task
+token, and a call only a tool the token names (§5)."""
 
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Final
 import mcp_types as types
 from mcp.server.lowlevel import Server
 
+from enikk_unity.tokens import TokenRejectedError
 from enikk_unity.upstream import UnityRequestError, UnityUnavailableError
 
 if TYPE_CHECKING:
@@ -16,10 +19,11 @@ if TYPE_CHECKING:
 
     from mcp.server.context import ServerRequestContext
 
+    from enikk_unity.tokens import TokenVerifier
     from enikk_unity.upstream import UnitySession, UnityUpstream
 
 SERVER_NAME: Final = "enikk-unity"
-INSTANCE_ARGUMENT: Final = "unity_instance"
+SELECT_INSTANCE: Final = "set_active_instance"
 LIST_RESOURCES: Final = "list_unity_resources"
 READ_RESOURCE: Final = "read_unity_resource"
 INSTRUCTIONS: Final = (
@@ -61,11 +65,12 @@ class Relay:
     def __init__(self, upstream: UnityUpstream, *, instance: str) -> None:
         self._upstream = upstream
         self._instance = instance
-        self._schemas: dict[str, Mapping[str, Any]] = {}
 
     async def list_tools(self, cursor: str | None) -> types.ListToolsResult:
+        params = {"cursor": cursor} if cursor is not None else None
         async with self._upstream.session() as session:
-            result = await self._tools(session, cursor)
+            raw = await session.request("tools/list", params)
+        result = types.ListToolsResult.model_validate(raw)
         if cursor is None:
             result.tools = [*result.tools, *_RESOURCE_TOOLS]
         return result
@@ -73,35 +78,26 @@ class Relay:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         try:
             async with self._upstream.session() as session:
+                await self._select_instance(session, name)
                 if name == LIST_RESOURCES:
                     return await _list_resources(session)
                 if name == READ_RESOURCE:
                     return await _read_resource(session, arguments)
-                if self._instance and name not in self._schemas:
-                    await self._tools(session, None)
-                raw = await session.request(
-                    "tools/call", {"name": name, "arguments": self._with_instance(name, arguments)}
-                )
+                raw = await session.request("tools/call", {"name": name, "arguments": arguments})
         except (UnityUnavailableError, UnityRequestError) as exc:
             _log.warning("tool %s: %s", name, exc)
             return _error(str(exc))
         return types.CallToolResult.model_validate(raw)
 
-    async def _tools(self, session: UnitySession, cursor: str | None) -> types.ListToolsResult:
-        params = {"cursor": cursor} if cursor is not None else None
-        result = types.ListToolsResult.model_validate(await session.request("tools/list", params))
-        for tool in result.tools:
-            self._schemas[tool.name] = tool.input_schema
-        return result
-
-    def _with_instance(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Puts the configured editor instance in calls that take one and left it out."""
-        if not self._instance or INSTANCE_ARGUMENT in arguments:
-            return arguments
-        properties = self._schemas.get(name, {}).get("properties")
-        if not isinstance(properties, dict) or INSTANCE_ARGUMENT not in properties:
-            return arguments
-        return {**arguments, INSTANCE_ARGUMENT: self._instance}
+    async def _select_instance(self, session: UnitySession, name: str) -> None:
+        """The Unity server keeps the selected editor per session (ADR-0044 §2)."""
+        if not self._instance or name == SELECT_INSTANCE:
+            return
+        raw = await session.request(
+            "tools/call", {"name": SELECT_INSTANCE, "arguments": {"instance": self._instance}}
+        )
+        if types.CallToolResult.model_validate(raw).is_error:
+            raise UnityRequestError(f"Unity MCP could not select the instance {self._instance}")
 
 
 async def _list_resources(session: UnitySession) -> types.CallToolResult:
@@ -147,10 +143,11 @@ def _error(text: str) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)], is_error=True)
 
 
-def build_server(relay: Relay) -> Server[Any]:
+def build_server(relay: Relay, verifier: TokenVerifier) -> Server[Any]:
     async def on_list_tools(
-        _: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+        ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
+        await _check(verifier, ctx, None)
         try:
             return await relay.list_tools(params.cursor if params else None)
         except (UnityUnavailableError, UnityRequestError) as exc:
@@ -158,8 +155,12 @@ def build_server(relay: Relay) -> Server[Any]:
             raise
 
     async def on_call_tool(
-        _: ServerRequestContext[Any], params: types.CallToolRequestParams
+        ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
+        try:
+            await _check(verifier, ctx, params.name)
+        except TokenRejectedError as exc:
+            return _error(str(exc))
         return await relay.call_tool(params.name, dict(params.arguments or {}))
 
     return Server(
@@ -168,3 +169,20 @@ def build_server(relay: Relay) -> Server[Any]:
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
+
+
+async def _check(verifier: TokenVerifier, ctx: ServerRequestContext[Any], tool: str | None) -> None:
+    try:
+        claims = await verifier.verify(_headers(ctx))
+    except TokenRejectedError as exc:
+        _log.warning("refused %s: %s", tool or "tools/list", exc)
+        raise
+    if tool is not None and not claims.allows(tool):
+        _log.warning("refused %s: not named by the token of task %s", tool, claims.task)
+        raise TokenRejectedError(f"the task's token does not allow {tool}")
+
+
+def _headers(ctx: ServerRequestContext[Any]) -> Mapping[str, str] | None:
+    """The HTTP request's headers; the streamable HTTP transport puts the request here."""
+    headers = getattr(ctx.request, "headers", None)
+    return dict(headers.items()) if headers is not None else None

@@ -15,18 +15,21 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
     from enikk_unity.relay import Relay
+    from enikk_unity.tokens import TokenVerifier
 
 MCP_PATH: Final = "/mcp"
 HEALTH_PATH: Final = "/healthz"
 
 
-def create_app(relay: Relay, *, allowed_hosts: tuple[str, ...]) -> Starlette:
+def create_app(
+    relay: Relay, verifier: TokenVerifier, *, allowed_hosts: tuple[str, ...]
+) -> Starlette:
     """Stateless towards agentgateway: each request stands alone (ADR-0044 §2)."""
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=[pattern for host in allowed_hosts for pattern in (host, f"{host}:*")],
     )
-    return build_server(relay).streamable_http_app(
+    return build_server(relay, verifier).streamable_http_app(
         streamable_http_path=MCP_PATH,
         stateless_http=True,
         json_response=True,
