@@ -1,0 +1,25 @@
+# Off switch (ADR-0044 "되돌리기"): false runs no replicas.
+enabled: true
+
+image:
+  repository: ghcr.io/404vector/enikk-unity
+  # Set by Argo CD Image Updater. While empty, the Deployment runs no replicas.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The Unity server's key comes from core (ADR-0013, I-09).
+coreUrl: http://enikk-core.enikk.svc
+
+# Lifetime of the audience=enikk-core projected token. kubelet rotates it.
+coreTokenSeconds: 3600
+
+# MCP for Unity on the owner's Windows PC, reached over its hotspot (ADR-0044 §1).
+upstreamUrl: http://192.168.137.1:8765/mcp
+# Put in unity_instance when a call leaves it out; "" puts nothing.
+instance: UnityMcp@e6485c81850c8acc
+# One call to Unity, tests and builds included.
+requestSeconds: 300
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { memory: 192Mi }

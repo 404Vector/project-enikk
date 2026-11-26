@@ -27,6 +27,7 @@ members = [
     "enikk-runtime",
     "enikk-runtime-claude",
     "enikk-scheduler",
+    "enikk-unity",
     "project-enikk",
 ]
 
@@ -1020,6 +1021,31 @@ requires-dist = [
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "mcp", specifier = ">=2.3" },
+    { name = "starlette", specifier = ">=0.40" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
+name = "enikk-unity"
+version = "0.1.0"
+source = { editable = "src/apps/unity" }
+dependencies = [
+    { name = "enikk-contracts" },
+    { name = "enikk-core-client" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-client", editable = "src/libs/core-client" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "mcp", specifier = ">=2.3" },
     { name = "starlette", specifier = ">=0.40" },
     { name = "uvicorn", specifier = ">=0.32" },

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enikk-unity
+  labels:
+    app.kubernetes.io/name: enikk-unity
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: enikk
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ if and .Values.enabled .Values.image.tag }}1{{ else }}0{{ end }}
+  # A new Pod must be ready before the old one stops (ADR-0020 §3, ADR-0023 §3).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: enikk-unity
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: enikk-unity
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: enikk-unity
+      # Only the audience=enikk-core projected token below; no Kubernetes API token (I-28).
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: unity
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default "unset" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["enikk-unity"]
+          env:
+            - name: ENIKK_UNITY_CORE_URL
+              value: {{ .Values.coreUrl | quote }}
+            - name: ENIKK_UNITY_UPSTREAM_URL
+              value: {{ .Values.upstreamUrl | quote }}
+            - name: ENIKK_UNITY_INSTANCE
+              value: {{ .Values.instance | quote }}
+            - name: ENIKK_UNITY_REQUEST_SECONDS
+              value: {{ .Values.requestSeconds | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          # Ready once it has its key; the Unity PC being off does not make it unready.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: core-token
+              mountPath: /var/run/secrets/enikk/core
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: core-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: enikk-core
+                  expirationSeconds: {{ .Values.coreTokenSeconds }}
+                  path: token

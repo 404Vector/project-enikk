@@ -64,6 +64,7 @@ SELECTORS: Final = {
     Service.CONNECTOR_SLACK: "app.kubernetes.io/name=enikk-connector-slack",
     Service.SCHEDULER: "app.kubernetes.io/name=enikk-scheduler",
     Service.IMAGEGEN: "app.kubernetes.io/name=enikk-imagegen",
+    Service.UNITY: "app.kubernetes.io/name=enikk-unity",
     Service.AGENTGATEWAY: "app.kubernetes.io/name=enikk-agentgateway",
 }
 
