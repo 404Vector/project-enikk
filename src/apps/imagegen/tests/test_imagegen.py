@@ -11,6 +11,7 @@ import pytest
 from pydantic import SecretStr
 from starlette.testclient import TestClient
 
+from enikk_contracts.tool_configs import ImagegenConfig
 from enikk_imagegen.app import HEALTH_PATH, MCP_PATH, create_app
 from enikk_imagegen.files import ImageFileError, Workspace
 from enikk_imagegen.gemini import (
@@ -26,6 +27,7 @@ from enikk_imagegen.service import ImageService, LimitReachedError, Limits
 from enikk_imagegen.tools import SESSION_HEADER
 from enikk_kernel.errors import EnikkError
 from enikk_langfuse.styles import Style, StyleError
+from enikk_langfuse.tool_configs import ToolConfigError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -90,6 +92,17 @@ class Recorder:
         self.records.append(record)
 
 
+class FakeSettings:
+    def __init__(self, budget: float | None = None, error: str | None = None) -> None:
+        self.budget = budget
+        self.error = error
+
+    async def imagegen(self) -> ImagegenConfig | None:
+        if self.error is not None:
+            raise ToolConfigError(self.error)
+        return None if self.budget is None else ImagegenConfig(daily_budget_usd=self.budget)
+
+
 class Clock:
     def __init__(self) -> None:
         self.now = datetime(2026, 11, 25, 14, 0, tzinfo=UTC)
@@ -98,13 +111,16 @@ class Clock:
         return self.now
 
 
-def _limits(daily_limit: int = 100) -> Limits:
+def _limits(default_budget_usd: float = 10.0) -> Limits:
     return Limits(
-        daily_limit=daily_limit,
+        default_budget_usd=default_budget_usd,
         timezone="Asia/Seoul",
         default_model="gemini-3.1-flash-image",
         models=("gemini-3.1-flash-image", "gemini-3-pro-image"),
-        prices={"gemini-3.1-flash-image": {"1K": 0.067}},
+        prices={
+            "gemini-3.1-flash-image": {"1K": 0.067},
+            "gemini-3-pro-image": {"1K": 0.134},
+        },
     )
 
 
@@ -113,17 +129,19 @@ def _service(
     model: FakeModel,
     recorder: Recorder,
     *,
-    daily_limit: int = 100,
+    default_budget_usd: float = 10.0,
     clock: Clock | None = None,
     styles: FakeStyles | None = None,
+    settings: FakeSettings | None = None,
 ) -> ImageService:
     return ImageService(
         model,
         Workspace(tmp_path),
-        _limits(daily_limit),
+        _limits(default_budget_usd),
         recorder=recorder,
         now=clock or Clock(),
         styles=styles,
+        settings=settings,
     )
 
 
@@ -257,7 +275,8 @@ async def test_service_saves_counts_and_traces(tmp_path: Path) -> None:
         image_size="1K",
     )
     assert model.calls == [("gemini-3.1-flash-image", "a knight", 0, "1:1", "1K")]
-    assert result.used_today == 1
+    assert result.spent_today_usd == 0.067
+    assert result.daily_budget_usd == 10.0
     assert result.estimated_cost_usd == 0.067
     (record,) = recorder.records
     assert record.session_id == SESSION
@@ -274,44 +293,71 @@ async def test_service_refuses_other_models(tmp_path: Path) -> None:
         service.model_for("imagen-x")
 
 
-async def test_daily_limit_resets_at_midnight_in_the_timezone(tmp_path: Path) -> None:
+ARGUMENTS: dict[str, object] = {
+    "tool": "generate_image",
+    "session": SESSION,
+    "prompt": "p",
+    "inputs": [],
+    "name": "n",
+    "model": None,
+    "aspect_ratio": None,
+    "image_size": "1K",
+}
+
+
+async def test_daily_budget_resets_at_midnight_in_the_timezone(tmp_path: Path) -> None:
     clock = Clock()
-    service = _service(tmp_path, FakeModel(), Recorder(), daily_limit=1, clock=clock)
-    arguments = {
-        "tool": "generate_image",
-        "session": SESSION,
-        "prompt": "p",
-        "inputs": [],
-        "name": "n",
-        "model": None,
-        "aspect_ratio": None,
-        "image_size": "1K",
-    }
-    await service.make(**arguments)  # type: ignore[arg-type]
-    with pytest.raises(LimitReachedError, match="limit of 1"):
-        await service.make(**arguments)  # type: ignore[arg-type]
+    service = _service(tmp_path, FakeModel(), Recorder(), default_budget_usd=0.15, clock=clock)
+    await service.make(**ARGUMENTS)  # type: ignore[arg-type]
+    assert (await service.make(**ARGUMENTS)).spent_today_usd == 0.134  # type: ignore[arg-type]
+    with pytest.raises(LimitReachedError, match=r"budget of \$0.15"):
+        await service.make(**ARGUMENTS)  # type: ignore[arg-type]
     clock.now += timedelta(hours=1)  # 00:00 in Seoul
-    assert (await service.make(**arguments)).used_today == 1  # type: ignore[arg-type]
+    assert (await service.make(**ARGUMENTS)).spent_today_usd == 0.067  # type: ignore[arg-type]
 
 
-async def test_failed_call_gives_its_count_back_and_is_traced(tmp_path: Path) -> None:
+async def test_the_langfuse_setting_sets_the_budget(tmp_path: Path) -> None:
+    service = _service(tmp_path, FakeModel(), Recorder(), settings=FakeSettings(budget=0.1))
+    result = await service.make(**ARGUMENTS)  # type: ignore[arg-type]
+    assert result.daily_budget_usd == 0.1
+    with pytest.raises(LimitReachedError):
+        await service.make(**ARGUMENTS)  # type: ignore[arg-type]
+
+
+async def test_a_zero_budget_stops_generation(tmp_path: Path) -> None:
+    model = FakeModel()
+    service = _service(tmp_path, model, Recorder(), settings=FakeSettings(budget=0))
+    with pytest.raises(LimitReachedError):
+        await service.make(**ARGUMENTS)  # type: ignore[arg-type]
+    assert model.calls == []
+
+
+async def test_an_unreadable_setting_stops_generation(tmp_path: Path) -> None:
+    model = FakeModel()
+    settings = FakeSettings(error="Langfuse is unreachable")
+    service = _service(tmp_path, model, Recorder(), settings=settings)
+    with pytest.raises(EnikkError, match="budget cannot be read"):
+        await service.make(**ARGUMENTS)  # type: ignore[arg-type]
+    assert model.calls == []
+
+
+async def test_a_size_without_a_price_is_refused(tmp_path: Path) -> None:
+    model = FakeModel()
+    service = _service(tmp_path, model, Recorder())
+    with pytest.raises(EnikkError, match="no estimated price"):
+        await service.make(**{**ARGUMENTS, "image_size": "4K"})  # type: ignore[arg-type]
+    assert model.calls == []
+
+
+async def test_failed_call_gives_its_cost_back_and_is_traced(tmp_path: Path) -> None:
     recorder = Recorder()
-    service = _service(tmp_path, FakeModel(GeminiError("Gemini API 429")), recorder, daily_limit=1)
+    service = _service(tmp_path, FakeModel(GeminiError("Gemini API 429")), recorder)
     with pytest.raises(GeminiError):
-        await service.make(
-            tool="generate_image",
-            session=SESSION,
-            prompt="p",
-            inputs=[],
-            name="n",
-            model=None,
-            aspect_ratio=None,
-            image_size="1K",
-        )
+        await service.make(**ARGUMENTS)  # type: ignore[arg-type]
     (record,) = recorder.records
     assert record.error == "Gemini API 429"
     assert record.output is None
-    assert await service._count.take() == 1
+    assert await service._spend.take(0.067, 1.0) == 0.067
 
 
 @pytest.fixture
@@ -446,7 +492,7 @@ async def test_an_unknown_style_is_refused_before_any_call(tmp_path: Path) -> No
             style="style-none",
         )
     assert model.calls == []
-    assert await service._count.take() == 1
+    assert await service._spend.take(0.067, 1.0) == 0.067
 
 
 async def test_style_references_are_listed_added_and_removed(tmp_path: Path) -> None:

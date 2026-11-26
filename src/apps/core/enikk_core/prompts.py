@@ -33,6 +33,7 @@ from enikk_contracts.prompts import (
 )
 from enikk_contracts.skills import is_skill
 from enikk_contracts.styles import is_style
+from enikk_contracts.tool_configs import is_tool_config
 from enikk_core.wakeups import PROMOTION_STATES, promotion_event_text
 from enikk_core_domain.errors import (
     InvalidRequestError,
@@ -131,18 +132,20 @@ class PromptService:
     ) -> tuple[Task, Session, tuple[str, ...]]:
         """The task, its session and the roles using ``prompt``; refuse unless the task's
         role may handle prompts and ``prompt`` is a role's prompt, the base prompt, a
-        skill (ADR-0037 §1, §2) or an image style (ADR-0043 §3)."""
+        skill (ADR-0037 §1, §2), an image style (ADR-0043 §3) or a tool setting
+        (ADR-0045)."""
         task, session = await self._origin(task_id)
         definition = self._catalog.get(task.agent)
         if definition is None or PlatformTool.PROMPT_CANDIDATES not in definition.tools.platform:
             raise PermissionDeniedError(f"role '{task.agent}' may not create prompt candidates")
         roles = roles_using(prompt, self._definitions())
-        if not roles and not is_skill(prompt) and not is_style(prompt) and prompt != BASE_PROMPT:
+        shared = is_skill(prompt) or is_style(prompt) or is_tool_config(prompt)
+        if not roles and not shared and prompt != BASE_PROMPT:
             known = ", ".join(sorted({d.prompt.name for d in self._definitions()}))
             raise InvalidRequestError(
                 f"'{prompt}' is not the prompt of any role, the base prompt "
-                f"({BASE_PROMPT}), a skill (skill-*) nor an image style (style-*); "
-                f"roles use: {known}"
+                f"({BASE_PROMPT}), a skill (skill-*), an image style (style-*) nor a "
+                f"tool setting (config-*); roles use: {known}"
             )
         return task, session, roles
 
@@ -326,6 +329,8 @@ class PromptService:
             return f"스킬은 최대 {SHARED_CACHE_SECONDS}초 안에, 다음에 불러올 때부터"
         if is_style(prompt):
             return f"화풍은 최대 {STYLE_CACHE_SECONDS}초 안에, 다음 이미지 요청부터"
+        if is_tool_config(prompt):
+            return f"도구 설정은 최대 {STYLE_CACHE_SECONDS}초 안에, 다음 도구 호출부터"
         parts = []
         for definition in self._definitions():
             if definition.prompt.name != prompt:

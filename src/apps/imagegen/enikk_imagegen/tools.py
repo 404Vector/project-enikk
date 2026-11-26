@@ -48,9 +48,9 @@ def build_server(service: ImageService) -> MCPServer:
         SERVER_NAME,
         instructions=(
             "Image generation for game assets with the Gemini API (ADR-0043). Each call "
-            "costs money and counts toward a daily limit. Images are saved under "
-            "/data/tmp/<this thread>/images. A style (list_styles) puts its description "
-            "and reference images before the request."
+            "costs money and counts toward a daily budget in estimated USD (ADR-0045). "
+            "Images are saved under /data/tmp/<this thread>/images. A style (list_styles) "
+            "puts its description and reference images before the request."
         ),
     )
 

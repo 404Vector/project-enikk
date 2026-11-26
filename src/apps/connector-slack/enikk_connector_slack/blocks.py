@@ -32,6 +32,7 @@ from enikk_contracts.prompts import (
 )
 from enikk_contracts.skills import is_skill
 from enikk_contracts.styles import is_style
+from enikk_contracts.tool_configs import is_tool_config
 
 if TYPE_CHECKING:
     from enikk_contracts.digests import DigestFailed, ScheduleDelivered
@@ -631,4 +632,6 @@ def _kind(prompt: str) -> str:
         return " (스킬)"
     if is_style(prompt):
         return " (화풍)"
+    if is_tool_config(prompt):
+        return " (도구 설정)"
     return ""

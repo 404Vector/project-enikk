@@ -144,8 +144,9 @@ PROPOSE_PROMPT_DESCRIPTION: Final = (
     "change; the rest of the current config is kept. model and effort for any prompt; "
     "description (one line: when to use it) and requires (the whole list of "
     "core-enforced actions it relies on: repo.push, pr.write, prompt.propose) for skills "
-    "only. A new skill needs model and description. If it is refused, tell the owner why "
-    "instead of retrying with the same input."
+    "only. A new skill needs model and description. Tool settings (config-*, e.g. "
+    "config-imagegen with daily_budget_usd) take only values. If it is refused, tell "
+    "the owner why instead of retrying with the same input."
 )
 
 
@@ -294,7 +295,16 @@ def _config_change(raw: dict[str, Any]) -> PromptConfigChange:
         effort=str(raw["effort"]) if raw.get("effort") else None,
         description=str(raw["description"]) if raw.get("description") else None,
         requires=None if requires is None else tuple(Capability(str(v)) for v in requires),
+        values=_values(raw.get("values")),
     )
+
+
+def _values(raw: object) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("values must be an object")
+    return {str(key): value for key, value in raw.items()}
 
 
 def propose_prompt_tool(current: CurrentJob, prompts: PromptProposer) -> SdkMcpTool[Any]:
@@ -315,6 +325,10 @@ def propose_prompt_tool(current: CurrentJob, prompts: PromptProposer) -> SdkMcpT
                         "type": "array",
                         "items": {"type": "string", "enum": [c.value for c in Capability]},
                         "description": "Skills only. The whole new list.",
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": "Tool settings (config-*) only. The values to change.",
                     },
                 },
             },
@@ -338,9 +352,9 @@ def propose_prompt_tool(current: CurrentJob, prompts: PromptProposer) -> SdkMcpT
             return _result(
                 "prompt, text and reason are required (text 100000, reason 500 characters "
                 "at most). config may hold only model, effort, description (one line, 200 "
-                "characters at most) and requires (each of "
+                "characters at most), requires (each of "
                 + ", ".join(c.value for c in Capability)
-                + ", once).",
+                + ", once) and values (an object of plain values, for config-* only).",
                 True,
             )
         try:

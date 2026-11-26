@@ -25,6 +25,7 @@ from enikk_kernel.logging import configure_logging
 from enikk_langfuse.config import LangfuseConfig
 from enikk_langfuse.images import ImageTracing
 from enikk_langfuse.styles import LangfuseStyles
+from enikk_langfuse.tool_configs import LangfuseToolConfigs
 
 if TYPE_CHECKING:
     from pydantic import SecretStr
@@ -56,17 +57,19 @@ def main() -> None:
         values = asyncio.run(_credentials(settings, request))
         recorder: ImageRecorder = NoRecorder()
         styles: LangfuseStyles | None = None
+        configs: LangfuseToolConfigs | None = None
         if settings.tracing:
             langfuse = _langfuse(settings, values)
             tracing = ImageTracing.connect(langfuse, service_name=SERVER_NAME)
             recorder = tracing
             styles = LangfuseStyles.connect(langfuse, _now)
+            configs = LangfuseToolConfigs.connect(langfuse, _now)
         http = httpx.AsyncClient(timeout=settings.request_seconds)
         service = ImageService(
             GeminiImages(http, settings.gemini_url, values[CredentialName.GEMINI_API_KEY]),
             Workspace(settings.workspace),
             Limits(
-                daily_limit=settings.daily_limit,
+                default_budget_usd=settings.default_budget_usd,
                 timezone=settings.timezone,
                 default_model=settings.default_model,
                 models=settings.models,
@@ -75,14 +78,15 @@ def main() -> None:
             recorder=recorder,
             now=_now,
             styles=styles,
+            settings=configs,
         )
         app = create_app(service, allowed_hosts=settings.allowed_hosts)
         _log.info(
-            "starting %s port=%d model=%s daily_limit=%d",
+            "starting %s port=%d model=%s default_budget_usd=%.2f",
             SERVER_NAME,
             settings.port,
             settings.default_model,
-            settings.daily_limit,
+            settings.default_budget_usd,
         )
         uvicorn.run(app, host=settings.host, port=settings.port, log_config=None)
     except EnikkError as error:

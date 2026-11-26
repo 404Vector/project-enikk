@@ -24,6 +24,7 @@ from enikk_contracts.skills import (
     widened,
 )
 from enikk_contracts.styles import is_style, style_config, valid_style_name
+from enikk_contracts.tool_configs import is_tool_config, tool_config
 from enikk_core_domain.errors import InvalidRequestError, InvalidTransitionError
 from enikk_core_domain.model import Entity
 from enikk_core_domain.redaction import looks_secret
@@ -136,6 +137,11 @@ def check_candidate(
         )
     if not skill and change is not None and change.requires is not None:
         raise InvalidRequestError("requires is only for skill prompts (skill-*)")
+    setting = is_tool_config(prompt)
+    if not setting and change is not None and change.values is not None:
+        raise InvalidRequestError("values is only for tool settings (config-*)")
+    if setting and change is not None and (change.model is not None or change.effort is not None):
+        raise InvalidRequestError("tool settings (config-*) take values, not model or effort")
     if not skill and not style and change is not None and change.description is not None:
         raise InvalidRequestError(
             "description is only for skill prompts (skill-*) and style prompts (style-*)"
@@ -150,9 +156,15 @@ def check_candidate(
         )
     config: dict[str, JsonValue] = dict(production.config) if production is not None else {}
     if change is not None:
-        config.update(change.model_dump(mode="json", exclude_none=True))
+        config.update(change.model_dump(mode="json", exclude_none=True, exclude={"values"}))
+        config.update(change.values or {})
+    if setting:
+        try:
+            tool_config(prompt, config)
+        except ValueError as exc:
+            raise InvalidRequestError(str(exc)) from exc
     model = config.get(MODEL_KEY)
-    if not isinstance(model, str) or not model.strip():
+    if not setting and (not isinstance(model, str) or not model.strip()):
         raise InvalidRequestError(f'the config of the candidate has no "{MODEL_KEY}"')
     requires_added: tuple[Capability, ...] = ()
     if skill:

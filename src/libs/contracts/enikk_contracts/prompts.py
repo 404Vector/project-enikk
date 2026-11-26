@@ -27,6 +27,8 @@ Version = Annotated[int, Field(ge=1)]
 Reason = Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)]
 ModelId = Annotated[str, StringConstraints(min_length=1, max_length=100)]
 Effort = Annotated[str, StringConstraints(min_length=1, max_length=20)]
+SettingKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+SettingValue = bool | int | float | Annotated[str, StringConstraints(max_length=500)]
 
 
 class PromptConfigChange(Contract):
@@ -38,6 +40,8 @@ class PromptConfigChange(Contract):
     """Skills only (ADR-0037 §2): when to use the skill, in one line."""
     requires: Annotated[tuple[Capability, ...], Field(max_length=len(Capability))] | None = None
     """Skills only: the whole new list of core-enforced actions the skill relies on."""
+    values: Annotated[dict[SettingKey, SettingValue], Field(max_length=20)] | None = None
+    """Tool settings only (``config-*``, ADR-0045): the setting values to change."""
 
 
 class PromptCandidateRequest(Contract):
