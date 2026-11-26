@@ -52,8 +52,8 @@ spec:
               value: {{ .Values.tracing | quote }}
             - name: ENIKK_IMAGEGEN_DEFAULT_MODEL
               value: {{ .Values.defaultModel | quote }}
-            - name: ENIKK_IMAGEGEN_DAILY_LIMIT
-              value: {{ .Values.dailyLimit | quote }}
+            - name: ENIKK_IMAGEGEN_DEFAULT_BUDGET_USD
+              value: {{ .Values.defaultBudgetUsd | quote }}
             - name: ENIKK_IMAGEGEN_WORKSPACE
               value: {{ .Values.workspace.mountPath | quote }}
           ports:

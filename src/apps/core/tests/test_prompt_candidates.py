@@ -728,3 +728,59 @@ async def test_invalid_style_candidates_are_not_created(
     with pytest.raises(CoreApiError, match=message):
         await claude.propose_prompt(lease.task_id, request)
     assert langfuse.created == []
+
+
+def _setting(
+    lease: uuid.UUID, prompt: str = "config-imagegen", **config: object
+) -> PromptCandidateRequest:
+    return _request(
+        lease,
+        prompt=prompt,
+        text="이미지 도구의 하루 예산",
+        config=PromptConfigChange.model_validate_json(pydantic_core.to_json(config)),
+    )
+
+
+async def test_a_tool_setting_can_be_proposed_without_a_model(
+    harness: Harness, prompts: PromptService, langfuse: FakeLangfuse, claude: CoreClient
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _setting(lease.lease_id, values={"daily_budget_usd": 1})
+    created = await claude.propose_prompt(lease.task_id, request)
+    assert (created.production_version, created.candidate_version) == (None, 1)
+    stored = langfuse.versions["config-imagegen"][0]
+    assert stored.config == {"daily_budget_usd": 1}
+    [notice] = harness.db.notices.values()
+    assert isinstance(notice.body, PromotionRequested)
+    assert notice.body.roles == ()
+    assert prompts._effective("config-imagegen").startswith("도구 설정은")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "config", "message"),
+    [
+        ("config-imagegen", {"values": {"daily_budget_usd": -1}}, "invalid config"),
+        ("config-imagegen", {"values": {"daily_budget": 1}}, "invalid config"),
+        ("config-unknown", {"values": {"daily_budget_usd": 1}}, "not a tool setting"),
+        (
+            "config-imagegen",
+            {"model": "m", "values": {"daily_budget_usd": 1}},
+            "not model or effort",
+        ),
+        ("style-pixel", {"model": "m", "description": "d", "values": {"a": 1}}, "only for tool"),
+    ],
+)
+async def test_invalid_tool_settings_are_not_created(
+    harness: Harness,
+    prompts: PromptService,
+    langfuse: FakeLangfuse,
+    claude: CoreClient,
+    prompt: str,
+    config: dict[str, object],
+    message: str,
+) -> None:
+    lease = await _leased(harness, claude)
+    request = _setting(lease.lease_id, prompt, **config)
+    with pytest.raises(CoreApiError, match=message):
+        await claude.propose_prompt(lease.task_id, request)
+    assert langfuse.created == []

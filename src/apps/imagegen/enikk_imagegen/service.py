@@ -1,4 +1,4 @@
-"""One image request: the style, the daily limit, the model call, the file and the
+"""One image request: the style, the daily budget, the model call, the file and the
 trace. And the styles themselves: their list and reference images."""
 
 from __future__ import annotations
@@ -14,12 +14,14 @@ from enikk_kernel.errors import EnikkError
 from enikk_kernel.models import FrozenModel
 from enikk_langfuse.images import ImageRecord
 from enikk_langfuse.styles import StyleError
+from enikk_langfuse.tool_configs import ToolConfigError
 
 if TYPE_CHECKING:
     import uuid
     from collections.abc import Callable, Sequence
     from datetime import date, datetime
 
+    from enikk_contracts.tool_configs import ImagegenConfig
     from enikk_imagegen.files import Workspace
     from enikk_imagegen.gemini import GeneratedImage, InlineImage
     from enikk_langfuse.styles import Style
@@ -31,7 +33,7 @@ MAX_IMAGES: Final = 14
 
 
 class LimitReachedError(EnikkError):
-    """Today's images are used up."""
+    """Today's budget is used up."""
 
 
 class ImageModel(Protocol):
@@ -60,6 +62,15 @@ class NoStyles:
         return ()
 
 
+class SettingSource(Protocol):
+    async def imagegen(self) -> ImagegenConfig | None: ...
+
+
+class NoSettings:
+    async def imagegen(self) -> ImagegenConfig | None:
+        return None
+
+
 class ImageRecorder(Protocol):
     def record(self, record: ImageRecord) -> None: ...
 
@@ -74,9 +85,9 @@ class ImageResult(FrozenModel):
     model: str
     image_size: str
     aspect_ratio: str | None
-    estimated_cost_usd: float | None
-    used_today: int
-    daily_limit: int
+    estimated_cost_usd: float
+    spent_today_usd: float
+    daily_budget_usd: float
     model_text: str
     style: str | None = None
     style_version: int | None = None
@@ -92,49 +103,46 @@ class StyleSummary(FrozenModel):
 
 @dataclass(frozen=True)
 class Limits:
-    daily_limit: int
+    default_budget_usd: float
+    """The daily budget while ``config-imagegen`` has no production version."""
     timezone: str
     default_model: str
     models: tuple[str, ...]
     prices: dict[str, dict[str, float]]
 
 
-class DailyCount:
-    """Images started today, in memory. A restart starts the count again (ADR-0043)."""
+class DailySpend:
+    """Estimated USD spent today, in memory. A restart starts again from 0 (ADR-0046)."""
 
-    def __init__(self, limit: int, timezone: str, now: Callable[[], datetime]) -> None:
-        self._limit = limit
+    def __init__(self, timezone: str, now: Callable[[], datetime]) -> None:
         self._zone = ZoneInfo(timezone)
         self._now = now
         self._day: date | None = None
-        self._used = 0
+        self._spent = 0.0
         self._lock = asyncio.Lock()
 
-    def _today(self) -> date:
+    def _today(self) -> None:
         today = self._now().astimezone(self._zone).date()
         if today != self._day:
-            self._day, self._used = today, 0
-        return today
+            self._day, self._spent = today, 0.0
 
-    async def take(self) -> int:
+    async def take(self, cost: float, budget: float) -> float:
+        """Count ``cost`` for today and return today's total; refuse past ``budget``."""
         async with self._lock:
             self._today()
-            if self._used >= self._limit:
+            if self._spent + cost > budget + 1e-9:
                 raise LimitReachedError(
-                    f"today's limit of {self._limit} images is used up; it resets at midnight "
-                    f"{self._zone.key}"
+                    f"today's budget of ${budget:.2f} would be exceeded "
+                    f"(${self._spent:.3f} spent, this image ${cost:.3f}); it resets at "
+                    f"midnight {self._zone.key}"
                 )
-            self._used += 1
-            return self._used
+            self._spent += cost
+            return self._spent
 
-    async def give_back(self) -> None:
+    async def give_back(self, cost: float) -> None:
         async with self._lock:
             self._today()
-            self._used = max(0, self._used - 1)
-
-    @property
-    def limit(self) -> int:
-        return self._limit
+            self._spent = max(0.0, self._spent - cost)
 
 
 class ImageService:
@@ -147,14 +155,16 @@ class ImageService:
         recorder: ImageRecorder,
         now: Callable[[], datetime],
         styles: StyleSource | None = None,
+        settings: SettingSource | None = None,
     ) -> None:
         self._styles: StyleSource = styles or NoStyles()
+        self._settings: SettingSource = settings or NoSettings()
         self._model = model
         self._workspace = workspace
         self._limits = limits
         self._recorder = recorder
         self._now = now
-        self._count = DailyCount(limits.daily_limit, limits.timezone, now)
+        self._spend = DailySpend(limits.timezone, now)
 
     def model_for(self, requested: str | None) -> str:
         model = requested or self._limits.default_model
@@ -186,15 +196,21 @@ class ImageService:
             raise EnikkError(
                 f"{len(images)} images (inputs and style references); at most {MAX_IMAGES}"
             )
-        used = await self._count.take()
         cost = self._limits.prices.get(chosen, {}).get(image_size)
+        if cost is None:
+            raise EnikkError(
+                f"no estimated price for {chosen} at size {image_size}, so the daily budget "
+                "cannot be kept; use another size or model"
+            )
+        budget = await self.daily_budget_usd()
+        spent = await self._spend.take(cost, budget)
         parameters = {"image_size": image_size, "aspect_ratio": aspect_ratio or "auto"}
         try:
             made = await self._model.generate(
                 chosen, prompt, images, aspect_ratio=aspect_ratio, image_size=image_size
             )
         except GeminiError as exc:
-            await self._count.give_back()
+            await self._spend.give_back(cost)
             self._trace(
                 tool, session, prompt, chosen, parameters, len(images), applied, error=str(exc)
             )
@@ -212,19 +228,36 @@ class ImageService:
             cost=cost,
             output=str(path),
         )
-        _log.info("image saved model=%s size=%s used_today=%d", chosen, image_size, used)
+        _log.info(
+            "image saved model=%s size=%s spent_today=%.3f budget=%.2f",
+            chosen,
+            image_size,
+            spent,
+            budget,
+        )
         return ImageResult(
             path=str(path),
             model=chosen,
             image_size=image_size,
             aspect_ratio=aspect_ratio,
             estimated_cost_usd=cost,
-            used_today=used,
-            daily_limit=self._count.limit,
+            spent_today_usd=round(spent, 4),
+            daily_budget_usd=budget,
             model_text=made.text,
             style=applied.name if applied else None,
             style_version=applied.version if applied else None,
         )
+
+    async def daily_budget_usd(self) -> float:
+        """Today's budget: ``config-imagegen`` in Langfuse, or the default while it has
+        no production version. Refuses when the setting cannot be read."""
+        try:
+            found = await self._settings.imagegen()
+        except ToolConfigError as exc:
+            raise EnikkError(
+                f"the daily budget cannot be read, so no image is made: {exc}"
+            ) from exc
+        return self._limits.default_budget_usd if found is None else found.daily_budget_usd
 
     async def _style(self, name: str | None) -> Style | None:
         return await self._require(name) if name else None

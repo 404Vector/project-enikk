@@ -15,7 +15,8 @@ DEFAULT_PRICES: dict[str, dict[str, float]] = {
     "gemini-2.5-flash-image": {"1K": 0.039},
 }
 """Estimated USD per image by model and size (ADR-0043). Only for traces and replies;
-Google bills by tokens."""
+Google bills by tokens. They are also what the daily budget counts (ADR-0046); a
+model and size missing here cannot be used."""
 
 
 class ImagegenSettings(ServiceSettings, env_prefix="ENIKK_IMAGEGEN_"):
@@ -29,10 +30,11 @@ class ImagegenSettings(ServiceSettings, env_prefix="ENIKK_IMAGEGEN_"):
     models: tuple[str, ...] = ("gemini-3.1-flash-image", "gemini-3-pro-image")
     """Models a call may ask for. The first that is not the default costs more."""
     prices: dict[str, dict[str, float]] = Field(default_factory=lambda: dict(DEFAULT_PRICES))
-    daily_limit: int = Field(default=100, ge=0)
-    """Images per day; 0 stops generation."""
+    default_budget_usd: float = Field(default=1.0, ge=0)
+    """Estimated USD per day while the Langfuse setting ``config-imagegen`` has no
+    production version, or when there is no Langfuse connection (ADR-0046)."""
     timezone: str = "Asia/Seoul"
-    """Where a day starts and ends for ``daily_limit``."""
+    """Where a day starts and ends for the daily budget."""
     request_seconds: float = Field(default=180.0, gt=0)
     workspace: Path = Path("/data")
     """The runtime's shared volume (ADR-0037 §7): images go to ``tmp/<session>/images``,
