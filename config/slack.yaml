@@ -43,3 +43,4 @@ agent_channels:
     agent: rita
     persona:
       name: 리타
+      icon_emoji: rita

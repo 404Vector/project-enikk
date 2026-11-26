@@ -196,8 +196,14 @@ class FakeSlack:
             self.personas.append((channel, persona))
 
     async def post_message(
-        self, channel: str, message: Message, thread: str | None = None
+        self,
+        channel: str,
+        message: Message,
+        thread: str | None = None,
+        persona: Persona | None = None,
     ) -> PostedMessage:
+        if persona is not None:
+            self.personas.append((channel, persona))
         if thread is not None:
             if self.fail_replies:
                 raise self.fail_replies.pop(0)

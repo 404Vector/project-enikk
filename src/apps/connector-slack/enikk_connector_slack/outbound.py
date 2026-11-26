@@ -62,7 +62,8 @@ class OutboxRelay:
         self._core = core
         self._owner = owner
         self._personas = {c.channel: c.persona for c in channels}
-        """Agent channels' names and icons for the messages posted there (ADR-0045)."""
+        """Agent channels' names and icons for the replies and [취소] buttons posted there
+        (ADR-0045)."""
         self._slack = slack
         self._marker = Marker(slack, Reactions()) if marker is None else marker
         self._policy = policy
@@ -193,6 +194,7 @@ class OutboxRelay:
                 conversation.channel,
                 blocks.running(str(message.task_id)),
                 thread=conversation.thread,
+                persona=self._personas.get(conversation.channel),
             )
         except SlackDeliveryError as exc:
             if exc.transient:

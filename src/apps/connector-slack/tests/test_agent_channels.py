@@ -9,6 +9,7 @@ import pydantic_core
 import pytest
 from pydantic import ValidationError
 
+from enikk_connector_slack import blocks
 from enikk_connector_slack.config import AgentChannel, Persona, Routes, SlackConfig
 from enikk_connector_slack.events import SlackMessage
 from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
@@ -114,13 +115,26 @@ async def test_replies_in_an_agent_channel_show_its_persona() -> None:
     assert slack.personas == [("C0RITA", RITA), ("C0RITA", RITA)]
 
 
+@pytest.mark.anyio
+async def test_the_cancel_button_in_an_agent_channel_shows_its_persona() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.pending = [
+        _outbound("C0RITA", OutboundKind.STARTED),
+        _outbound("D1", OutboundKind.STARTED),
+    ]
+    relay = OutboxRelay(core, slack, POLICY, channels=CONFIG.agent_channels)
+    assert await relay.relay_once() == 2
+    assert [r[0] for r in slack.replies] == ["C0RITA", "D1"]
+    assert slack.personas == [("C0RITA", RITA)]
+
+
 class _Web:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    async def chat_postMessage(self, **kwargs: object) -> dict[str, bool]:  # noqa: N802
+    async def chat_postMessage(self, **kwargs: object) -> dict[str, object]:  # noqa: N802
         self.calls.append(kwargs)
-        return {"ok": True}
+        return {"ok": True, "channel": "C0RITA", "ts": "6.0"}
 
 
 @pytest.mark.anyio
@@ -134,3 +148,5 @@ async def test_persona_sets_the_name_and_icon_of_the_post() -> None:
     assert web.calls[0]["icon_emoji"] == ":e-rita:"
     assert web.calls[1]["icon_emoji"] is None
     assert (web.calls[2]["username"], web.calls[2]["icon_emoji"]) == (None, None)
+    await api.post_message("C0RITA", blocks.running("t-1"), thread="5.0", persona=RITA)
+    assert (web.calls[3]["username"], web.calls[3]["icon_emoji"]) == ("리타", ":e-rita:")

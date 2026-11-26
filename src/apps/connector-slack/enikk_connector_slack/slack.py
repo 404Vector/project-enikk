@@ -85,8 +85,7 @@ class SlackWebApi:
     async def post_reply(
         self, channel: str, thread: str | None, text: str, persona: Persona | None = None
     ) -> None:
-        username = None if persona is None else persona.name
-        icon = None if persona is None or persona.icon_emoji is None else f":{persona.icon_emoji}:"
+        username, icon = _shown_as(persona)
         try:
             if len(text) <= MARKDOWN_LIMIT:
                 await self._web.chat_postMessage(
@@ -106,11 +105,21 @@ class SlackWebApi:
             raise SlackDeliveryError(f"chat.postMessage: {exc!r}", transient=True) from exc
 
     async def post_message(
-        self, channel: str, message: Message, thread: str | None = None
+        self,
+        channel: str,
+        message: Message,
+        thread: str | None = None,
+        persona: Persona | None = None,
     ) -> PostedMessage:
+        username, icon = _shown_as(persona)
         try:
             response = await self._web.chat_postMessage(
-                channel=channel, thread_ts=thread, text=message.text, blocks=message.payload()
+                channel=channel,
+                thread_ts=thread,
+                text=message.text,
+                blocks=message.payload(),
+                username=username,
+                icon_emoji=icon,
             )
             return PostedMessage.model_validate(
                 {"channel": response.get("channel"), "ts": response.get("ts")}
@@ -283,3 +292,11 @@ def _delivery_error(method: str, exc: SlackApiError) -> SlackDeliveryError:
 def _error_code(exc: SlackApiError) -> str:
     error = exc.response.get("error")
     return error if isinstance(error, str) else "unknown_error"
+
+
+def _shown_as(persona: Persona | None) -> tuple[str | None, str | None]:
+    """``username`` and ``icon_emoji`` for ``chat.postMessage`` (chat:write.customize)."""
+    if persona is None:
+        return None, None
+    icon = None if persona.icon_emoji is None else f":{persona.icon_emoji}:"
+    return persona.name, icon
