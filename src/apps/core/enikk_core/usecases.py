@@ -8,10 +8,13 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final
 
+from pydantic import HttpUrl
+
 from enikk_contracts.agents import Execution
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import (
+    SCHEDULED_KINDS,
     OutboundKind,
     OutboundMessage,
     OutboxAcked,
@@ -28,8 +31,22 @@ from enikk_contracts.tasks import (
     TaskAssignment,
     TaskStatus,
 )
-from enikk_contracts.thread_actions import MAX_FILE_BYTES, MAX_FILES_PER_TASK
+from enikk_contracts.thread_actions import (
+    MAX_FILE_BYTES,
+    MAX_FILES_PER_TASK,
+    MAX_SCHEDULE_AHEAD,
+    MAX_SCHEDULED,
+    EmojiList,
+    LinkTarget,
+    MessageLink,
+    ScheduledCancelled,
+    ScheduledMessage,
+    ScheduledMessages,
+    ScheduleTarget,
+    SlackWorkspaceReceived,
+)
 from enikk_contracts.transcripts import TranscriptAppended, TranscriptLoaded, TranscriptSubpaths
+from enikk_core.slack_links import SlackMessage, event_message, permalink
 from enikk_core.threads import delegated_status
 from enikk_core_domain.errors import (
     InvalidRequestError,
@@ -54,7 +71,16 @@ if TYPE_CHECKING:
     from enikk_contracts.memory import MemoryNote
     from enikk_contracts.outbox import OutboxAck, OutboxPoll
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
-    from enikk_contracts.thread_actions import ThreadFileRequest, ThreadReactionRequest
+    from enikk_contracts.thread_actions import (
+        CancelScheduledRequest,
+        EmojiQuery,
+        MessageLinkRequest,
+        ScheduledQuery,
+        ScheduleMessageRequest,
+        SlackWorkspaceReport,
+        ThreadFileRequest,
+        ThreadReactionRequest,
+    )
     from enikk_contracts.transcripts import SubpathQuery, TranscriptAppend, TranscriptQuery
     from enikk_core.github_tokens import SessionGitHubTokens
     from enikk_core.mcp_tokens import McpTokenIssuer
@@ -86,6 +112,7 @@ class CoreUseCases:
         memory: MemoryService | None = None,
         mcp_tokens: McpTokenIssuer | None = None,
         github_tokens: SessionGitHubTokens | None = None,
+        self_repository: str | None = None,
     ) -> None:
         self._uow = uow
         self._catalog = catalog
@@ -96,6 +123,8 @@ class CoreUseCases:
         self._memory = memory
         self._mcp_tokens = mcp_tokens
         self._github_tokens = github_tokens
+        self._self_repository = self_repository
+        self._workspace: SlackWorkspaceReport | None = None
 
     # ------------------------------------------------------------ connector
 
@@ -160,7 +189,7 @@ class CoreUseCases:
         deadline = self._clock.now() + timedelta(seconds=poll.wait_seconds)
         while True:
             async with self._uow() as uow:
-                pending = await uow.outbox.pending(connector, poll.limit)
+                pending = await uow.outbox.pending(connector, poll.limit, self._clock.now())
             if pending or self._clock.now() >= deadline:
                 return OutboxBatch(messages=tuple(_outbound(m) for m in pending))
             await self._sleep(self._policy.poll_interval_seconds)
@@ -398,8 +427,9 @@ class CoreUseCases:
 
     async def react(
         self, scope: WorkerScope, task_id: uuid.UUID, request: ThreadReactionRequest
-    ) -> None:
-        """Queue an emoji for the owner's message the task answers."""
+    ) -> str:
+        """Queue an emoji for the owner's message the task answers; returns a note for
+        the session when the name is not one of the workspace's custom emoji."""
         async with self._uow() as uow:
             task = await self._leased_task(uow, scope, task_id, request.lease_id)
             session = await self._slack_session(uow, task)
@@ -407,6 +437,117 @@ class CoreUseCases:
                 self._thread_message(task, session, OutboundKind.REACTION, request.name)
             )
             await uow.commit()
+        workspace = self._workspace
+        if workspace is None or workspace.emoji is None or request.name in workspace.emoji:
+            return ""
+        return (
+            f"{request.name} is not a custom emoji of the workspace; unless it is one of "
+            "Slack's standard emoji, Slack ignores it."
+        )
+
+    # ------------------------------------------------------------ workspace, links, emoji
+
+    def report_workspace(self, report: SlackWorkspaceReport) -> SlackWorkspaceReceived:
+        """Keep the connector's latest view of the workspace, in memory only (ADR-0042)."""
+        self._workspace = report
+        return SlackWorkspaceReceived(emoji=None if report.emoji is None else len(report.emoji))
+
+    async def message_link(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: MessageLinkRequest
+    ) -> MessageLink:
+        """A permalink to the thread, the request, or a pull request's approval message."""
+        workspace = self._workspace
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
+            session = await self._slack_session(uow, task)
+            message = await self._link_target(uow, task, session, request)
+        if workspace is None:
+            raise NotFoundError("the workspace address is not known yet; try again later")
+        return MessageLink(url=HttpUrl(permalink(str(workspace.url), message)))
+
+    async def _link_target(
+        self, uow: UnitOfWork, task: Task, session: Session, request: MessageLinkRequest
+    ) -> SlackMessage:
+        thread = session.outbox_conversation
+        if request.target is LinkTarget.THREAD:
+            return SlackMessage(channel=thread.channel, ts=thread.thread)
+        if request.target is LinkTarget.REQUEST:
+            found = event_message(task.source_event_id)
+            if found is None:
+                raise NotFoundError("this task does not answer an owner's Slack message")
+            return found.model_copy(update={"thread": thread.thread})
+        if request.number is None:
+            raise InvalidRequestError("a pull request link needs the pull request's number")
+        if self._self_repository is None:
+            raise NotFoundError("the platform's repository is not configured")
+        ref = await uow.review_messages.get(self._self_repository, request.number)
+        if ref is None:
+            raise NotFoundError(f"no approval message for pull request #{request.number}")
+        return SlackMessage(channel=ref.channel, ts=ref.ts)
+
+    async def list_emoji(
+        self, scope: WorkerScope, task_id: uuid.UUID, query: EmojiQuery
+    ) -> EmojiList:
+        async with self._uow() as uow:
+            await self._leased_task(uow, scope, task_id, query.lease_id)
+        workspace = self._workspace
+        if workspace is None or workspace.emoji is None:
+            return EmojiList(known=False)
+        return EmojiList(known=True, names=tuple(sorted(workspace.emoji)))
+
+    # ------------------------------------------------------------ scheduled messages
+
+    async def schedule_message(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: ScheduleMessageRequest
+    ) -> ScheduledMessage:
+        """Keep a message in the outbox until ``at`` (ADR-0042)."""
+        now = self._clock.now()
+        if request.at <= now:
+            raise InvalidRequestError("the time must be in the future")
+        if request.at > now + MAX_SCHEDULE_AHEAD:
+            raise InvalidRequestError(f"at most {MAX_SCHEDULE_AHEAD.days} days ahead")
+        if looks_secret(request.text):
+            raise InvalidRequestError("this text looks like it holds a secret; not scheduled")
+        kind = (
+            OutboundKind.SCHEDULED_DM
+            if request.target is ScheduleTarget.DM
+            else OutboundKind.SCHEDULED
+        )
+        async with self._uow() as uow:
+            task = await self._leased_task(uow, scope, task_id, request.lease_id)
+            session = await self._slack_session(uow, task)
+            if len(await uow.outbox.waiting(MAX_SCHEDULED)) >= MAX_SCHEDULED:
+                raise InvalidRequestError(f"at most {MAX_SCHEDULED} scheduled messages wait")
+            message = self._thread_message(task, session, kind, request.text).model_copy(
+                update={"not_before": request.at}
+            )
+            await uow.outbox.add(message)
+            await uow.commit()
+        _log.info("task %s scheduled message %s for %s", task.id, message.id, request.at)
+        return _scheduled(message)
+
+    async def scheduled_messages(
+        self, scope: WorkerScope, task_id: uuid.UUID, query: ScheduledQuery
+    ) -> ScheduledMessages:
+        """Every scheduled message still waiting, in any thread: there is one owner."""
+        async with self._uow() as uow:
+            await self._leased_task(uow, scope, task_id, query.lease_id)
+            waiting = await uow.outbox.waiting(MAX_SCHEDULED)
+        return ScheduledMessages(
+            messages=tuple(_scheduled(m) for m in waiting if m.kind in SCHEDULED_KINDS)
+        )
+
+    async def cancel_scheduled(
+        self, scope: WorkerScope, task_id: uuid.UUID, request: CancelScheduledRequest
+    ) -> ScheduledCancelled:
+        async with self._uow() as uow:
+            await self._leased_task(uow, scope, task_id, request.lease_id)
+            found = await uow.outbox.get_many(ConnectorKind.SLACK, [request.message_id])
+            if not found or found[0].kind not in SCHEDULED_KINDS:
+                raise NotFoundError(f"no scheduled message {request.message_id}")
+            cancelled = await uow.outbox.delete_pending(request.message_id)
+            await uow.commit()
+        return ScheduledCancelled(cancelled=cancelled)
 
     async def _slack_session(self, uow: UnitOfWork, task: Task) -> Session:
         session = await self._session_of(uow, task)
@@ -539,6 +680,21 @@ def _outbound(message: OutboxMessage) -> OutboundMessage:
         source_event_id=message.source_event_id,
         conversation=message.conversation,
         kind=message.kind,
+        text=message.text,
+    )
+
+
+def _scheduled(message: OutboxMessage) -> ScheduledMessage:
+    if message.not_before is None:
+        raise ValueError("not a scheduled message")
+    return ScheduledMessage(
+        message_id=message.id,
+        at=message.not_before,
+        target=(
+            ScheduleTarget.DM
+            if message.kind is OutboundKind.SCHEDULED_DM
+            else ScheduleTarget.THREAD
+        ),
         text=message.text,
     )
 

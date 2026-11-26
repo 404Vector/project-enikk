@@ -148,6 +148,7 @@ def harness() -> Harness:
         ids=SequentialIds(),
         policy=TaskSettings(lease_seconds=60, max_attempts=2),
         sleep=sleep,
+        self_repository="404Vector/project-enikk",
     )
     directory = RoleDirectory(
         (

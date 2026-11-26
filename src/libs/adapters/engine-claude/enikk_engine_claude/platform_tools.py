@@ -4,7 +4,8 @@ They call core only, never an external MCP server, so they do not go through
 agentgateway (I-05): enikk's memory, ``remember``,
 ``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028), diagnostics (ADR-0029)
 ``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032), and
-``send_file`` and ``react`` for the thread the task answers (ADR-0042). A role with
+``send_file``, ``react``, ``message_link``, ``list_emoji`` and the scheduled message tools
+for the thread the task answers (ADR-0042). A role with
 ``platform_defaults: false`` gets no memory, diagnostic or thread tools.
 """
 
@@ -44,6 +45,14 @@ from enikk_contracts.skills import Capability
 from enikk_contracts.tasks import TaskStatus
 from enikk_contracts.thread_actions import (
     MAX_FILE_BYTES,
+    MAX_SCHEDULE_AHEAD,
+    CancelScheduledRequest,
+    EmojiQuery,
+    LinkTarget,
+    MessageLinkRequest,
+    ScheduledQuery,
+    ScheduleMessageRequest,
+    ScheduleTarget,
     ThreadFileRequest,
     ThreadReactionRequest,
 )
@@ -83,7 +92,18 @@ LOAD_SKILL_TOOL: Final = f"mcp__{SERVER}__load_skill"
 MEMORY_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}" for name in ("remember", "update_memory", "forget_memory", "recall")
 )
-THREAD_TOOLS: Final = tuple(f"mcp__{SERVER}__{name}" for name in ("send_file", "react"))
+THREAD_TOOLS: Final = tuple(
+    f"mcp__{SERVER}__{name}"
+    for name in (
+        "send_file",
+        "react",
+        "message_link",
+        "list_emoji",
+        "schedule_message",
+        "scheduled_messages",
+        "cancel_scheduled",
+    )
+)
 
 _log = logging.getLogger(__name__)
 
@@ -555,8 +575,33 @@ SEND_FILE_DESCRIPTION: Final = (
 REACT_DESCRIPTION: Final = (
     "Put an emoji reaction on the owner's message that this task answers, for example "
     "to mark that something happened because of it. name: the emoji name without colons, "
-    "a standard one (memo) or the workspace's custom one. An unknown name is ignored by "
-    "Slack without an error reaching you."
+    "a standard one (memo) or the workspace's custom one (see list_emoji). If the name "
+    "is not a custom emoji, the result says so; Slack ignores names it does not know."
+)
+MESSAGE_LINK_DESCRIPTION: Final = (
+    "A Slack link to a message, to point the owner at it. target: 'thread' (the first "
+    "message of this thread), 'request' (the owner's message this task answers) or "
+    "'pull_request' (the approval message of a pull request of the enikk repository in "
+    "the approval channel; give number). Never make up a Slack link yourself."
+)
+LIST_EMOJI_DESCRIPTION: Final = (
+    "The custom emoji names of the Slack workspace, for react. Slack's standard emoji are "
+    "not listed. The list can be up to 10 minutes old."
+)
+SCHEDULE_MESSAGE_DESCRIPTION: Final = (
+    "Schedule a message for the owner: enikk posts the text at the given time, without "
+    "running an agent. For work that needs an agent at a time, use a schedule instead. "
+    "text: the message as it will be posted (Slack mrkdwn). at: ISO 8601 time with a "
+    f"timezone, in the future, at most {MAX_SCHEDULE_AHEAD.days} days ahead. target: "
+    "'thread' (a reply in this thread, default) or 'dm' (a new message in the owner's "
+    "DM). If enikk is down at that time, it is posted when enikk is back."
+)
+SCHEDULED_MESSAGES_DESCRIPTION: Final = (
+    "The scheduled messages still waiting, in every thread, soonest first, with their IDs."
+)
+CANCEL_SCHEDULED_DESCRIPTION: Final = (
+    "Cancel a scheduled message that has not been posted yet. message_id: from "
+    "schedule_message or scheduled_messages."
 )
 
 
@@ -600,9 +645,99 @@ def thread_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[A
             )
         except ValidationError:
             return _result("name must be an emoji name: a-z, 0-9, _ + - only.", True)
-        return await _done(thread.react_in_thread(current.job.task_id, request), "reacted")
+        try:
+            done = await thread.react_in_thread(current.job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now; tell the owner.", True)
+        except CoreApiError as exc:
+            return _result(f"Refused: {exc}", True)
+        return _result("Done: reacted." + (f" Note: {done.note}" if done.note else ""), False)
 
-    return [send_file, react]
+    return [send_file, react, *slack_tools(current, thread)]
+
+
+def slack_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[Any]]:
+    """Links, the custom emoji and scheduled messages (ADR-0042 stage 2)."""
+    job = current.job
+    link_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "target": {"type": "string", "enum": [t.value for t in LinkTarget]},
+            "number": {"type": "integer", "description": "Pull request number."},
+        },
+        "required": ["target"],
+    }
+    schedule_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "at": {"type": "string", "description": "ISO 8601 with a timezone."},
+            "target": {"type": "string", "enum": [t.value for t in ScheduleTarget]},
+        },
+        "required": ["text", "at"],
+    }
+    cancel_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"message_id": {"type": "string"}},
+        "required": ["message_id"],
+    }
+    empty: dict[str, Any] = {"type": "object", "properties": {}}
+
+    @tool("message_link", MESSAGE_LINK_DESCRIPTION, link_schema)
+    async def message_link(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = MessageLinkRequest.model_validate(
+                {
+                    "lease_id": job.lease_id,
+                    "target": args.get("target"),
+                    "number": args.get("number"),
+                },
+                strict=False,
+            )
+        except ValidationError:
+            return _result("target must be thread, request or pull_request (with number).", True)
+        return await _shown(thread.message_link(job.task_id, request))
+
+    @tool("list_emoji", LIST_EMOJI_DESCRIPTION, empty)
+    async def list_emoji(args: dict[str, Any]) -> dict[str, Any]:
+        return await _shown(thread.list_emoji(job.task_id, EmojiQuery(lease_id=job.lease_id)))
+
+    @tool("schedule_message", SCHEDULE_MESSAGE_DESCRIPTION, schedule_schema)
+    async def schedule_message(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = ScheduleMessageRequest.model_validate(
+                {
+                    "lease_id": job.lease_id,
+                    "text": str(args.get("text", "")),
+                    "at": args.get("at"),
+                    "target": args.get("target") or ScheduleTarget.THREAD,
+                },
+                strict=False,
+            )
+        except ValidationError:
+            return _result(
+                "text (4000 characters at most), at (ISO 8601 with a timezone) and target "
+                "(thread or dm) are needed.",
+                True,
+            )
+        return await _shown(thread.schedule_message(job.task_id, request))
+
+    @tool("scheduled_messages", SCHEDULED_MESSAGES_DESCRIPTION, empty)
+    async def scheduled_messages(args: dict[str, Any]) -> dict[str, Any]:
+        query = ScheduledQuery(lease_id=job.lease_id)
+        return await _shown(thread.scheduled_messages(job.task_id, query))
+
+    @tool("cancel_scheduled", CANCEL_SCHEDULED_DESCRIPTION, cancel_schema)
+    async def cancel_scheduled(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = CancelScheduledRequest.model_validate(
+                {"lease_id": job.lease_id, "message_id": args.get("message_id")}, strict=False
+            )
+        except ValidationError:
+            return _result("message_id must be a scheduled message's ID.", True)
+        return await _shown(thread.cancel_scheduled(job.task_id, request))
+
+    return [message_link, list_emoji, schedule_message, scheduled_messages, cancel_scheduled]
 
 
 def sendable_file(job: EngineJob, raw: str) -> Path | str:

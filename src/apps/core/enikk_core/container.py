@@ -75,6 +75,7 @@ def build_services(settings: CoreSettings) -> CoreServices:
         memory=memory,
         mcp_tokens=mcp_tokens,
         github_tokens=_github_tokens(settings, store, clock),
+        self_repository=f"{settings.github.owner}/{settings.github.self_repository}",
     )
     authenticator = TokenReviewAuthenticator.in_cluster(
         TokenReviewConfig(

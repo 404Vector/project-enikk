@@ -1,16 +1,35 @@
-"""``send_file`` sends only the session's own files (ADR-0042)."""
+"""``send_file`` sends only the session's own files; the Slack tools (ADR-0042)."""
 
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from enikk_engine_claude.platform_tools import THREAD_TOOLS, granted_platform_tools, sendable_file
+import pytest
+from pydantic import HttpUrl
+
+from enikk_contracts.thread_actions import (
+    LinkTarget,
+    MessageLink,
+    MessageLinkRequest,
+    ScheduledMessage,
+    ScheduleMessageRequest,
+    ScheduleTarget,
+)
+from enikk_engine_claude.current import CurrentJob
+from enikk_engine_claude.platform_tools import (
+    THREAD_TOOLS,
+    granted_platform_tools,
+    sendable_file,
+    slack_tools,
+)
 from enikk_runtime.model import EngineJob, ResolvedPrompt, SessionWorkspace
 from enikk_runtime.testing import definition
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from claude_agent_sdk import SdkMcpTool
 
 
 def _job(tmp_path: Path, *, workspace: bool = True) -> EngineJob:
@@ -89,3 +108,63 @@ def test_thread_tools_follow_the_platform_defaults(tmp_path: Path) -> None:
     job = _job(tmp_path)
     assert set(THREAD_TOOLS) <= set(granted_platform_tools(job, thread=True))
     assert not set(THREAD_TOOLS) & set(granted_platform_tools(job, thread=False))
+
+
+class _Poster:
+    """Records what the Slack tools ask core (ADR-0042 stage 2)."""
+
+    def __init__(self) -> None:
+        self.scheduled: list[ScheduleMessageRequest] = []
+        self.links: list[MessageLinkRequest] = []
+
+    async def message_link(self, task_id: uuid.UUID, request: MessageLinkRequest) -> MessageLink:
+        self.links.append(request)
+        return MessageLink(url=HttpUrl("https://enikk.slack.com/archives/D1/p18001"))
+
+    async def schedule_message(
+        self, task_id: uuid.UUID, request: ScheduleMessageRequest
+    ) -> ScheduledMessage:
+        self.scheduled.append(request)
+        return ScheduledMessage(
+            message_id=uuid.uuid4(), at=request.at, target=request.target, text=request.text
+        )
+
+
+def _tool(tmp_path: Path, poster: _Poster, name: str) -> SdkMcpTool[Any]:
+    tools = slack_tools(CurrentJob(_job(tmp_path)), poster)  # type: ignore[arg-type]
+    return next(t for t in tools if t.name == name)
+
+
+def test_every_slack_tool_is_granted_with_the_thread_tools() -> None:
+    names = {t.rsplit("__", 1)[1] for t in THREAD_TOOLS}
+    assert {"message_link", "list_emoji", "schedule_message", "cancel_scheduled"} <= names
+
+
+@pytest.mark.anyio
+async def test_schedule_message_reads_an_iso_time_and_the_target(tmp_path: Path) -> None:
+    poster = _Poster()
+    tool = _tool(tmp_path, poster, "schedule_message")
+
+    done = await tool.handler({"text": "회의", "at": "2026-11-26T09:00:00+09:00", "target": "dm"})
+    naive = await tool.handler({"text": "회의", "at": "2026-11-26T09:00:00"})
+
+    assert not done["is_error"]
+    [request] = poster.scheduled
+    assert (request.at.isoformat(), request.target) == (
+        "2026-11-26T09:00:00+09:00",
+        ScheduleTarget.DM,
+    )
+    assert naive["is_error"]
+
+
+@pytest.mark.anyio
+async def test_message_link_needs_a_known_target(tmp_path: Path) -> None:
+    poster = _Poster()
+    tool = _tool(tmp_path, poster, "message_link")
+
+    found = await tool.handler({"target": "request"})
+    wrong = await tool.handler({"target": "somewhere"})
+
+    assert "archives/D1/p18001" in found["content"][0]["text"]
+    assert [r.target for r in poster.links] == [LinkTarget.REQUEST]
+    assert wrong["is_error"]

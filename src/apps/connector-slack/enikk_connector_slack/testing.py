@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from enikk_connector_slack.config import Routes, SlackConfig
 from enikk_connector_slack.events import PostedMessage
+from enikk_connector_slack.ports import WorkspaceView
 from enikk_contracts.approvals import (
     DecisionResult,
     NoticeAcked,
@@ -18,6 +19,7 @@ from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromotionStatus
 from enikk_contracts.tasks import CancelResult
+from enikk_contracts.thread_actions import SlackWorkspaceReceived
 from enikk_contracts.threads import ReviewThreadLinked
 from enikk_core_client import CoreNotFoundError
 
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxFile, OutboxPoll
     from enikk_contracts.prompts import PromotionDecision, PromotionPosted
+    from enikk_contracts.thread_actions import SlackWorkspaceReport
     from enikk_contracts.threads import ReviewThreadOpened
 
 OWNER = "U0OWNER"
@@ -70,6 +73,7 @@ class FakeCore:
         self.cancels: list[uuid.UUID] = []
         self.cancel_finds_nothing = False
         self.files: dict[uuid.UUID, OutboxFile] = {}
+        self.workspace_reports: list[SlackWorkspaceReport] = []
 
     async def outbox_file(self, message_id: uuid.UUID) -> OutboxFile:
         found = self.files.get(message_id)
@@ -140,6 +144,10 @@ class FakeCore:
         self.promotions_posted.append((promotion_id, posted))
         return PromotionLinked(told_origin=True)
 
+    async def report_slack_workspace(self, report: SlackWorkspaceReport) -> SlackWorkspaceReceived:
+        self.workspace_reports.append(report)
+        return SlackWorkspaceReceived(emoji=None if report.emoji is None else len(report.emoji))
+
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult:
         if self.fail_with is not None:
             raise self.fail_with
@@ -150,7 +158,9 @@ class FakeCore:
 
 class FakeSlack:
     def __init__(self) -> None:
-        self.posts: list[tuple[str, str, str]] = []
+        self.posts: list[tuple[str, str | None, str]] = []
+        self.view = WorkspaceView(url="https://enikk.slack.test/", emoji=("e-done",))
+        self.fail_workspace: list[Exception] = []
         self.reactions: list[tuple[str, str, str]] = []
         self.fail_posts: list[Exception] = []
         self.messages: list[tuple[str, Message]] = []
@@ -170,7 +180,12 @@ class FakeSlack:
     async def channel_id(self, name: str) -> str | None:
         return self.channel_ids.get(name)
 
-    async def post_reply(self, channel: str, thread: str, text: str) -> None:
+    async def workspace(self) -> WorkspaceView:
+        if self.fail_workspace:
+            raise self.fail_workspace.pop(0)
+        return self.view
+
+    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
         if self.fail_posts:
             raise self.fail_posts.pop(0)
         self.posts.append((channel, thread, text))

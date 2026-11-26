@@ -18,6 +18,7 @@ from enikk_connector_slack.marks import Marker
 from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
 from enikk_connector_slack.routing import Router
 from enikk_connector_slack.slack import SlackWebApi, SocketListener
+from enikk_connector_slack.workspace import WorkspaceReporter
 from enikk_contracts.credentials import CredentialName, CredentialRequest
 from enikk_core_client import CoreClient
 from enikk_core_client.credentials import wait_for_credentials
@@ -66,7 +67,9 @@ class ConnectorSlackApp:
                     backoff_max_seconds=s.outbox.backoff_max_seconds,
                 ),
                 marker=marker,
+                owner=config.owner,
             )
+            reporter = WorkspaceReporter(core, slack, s.workspace_report_seconds)
             socket = SocketModeClient(app_token=app_token.get_secret_value(), web_client=web)
             notices = NoticeRelay(
                 core,
@@ -91,6 +94,7 @@ class ConnectorSlackApp:
             await socket.connect()  # type: ignore[no-untyped-call]
             relaying = asyncio.create_task(relay.run(stop))
             noticing = asyncio.create_task(notices.run(stop))
+            reporting = asyncio.create_task(reporter.run(stop))
             stopping = asyncio.create_task(stop.wait())
             _log.info("%s ready: core %s, owner %s", SERVICE_NAME, s.core_url, config.owner)
             try:
@@ -101,7 +105,7 @@ class ConnectorSlackApp:
                     if relay_task.done():
                         relay_task.result()  # re-raise why a relay ended
             finally:
-                for task in (relaying, noticing, stopping):
+                for task in (relaying, noticing, reporting, stopping):
                     task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await task

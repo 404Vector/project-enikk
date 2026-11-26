@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.elements import ColumnElement
 
 from enikk_contracts.agents import Execution
 from enikk_contracts.outbox import OutboundKind
@@ -207,17 +208,43 @@ class SqlOutboxRepository:
         )
         return [mappers.outbox_from_row(row) for row in reversed(list(rows))]
 
-    async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
+    async def pending(
+        self, connector: ConnectorKind, limit: int, now: datetime | None = None
+    ) -> Sequence[OutboxMessage]:
+        due: ColumnElement[bool] = OutboxRow.not_before.is_(None)
+        if now is not None:
+            due = or_(due, OutboxRow.not_before <= now)
         rows = await self._db.scalars(
             select(OutboxRow)
             .where(
                 OutboxRow.connector == connector.value,
                 OutboxRow.status == OutboxStatus.PENDING.value,
+                due,
             )
             .order_by(OutboxRow.created_at, OutboxRow.id)
             .limit(limit)
         )
         return [mappers.outbox_from_row(row) for row in rows]
+
+    async def waiting(self, limit: int) -> Sequence[OutboxMessage]:
+        rows = await self._db.scalars(
+            select(OutboxRow)
+            .where(
+                OutboxRow.status == OutboxStatus.PENDING.value,
+                OutboxRow.not_before.is_not(None),
+            )
+            .order_by(OutboxRow.not_before, OutboxRow.id)
+            .limit(limit)
+        )
+        return [mappers.outbox_from_row(row) for row in rows]
+
+    async def delete_pending(self, message_id: uuid.UUID) -> bool:
+        deleted = await self._db.execute(
+            delete(OutboxRow)
+            .where(OutboxRow.id == message_id, OutboxRow.status == OutboxStatus.PENDING.value)
+            .returning(OutboxRow.id)
+        )
+        return deleted.first() is not None
 
     async def created_between(
         self, start: datetime, end: datetime, limit: int

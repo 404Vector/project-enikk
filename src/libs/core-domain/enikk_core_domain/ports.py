@@ -89,8 +89,19 @@ class OutboxRepository(Protocol):
         """
         ...
 
-    async def pending(self, connector: ConnectorKind, limit: int) -> Sequence[OutboxMessage]:
-        """Oldest undelivered messages for ``connector``."""
+    async def pending(
+        self, connector: ConnectorKind, limit: int, now: datetime | None = None
+    ) -> Sequence[OutboxMessage]:
+        """Oldest undelivered messages for ``connector``. A message with ``not_before`` is
+        left out until ``now`` reaches it; without ``now`` it is always left out."""
+        ...
+
+    async def waiting(self, limit: int) -> Sequence[OutboxMessage]:
+        """Undelivered messages with ``not_before``, soonest first (ADR-0042)."""
+        ...
+
+    async def delete_pending(self, message_id: uuid.UUID) -> bool:
+        """Delete an undelivered message; ``False`` when there is none."""
         ...
 
     async def created_between(

@@ -11,7 +11,7 @@ from enikk_connector_slack import blocks
 from enikk_connector_slack.events import MessageRef
 from enikk_connector_slack.marks import Mark, Marker, Reactions
 from enikk_connector_slack.ports import SlackDeliveryError
-from enikk_contracts.outbox import OutboundKind, OutboxAck, OutboxPoll
+from enikk_contracts.outbox import SCHEDULED_KINDS, OutboundKind, OutboxAck, OutboxPoll
 from enikk_core_client import CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
 
@@ -55,8 +55,10 @@ class OutboxRelay:
         policy: RelayPolicy,
         sleep: Sleep = asyncio.sleep,
         marker: Marker | None = None,
+        owner: str | None = None,
     ) -> None:
         self._core = core
+        self._owner = owner
         self._slack = slack
         self._marker = Marker(slack, Reactions()) if marker is None else marker
         self._policy = policy
@@ -102,6 +104,9 @@ class OutboxRelay:
             if source is not None:
                 await self._slack.react(source, message.text)
             return
+        if message.kind in SCHEDULED_KINDS:
+            await self._scheduled(message)
+            return
         if message.kind in MEMORY_MARKS:
             source = MessageRef.parse(message.source_event_id)
             if source is not None:
@@ -126,6 +131,20 @@ class OutboxRelay:
             await self._marker.unmark(source, Mark.WAITING)
             await self._marker.unmark(source, Mark.RUNNING)
             await self._marker.mark(source, _mark(message.kind, replied=replied))
+
+    async def _scheduled(self, message: OutboundMessage) -> None:
+        """Post a scheduled message (ADR-0042); the request's marks stay as they are."""
+        conversation = message.conversation
+        channel: str = conversation.channel
+        thread: str | None = conversation.thread
+        if message.kind is OutboundKind.SCHEDULED_DM and self._owner is not None:
+            channel, thread = self._owner, None
+        try:
+            await self._slack.post_reply(channel, thread, message.text)
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped scheduled message %s: %s", message.message_id, exc)
 
     async def _file(self, message: OutboundMessage) -> None:
         """Attach the message's file in its thread (ADR-0042); say so when Slack refuses it."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Final
 
 import aiohttp
@@ -12,7 +13,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.socket_mode.response import SocketModeResponse
 
 from enikk_connector_slack.events import AuthIdentity, EventCallback, PostedMessage
-from enikk_connector_slack.ports import SlackDeliveryError
+from enikk_connector_slack.ports import SlackDeliveryError, WorkspaceView
 from enikk_kernel.errors import ConfigurationError
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ TRANSIENT_ERRORS: Final = frozenset(
 )
 IGNORED_REACTION_ERRORS: Final = frozenset({"already_reacted", "no_reaction"})
 UNKNOWN_EMOJI: Final = "invalid_name"
+EMOJI_NAME: Final = re.compile(r"[a-z0-9_+'\-]{1,100}")
 
 _log = logging.getLogger(__name__)
 
@@ -50,7 +52,36 @@ class SlackWebApi:
         except (SlackApiError, ValidationError) as exc:
             raise ConfigurationError(f"Slack bot token check failed: {exc}") from exc
 
-    async def post_reply(self, channel: str, thread: str, text: str) -> None:
+    async def workspace(self) -> WorkspaceView:
+        """The workspace's address and custom emoji names (``None`` without ``emoji:read``).
+
+        Raises ``SlackDeliveryError`` when the address cannot be read."""
+        try:
+            identity = await self._web.auth_test()
+        except SlackApiError as exc:
+            raise _delivery_error("auth.test", exc) from exc
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise SlackDeliveryError(f"auth.test: {exc!r}", transient=True) from exc
+        url = identity.get("url")
+        if not isinstance(url, str) or not url:
+            raise SlackDeliveryError("auth.test gave no workspace url", transient=True)
+        return WorkspaceView(url=url, emoji=await self._custom_emoji())
+
+    async def _custom_emoji(self) -> tuple[str, ...] | None:
+        try:
+            response = await self._web.emoji_list()
+        except SlackApiError as exc:
+            _log.warning("could not list the custom emoji: %s", _error_code(exc))
+            return None
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _log.warning("could not list the custom emoji: %r", exc)
+            return None
+        found = response.get("emoji")
+        if not isinstance(found, dict):
+            return None
+        return tuple(sorted(name for name in found if EMOJI_NAME.fullmatch(name)))
+
+    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
         try:
             if len(text) <= MARKDOWN_LIMIT:
                 await self._web.chat_postMessage(

@@ -372,6 +372,8 @@ class OutboxMessage(Entity):
     status: OutboxStatus = OutboxStatus.PENDING
     created_at: AwareDatetime
     delivered_at: AwareDatetime | None = None
+    not_before: AwareDatetime | None = None
+    """A scheduled message is not handed to the connector before this (ADR-0042)."""
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

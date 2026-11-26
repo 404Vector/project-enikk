@@ -16,7 +16,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.digests import DigestStatus
-from enikk_contracts.outbox import OutboundKind
+from enikk_contracts.outbox import SCHEDULED_KINDS, OutboundKind
 from enikk_core_domain.errors import InvalidTransitionError
 from enikk_core_domain.model import Entity
 from enikk_core_domain.thread_context import SEPARATOR
@@ -221,6 +221,8 @@ def day_threads(
         who = "에닉" if agent is None else f"에닉({agent})"
         if message.kind is OutboundKind.FAILURE:
             who += " 실패"
+        if message.kind in SCHEDULED_KINDS and message.not_before is not None:
+            who += f" 예약({message.not_before.isoformat(timespec='minutes')})"
         entries.setdefault(message.conversation, []).append(
             DayEntry(at=message.created_at, who=who, text=message.text)
         )
