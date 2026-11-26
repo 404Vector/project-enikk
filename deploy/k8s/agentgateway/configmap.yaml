@@ -3,9 +3,10 @@
 # (mcpAuthentication), allow only the tools that are both in the ceiling and named by
 # the token (mcpAuthorization; others are also left out of tools/list), and hand the
 # session (ADR-0041 §3) and the issuing task and lease from the token to the server
-# (transformations; any such headers from the caller are replaced). The token itself is not forwarded. The require rule is the
-# gateway's ceiling of tools for the server. After a change, bump enikk.dev/revision
-# in deployment.yaml so the gateway restarts with it.
+# (transformations; any such headers from the caller are replaced). The token itself is
+# not forwarded, except to the Unity relay, which checks it again (ADR-0044 §5). The
+# require rule is the gateway's ceiling of tools for the server. After a change, bump
+# enikk.dev/revision in deployment.yaml so the gateway restarts with it.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -101,6 +102,9 @@ data:
                         x-enikk-session-id: jwt.session
                         x-enikk-task-id: jwt.task
                         x-enikk-lease-id: jwt.lease
+                        # The relay checks the token itself; its Service is reachable
+                        # without the gateway (ADR-0044 §5).
+                        x-enikk-mcp-token: jwt.rawToken.unredacted()
                 backends:
                   - mcp:
                       statefulMode: stateless

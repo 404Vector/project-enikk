@@ -11,6 +11,7 @@ import httpx
 import uvicorn
 
 from enikk_contracts.credentials import CredentialName, CredentialRequest
+from enikk_contracts.routes import MCP_JWKS
 from enikk_core_client import CoreClient, FileTokenSource
 from enikk_core_client.credentials import wait_for_credentials
 from enikk_kernel.errors import EnikkError
@@ -18,6 +19,7 @@ from enikk_kernel.logging import configure_logging
 from enikk_unity.app import create_app
 from enikk_unity.relay import SERVER_NAME, Relay
 from enikk_unity.settings import UnitySettings
+from enikk_unity.tokens import TokenVerifier
 from enikk_unity.upstream import UnityUpstream
 
 if TYPE_CHECKING:
@@ -38,8 +40,11 @@ def main() -> None:
         upstream = UnityUpstream(
             http, settings.upstream_url, key, protocol_version=settings.protocol_version
         )
+        verifier = TokenVerifier(http, settings.core_url.rstrip("/") + MCP_JWKS)
         app = create_app(
-            Relay(upstream, instance=settings.instance), allowed_hosts=settings.allowed_hosts
+            Relay(upstream, instance=settings.instance),
+            verifier,
+            allowed_hosts=settings.allowed_hosts,
         )
         _log.info(
             "starting %s port=%d upstream=%s instance=%s",
