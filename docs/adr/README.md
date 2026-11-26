@@ -49,8 +49,9 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0040](0040-image-app-list-outside-the-workflow.md) | 이미지를 만들 앱 목록을 워크플로 밖에 둔다 | 승인 | 2026-11-24 |
 | [0041](0041-enikk-holds-every-permission-and-carries-work-on.md) | 에닉은 모든 권한을 갖고, 스스로 다음 일을 이어 간다 | 승인 (1·2·3·4 구현: 민감 경로 축소, 이벤트 깨우기, 세션의 GitHub 토큰, core 제출 경로 삭제, 클러스터 읽기, 세션 유지. §2 에이전트 통신은 두 번째 에이전트 때) | 2026-11-25 |
 | [0042](0042-slack-thread-tools.md) | 세션이 자기 스레드에 파일과 반응을 보낸다 | 승인 (1단계 구현: 파일 보내기, 반응, 첨부 메시지 받기. 반응 이모지 교체·기억 변경 표시 구현. 2단계: 링크·이모지 목록·예약 메시지 구현, 첨부 읽기 남음) | 2026-11-25 |
-| [0043](0043-image-generation-tool-server.md) | Gemini 이미지 생성 도구 서버와 화풍 | 승인 | 2026-11-25 |
+| [0043](0043-image-generation-tool-server.md) | Gemini 이미지 생성 도구 서버와 화풍 | 승인 (§2 의 장수 상한은 ADR-0045 로 대체) | 2026-11-25 |
 | [0044](0044-unity-editor-mcp-relay.md) | 소유자 PC 의 Unity 에디터 MCP 를 중계 서버로 쓴다 | 승인 | 2026-11-26 |
+| [0045](0045-image-daily-budget-as-a-tool-setting.md) | 이미지 하루 상한을 추정 비용으로 하고, 값은 Langfuse 도구 설정에 둔다 | 승인 | 2026-11-26 |
 
 ## 상태 정의
 
