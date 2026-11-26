@@ -33,7 +33,7 @@ from enikk_contracts.transcripts import (
 )
 from enikk_engine_claude import sandbox
 from enikk_engine_claude.current import CurrentJob
-from enikk_engine_claude.engine import ClaudeEngine, ClaudeEngineConfig
+from enikk_engine_claude.engine import MAX_MESSAGE_BYTES, ClaudeEngine, ClaudeEngineConfig
 from enikk_engine_claude.mcp_gateway import ENV_TOKEN
 from enikk_engine_claude.platform_tools import SERVER as PLATFORM_SERVER
 from enikk_engine_claude.resume import EMPTY_HEADER, with_history
@@ -187,6 +187,7 @@ async def test_runs_without_tools_and_returns_the_answer(tmp_path: Path) -> None
     assert options.model == "claude-test-1"
     assert options.resume == "claude-session-0"
     assert options.max_turns == 20
+    assert options.max_buffer_size == MAX_MESSAGE_BYTES
     assert isinstance(options.session_store, CoreSessionStore)
     assert options.env[sandbox.ENV_TOKEN] == "sk-ant-oat-test"
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in options.env
