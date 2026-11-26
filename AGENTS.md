@@ -36,7 +36,7 @@ uv run pytest                    # 영속성 통합 테스트는 Postgres 를 �
 
 ## 코드 규칙
 
-- `agents/*.yaml` 하나하나는 에이전트의 정의다. 지금 에이전트는 `enikk` 하나이고, 옛 이름은 정의의 `aliases` 에 둔다(ADR-0037 5b). 코드 이름(`AgentDefinition`, `agents/` 등)은 그대로 둔다(ADR-0031).
+- `agents/*.yaml` 하나하나는 에이전트의 정의다. 대화하는 에이전트는 `enikk`(DM·멘션)과 `rita`(전용 채널, ADR-0045)이고, 옛 이름은 정의의 `aliases` 에 둔다(ADR-0037 5b). 코드 이름(`AgentDefinition`, `agents/` 등)은 그대로 둔다(ADR-0031).
 
 - 테스트는 해당 패키지의 `tests/` 에 둔다.
 - 값 객체와 계약은 `enikk_kernel.FrozenModel` / `enikk_contracts.Contract` 를, 설정은 `ServiceSettings` 와 `SettingsModel` 을 상속한다.
@@ -47,7 +47,7 @@ uv run pytest                    # 영속성 통합 테스트는 Postgres 를 �
 - DB 스키마는 `enikk_persistence_sql/tables.py` 와 Alembic 리비전(`migrations/versions/`)을 함께 바꾼다. 둘이 어긋나면 테스트가 실패한다.
 - 새 core API 엔드포인트는 `@requires(<역할>)` 로 허용 역할을 선언한다. 선언이 없으면 앱이 시작되지 않는다.
 - 에이전트 정의(`agents/*.yaml`)는 core 테스트가 검증한다. 프롬프트 본문은 넣지 않는다.
-- Slack 과 에이전트의 연결 규칙은 `config/slack.yaml` 에 둔다. 에이전트 정의에 Slack 을 넣지 않는다.
+- Slack 과 에이전트의 연결 규칙은 `config/slack.yaml` 에 둔다. 에이전트 정의에 Slack 을 넣지 않는다. 에이전트의 전용 채널과 표시 이름·아이콘은 `agent_channels` 에 둔다(ADR-0045).
 
 ## 배포 자산
 
