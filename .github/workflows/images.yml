@@ -3,7 +3,8 @@ name: images
 # Builds app images (ADR-0008). Pull requests only verify the Dockerfile and
 # never receive a token that can write packages; commits on main publish.
 # Every image is built for linux/amd64 and linux/arm64, each on a runner of its
-# own architecture, and published as one multi-platform tag (ADR-0038).
+# own architecture, and published as one multi-platform tag (ADR-0038). The arm64
+# image is tagged first, alone, and the tag then grows to both (ADR-0048 §2).
 on:
   push:
     branches: [main]
@@ -104,9 +105,10 @@ jobs:
       fail-fast: false
       matrix:
         app: ${{ fromJSON(needs.apps.outputs.apps) }}
+        # The cluster's architecture is tagged as soon as it is built (ADR-0048 §2).
         platform:
-          - { arch: amd64, runner: ubuntu-latest }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { arch: amd64, runner: ubuntu-latest, early: false }
+          - { arch: arm64, runner: ubuntu-24.04-arm, early: true }
     env:
       IMAGE: ghcr.io/404vector/enikk-${{ matrix.app }}
     steps:
@@ -150,7 +152,26 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Joins the architectures into the one immutable tag Image Updater looks for.
+      # Tags this architecture alone so the cluster need not wait for the other one;
+      # publish later points the same tag at the index of both (ADR-0048 §2). A failure
+      # here only loses the head start, so it does not fail the job.
+      - name: Publish this architecture first
+        if: matrix.platform.early
+        continue-on-error: true
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE: https://github.com/${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.source=${SOURCE}" \
+            --annotation "index:org.opencontainers.image.revision=${REVISION}" \
+            --tag "${IMAGE}:sha-${REVISION}" \
+            "${IMAGE}@${DIGEST}"
+          docker buildx imagetools inspect "${IMAGE}:sha-${REVISION}"
+
+  # Joins the architectures into the one tag Image Updater looks for. The early
+  # architecture's manifest is already under it; this adds the other one.
   publish:
     needs: [apps, build]
     runs-on: ubuntu-latest
