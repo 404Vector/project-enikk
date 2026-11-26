@@ -106,9 +106,14 @@ class SlackApi(Protocol):
         ...
 
     async def post_message(
-        self, channel: str, message: Message, thread: str | None = None
+        self,
+        channel: str,
+        message: Message,
+        thread: str | None = None,
+        persona: Persona | None = None,
     ) -> PostedMessage:
-        """Post a Block Kit message, in ``thread`` if given.
+        """Post a Block Kit message, in ``thread`` if given, under ``persona``'s name and
+        icon if given (ADR-0045).
 
         ``channel`` may be a user ID (their DM with the app). Raises ``SlackDeliveryError``.
         """
