@@ -84,6 +84,7 @@ class Service(StrEnum):
     CONNECTOR_SLACK = "connector-slack"
     SCHEDULER = "scheduler"
     IMAGEGEN = "imagegen"
+    UNITY = "unity"
     AGENTGATEWAY = "agentgateway"
 
 

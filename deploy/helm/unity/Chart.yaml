@@ -1,0 +1,5 @@
+apiVersion: v2
+name: enikk-unity
+description: Relays the owner's Unity editor MCP server with its key (ADR-0044)
+type: application
+version: 0.1.0

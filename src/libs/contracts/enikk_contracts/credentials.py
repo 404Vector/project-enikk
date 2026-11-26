@@ -20,6 +20,8 @@ class CredentialName(StrEnum):
     LANGFUSE_SECRET_KEY = "langfuse.secret-key"
     GEMINI_API_KEY = "gemini.api-key"
     """Google AI Studio key of the image tool server alone (ADR-0043, I-09)."""
+    UNITY_API_KEY = "unity.api-key"
+    """Key of the owner's Unity MCP server, for the Unity relay alone (ADR-0044, I-09)."""
     GITHUB_APP_PRIVATE_KEY = "github.app-private-key"
     """Used by core alone and never handed out (I-32). Core also derives the key that
     signs the tasks' MCP tokens from it (ADR-0039 S3)."""

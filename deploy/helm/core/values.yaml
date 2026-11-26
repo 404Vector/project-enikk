@@ -46,7 +46,7 @@ deployments:
   argocdNamespace: argocd
   apps:
     [enikk-core, enikk-runtime-claude, enikk-connector-slack, enikk-scheduler, enikk-imagegen,
-     enikk-agentgateway]
+     enikk-unity, enikk-agentgateway]
   timeoutSeconds: 600
   settleSeconds: 60
 
@@ -95,6 +95,11 @@ roleBindings:
     service_account: enikk-imagegen
     role: tool
     credentials: [gemini.api-key, langfuse.public-key, langfuse.secret-key]
+  # The Unity relay: the key of the owner's Unity MCP server only (ADR-0044, I-09).
+  - namespace: enikk
+    service_account: enikk-unity
+    role: tool
+    credentials: [unity.api-key]
   - namespace: enikk
     service_account: enikk-smoke
     role: connector

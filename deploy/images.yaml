@@ -7,3 +7,4 @@ apps:
   - connector-slack
   - scheduler
   - imagegen
+  - unity
