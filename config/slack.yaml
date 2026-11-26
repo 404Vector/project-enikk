@@ -32,3 +32,14 @@ reactions:
   remembered: e-remember
   memory_updated: e-update
   forgotten: e-forget
+
+# Channels that belong to one agent each (ADR-0045). Every top-level message of the owner
+# there, with or without a mention, starts a conversation with that agent; its replies
+# show the persona's name and icon (chat:write.customize). The owner creates the channel
+# and invites the bot. icon_emoji is a custom emoji of the workspace; without it the
+# app's own icon is shown.
+agent_channels:
+  - channel: C0CM1LX7LMR
+    agent: rita
+    persona:
+      name: 리타

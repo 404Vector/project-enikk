@@ -37,9 +37,11 @@ def test_threads_of_the_former_name_run_as_enikk() -> None:
 
 def test_routes_name_an_agent() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
-    routes = yaml.safe_load((REPO_ROOT / "config" / "slack.yaml").read_text())["routes"]
-    for agent in routes.values():
+    slack = yaml.safe_load((REPO_ROOT / "config" / "slack.yaml").read_text())
+    for agent in slack["routes"].values():
         assert agent in catalog.names(), agent
+    for channel in slack.get("agent_channels", []):
+        assert channel["agent"] in catalog.names(), channel
 
 
 def test_aliases_may_not_clash(tmp_path: Path) -> None:

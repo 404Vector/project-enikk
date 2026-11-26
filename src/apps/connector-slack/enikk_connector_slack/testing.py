@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from enikk_connector_slack.config import Routes, SlackConfig
+from enikk_connector_slack.config import Persona, Routes, SlackConfig
 from enikk_connector_slack.events import PostedMessage
 from enikk_connector_slack.ports import WorkspaceView
 from enikk_contracts.approvals import (
@@ -159,6 +159,7 @@ class FakeCore:
 class FakeSlack:
     def __init__(self) -> None:
         self.posts: list[tuple[str, str | None, str]] = []
+        self.personas: list[tuple[str, Persona]] = []
         self.view = WorkspaceView(url="https://enikk.slack.test/", emoji=("e-done",))
         self.fail_workspace: list[Exception] = []
         self.reactions: list[tuple[str, str, str]] = []
@@ -185,10 +186,14 @@ class FakeSlack:
             raise self.fail_workspace.pop(0)
         return self.view
 
-    async def post_reply(self, channel: str, thread: str | None, text: str) -> None:
+    async def post_reply(
+        self, channel: str, thread: str | None, text: str, persona: Persona | None = None
+    ) -> None:
         if self.fail_posts:
             raise self.fail_posts.pop(0)
         self.posts.append((channel, thread, text))
+        if persona is not None:
+            self.personas.append((channel, persona))
 
     async def post_message(
         self, channel: str, message: Message, thread: str | None = None
