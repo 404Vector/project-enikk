@@ -55,7 +55,7 @@
 
 ### 4. 세션 = Slack 스레드
 - 세션은 Slack 스레드(채널 + `thread_ts`)다. 같은 스레드의 댓글은 같은 세션을 이어 간다(Agent SDK 세션 재개. 방식은 구현 때 확인한다).
-- 한 스레드 안은 직렬로 처리하고, 서로 다른 스레드는 동시에 **2개**까지 처리한다.
+- 한 스레드 안은 직렬로 처리하고, 서로 다른 스레드는 동시에 ~~**2개**~~ **4개**까지 처리한다(2026-11-26 변경, 아래 "동시 처리 4").
 - 스레드에서 실행 중인 세션을 취소하는 수단을 둔다.
 
 ### 5. 도구는 세션 시작 때 모두 갖춘다
@@ -87,7 +87,7 @@
 ### 8. runtime 이미지와 자원
 - runtime 이미지에 개발 도구(git, uv, 검사 도구)를 넣는다.
 - ~~Postgres 통합 테스트는 기존 Postgres(CNPG)의 테스트 전용 DB 로 돌린다.~~ **4a 에서 바뀜**: runtime 에는 테스트 DB 를 두지 않고, 영속성 통합 테스트는 CI 에서만 돌린다(아래 4a).
-- runtime 메모리 한도는 동시 처리 2 기준으로 조정한다(3a 에서 requests 만 올렸고, 4a 에서 limits 1536Mi 를 유지하기로 했다).
+- runtime 메모리 한도는 동시 처리 수에 맞춰 조정한다(3a 에서 requests 만 올렸고, 4a 에서 limits 1536Mi 를 유지하기로 했다. 2026-11-26 동시 처리 4 로 바꾸며 requests 1280Mi, limits 2560Mi).
 - **대가**: 쉴 때 0 이던 개발 Job 의 자원이 상주 runtime 으로 옮겨 와 상주 자원이 늘어난다. 그 대가로 Pod 기동 지연(수십 초)과 위임문으로 인한 맥락 손실이 사라진다.
 
 ### 9. 요약 스킬은 도구 없이
@@ -157,6 +157,13 @@
 - **자원**: requests memory 384Mi → 640Mi(실측: claude CLI 약 250MB, Python 약 100MB), limits 1536Mi 유지. `/work` emptyDir 64Mi → 128Mi(작업 파일은 `/data` worktree 에 있어 `/work` 는 거의 비어 있다). `/tmp` scratch 1Gi 는 그대로.
 - **git 신원**: 기준 저장소 config 를 정규화할 때 `user.name = enikk`, `user.email = enikk@users.noreply.github.com` 을 넣는다. 전에는 worktree 의 `git commit` 이 "Author identity unknown" 으로 실패했다. core 가 제출 때 봇 작성자로 다시 쓰므로(2b) 값 자체는 의미가 없다.
 - **되돌리기**: `worker.slots: 1`(한 번에 하나, 3a 전과 같은 직렬 처리).
+
+### 동시 처리 4 (2026-11-26, 소유자 결정)
+- **바뀐 것**: `deploy/helm/runtime-claude` 의 `worker.slots` 2 → 4(코드 상한 4), `live.maxSessions` 3 → 4(ADR-0041 4b), requests memory 640Mi → 1280Mi, limits 1536Mi → 2560Mi.
+- **이유**: 긴 개발 작업 둘이 칸을 모두 차지하면 다른 대화가 기다린다. 에이전트가 둘(에닉, 리타 ADR-0045)이 되고 예약 작업도 같은 칸을 쓴다.
+- **자원 계산**: 칸 4개가 모두 차면 CLI 4개(약 250MB씩)와 Python(약 100MB)으로 약 1.1GB. requests 는 이것을 덮고, limits 는 그 위에 검사 도구(mypy·pytest) 한두 개를 더한 값이다. 살아 있는 프로세스는 칸 수와 같게 두어, 모든 칸이 찼을 때 남는 쉬는 프로세스가 없다. 노드(단일, 할당 가능 약 7.7GiB)의 requests 합은 약 2.3GiB → 약 3.0GiB 이고, 배포 중 Pod 가 겹칠 때도(새 Pod 가 먼저 준비됨) 약 4.3GiB 로 들어간다.
+- **남는 위험**: 칸 넷이 모두 개발 검사를 동시에 돌리면 2560Mi 도 넘칠 수 있다. 넘치면 그 Pod 의 작업이 모두 함께 끝난다. 스레드 사이 worktree 메타데이터 위험(아래 위험 표)은 그대로이며 동시 실행 수만큼 기회가 늘어난다. 모든 작업이 같은 Claude 토큰을 쓰므로 사용 한도에 더 빨리 닿을 수 있다.
+- **되돌리기**: 위 네 값을 이전 값으로 돌린다.
 
 ### 3b 구현 세부 (2026-11-24)
 - **취소(core)**: `POST /v1/tasks/{task_id}/cancel`(`connector` 역할, Slack connector 만). 그 작업이 속한 세션의 대기(QUEUED)·실행 중(LEASED) 작업을 모두 `CANCELLED` 로 바꾸고, 하나라도 바꿨으면 스레드에 안내 한 줄("취소했습니다.", outbox 종류 `cancelled`)을 남긴다. 이미 끝난 작업뿐이면 아무것도 바꾸지 않고 빈 `CancelResult.cancelled` 를 돌려준다. 저장소에는 `TaskRepository.active_in_session`(잠금)을 더했다. 스키마는 그대로다(outbox `kind` 는 문자열 열이라 마이그레이션이 없다).
@@ -234,7 +241,7 @@
 |---|---|
 | 인젝션이 닿는 범위가 넓어진다(한 세션이 대화·저장소·웹을 함께 다룬다) | 되돌릴 수 없는 동작은 core 경유(6b)·소유자 승인(6c). 신뢰하지 않는 자료는 `/data/tmp/<스레드>` 에 둔다 |
 | 세션이 기준 저장소의 config·hooks·ref 를 바꾼다 | 매 준비 때 config·hooks 를 다시 쓴다. 커밋은 `state/` 의 기록을 믿는다. runtime 의 git 은 샌드박스 안. core 는 볼륨에서 git 을 실행하지 않는다 |
-| 긴 개발 작업이 대화를 막는다 | 스레드별 처리, 동시 한도 2(3a), 대기 표시와 소유자의 [취소](3b) |
+| 긴 개발 작업이 대화를 막는다 | 스레드별 처리, 동시 한도 2(3a) → 4(2026-11-26), 대기 표시와 소유자의 [취소](3b) |
 | 볼륨 손상·용량 부족 | 다시 만들 수 있는 것만 둔다. 7일 정리, 남은 공간 확인, 스냅샷 2개만 |
 | runtime 불안정(무거운 명령) | 명령별 시간·메모리 한도, 실패하면 그 세션만 끝낸다(2~3단계) |
 | 동시 처리 2 에서 한 스레드가 다른 스레드의 `repo.git/worktrees/<다른 스레드>` 를 건드림 | **3a 에서 막지 않았다(남은 위험)**. 세션의 쓰기 경로에 `repo.git` 전체가 있어 다른 스레드의 worktree 메타데이터(`HEAD`·`index` 등)를 바꿀 수 있다. 결과는 그 스레드의 작업 공간 손상이고 GitHub·운영에는 core 의 bundle 확인(2b)을 거쳐야 닿는다. 3b 에서 쓰기 경로를 `objects`·`refs`·`logs`·자기 `worktrees/<이름>` 으로 좁혀 보았지만, git 이 ref 를 바꿀 때 `repo.git/packed-refs.lock` 을 `repo.git` 바로 아래에 만들어야 해서 Landlock 의 경로 규칙으로는 열 수 없다. 그래서 **남은 위험으로 둔다**. 4단계에서 스레드마다 따로 clone 하거나 git 을 core 경유로 바꿀 때 다시 본다 |
