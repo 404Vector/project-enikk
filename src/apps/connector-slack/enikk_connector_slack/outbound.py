@@ -58,8 +58,10 @@ class OutboxRelay:
         marker: Marker | None = None,
         owner: str | None = None,
         channels: Sequence[AgentChannel] = (),
+        running_emoji: str | None = None,
     ) -> None:
         self._core = core
+        self._running_emoji = running_emoji
         self._owner = owner
         self._personas = {c.channel: c.persona for c in channels}
         """Agent channels' names and icons for the replies and [취소] buttons posted there
@@ -192,7 +194,7 @@ class OutboxRelay:
         try:
             posted = await self._slack.post_message(
                 conversation.channel,
-                blocks.running(str(message.task_id)),
+                blocks.running(str(message.task_id), self._running_emoji),
                 thread=conversation.thread,
                 persona=self._personas.get(conversation.channel),
             )

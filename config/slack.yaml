@@ -33,6 +33,11 @@ reactions:
   memory_updated: e-update
   forgotten: e-forget
 
+# Custom emoji shown instead of the words "작업 중" on the line with the [취소] button
+# while a task runs (ADR-0037 3b). Upload it first: an unknown name shows as plain text.
+# Notifications still read "작업 중". Remove it to show the words again.
+running_emoji: e-loading
+
 # Channels that belong to one agent each (ADR-0045). Every top-level message of the owner
 # there, with or without a mention, starts a conversation with that agent; its replies
 # show the persona's name and icon (chat:write.customize). The owner creates the channel

@@ -59,6 +59,8 @@ class SlackConfig(FrozenModel):
     """Channel for approval requests: pull requests and prompt promotions (ADR-0036)."""
     reactions: Reactions = Reactions()
     """Custom emoji for the marks on the owner's messages (ADR-0042)."""
+    running_emoji: EmojiName | None = None
+    """Custom emoji shown instead of "작업 중" on the [취소] line (ADR-0037 3b). None: the text."""
     agent_channels: Annotated[tuple[AgentChannel, ...], Field(max_length=50)] = ()
     """Channels that belong to one agent each (ADR-0045)."""
 
