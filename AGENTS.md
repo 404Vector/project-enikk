@@ -36,7 +36,7 @@ uv run pytest                    # 영속성 통합 테스트는 Postgres 를 �
 
 ## 코드 규칙
 
-- `agents/*.yaml` 하나하나는 에이전트의 정의다. 대화하는 에이전트는 `enikk`(DM·멘션)과 `rita`(전용 채널, ADR-0045)이고, 옛 이름은 정의의 `aliases` 에 둔다(ADR-0037 5b). 코드 이름(`AgentDefinition`, `agents/` 등)은 그대로 둔다(ADR-0031).
+- `agents/*.yaml` 하나하나는 에이전트의 정의다. 대화하는 에이전트는 `enikk`(DM·멘션), `rita`(전용 채널, ADR-0045), `arcana`(전용 채널, ADR-0051)이고, 옛 이름은 정의의 `aliases` 에 둔다(ADR-0037 5b). 코드 이름(`AgentDefinition`, `agents/` 등)은 그대로 둔다(ADR-0031).
 
 - 테스트는 해당 패키지의 `tests/` 에 둔다.
 - 값 객체와 계약은 `enikk_kernel.FrozenModel` / `enikk_contracts.Contract` 를, 설정은 `ServiceSettings` 와 `SettingsModel` 을 상속한다.
