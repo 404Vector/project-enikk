@@ -8,6 +8,11 @@ Agents keep, update and forget notes through core, which writes them only under
 enikk's folder in ``Private/`` with ``draft: true`` (both keep them off the public
 blog), commits with ``[skip ci]``, refuses text that looks like a secret, and tells
 the thread what it did.
+
+Agents also read any note of the vault and write the owner's public notes, the
+blog (ADR-0049): only from work the owner started, outside the folders the blog
+leaves out. A new note is always a draft, and a write never publishes or
+unpublishes a note; that stays with the owner.
 """
 
 from __future__ import annotations
@@ -17,13 +22,20 @@ import re
 import uuid  # noqa: TC003 - used at runtime in signatures
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Final, Protocol, Self
+from typing import TYPE_CHECKING, Final, Literal, Protocol, Self
 
 import yaml
 from pydantic import model_validator
 
 from enikk_contracts.common import ConnectorKind
-from enikk_contracts.memory import MemoryMatch, MemoryMatches, MemoryWritten, NoteKind
+from enikk_contracts.memory import (
+    MemoryMatch,
+    MemoryMatches,
+    MemoryWritten,
+    NoteContent,
+    NoteKind,
+    NoteWritten,
+)
 from enikk_contracts.outbox import OutboundKind
 from enikk_core_domain.errors import (
     DependencyUnavailableError,
@@ -42,6 +54,8 @@ if TYPE_CHECKING:
         ForgetRequest,
         MemoryNote,
         MemorySearch,
+        NoteRead,
+        NoteWrite,
         RememberRequest,
         UpdateMemoryRequest,
     )
@@ -60,6 +74,8 @@ _HEADING: Final = re.compile(r"^#\s+(.+?)\s*$", re.M)
 _UNSAFE_NAME: Final = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]+')
 FOLDER_OF: Final = {NoteKind.PREFERENCE: "선호", NoteKind.FACT: "사실", NoteKind.WORK: "진행 중"}
 WORK_DAYS: Final = 14
+NOTE_CHARS: Final = 100_000
+"""Characters of a note handed to an agent that reads it."""
 CONVERSATION_FOLDER: Final = "대화"
 CONVERSATIONS_BY: Final = "enikk"
 """The author of the daily conversation notes: enikk, whatever made the summary."""
@@ -71,6 +87,8 @@ class VaultApi(Protocol):
 
 
 class VaultWriteApi(Protocol):
+    async def current_sha(self, token: InstallationToken, path: str, branch: str) -> str | None: ...
+
     async def put(
         self, token: InstallationToken, path: str, text: str, message: str, branch: str = "main"
     ) -> str: ...
@@ -119,6 +137,21 @@ def parse_note(path: str, sha: str, text: str, layout: MemoryLayout, now: dateti
         expires=_date(meta.get("expires")),
         synced_at=now,
     )
+
+
+def is_draft(text: str) -> bool:
+    """Whether the blog leaves the note out: ``draft: true`` in its frontmatter."""
+    match = _FRONTMATTER.match(text)
+    if not match:
+        return False
+    try:
+        meta = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return False
+    if not isinstance(meta, dict):
+        return False
+    value = meta.get("draft")
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
 
 
 def _date(value: object) -> date | None:
@@ -333,6 +366,60 @@ class MemoryService:
                 for n in notes
             )
         )
+
+    # ------------------------------------------------------------ the blog (ADR-0049)
+
+    async def read_note(self, request: NoteRead) -> NoteContent:
+        """One note as it is in the vault now, frontmatter included."""
+        path = request.path
+        if not self.layout.readable(path) or ".." in path.split("/"):
+            raise PermissionDeniedError("only Markdown notes of the vault can be read")
+        token = await self._app.installation_token(self._policy.repository, TokenPurpose.WATCH)
+        try:
+            sha = await self._require_writer().current_sha(token, path, self._policy.branch)
+            text = "" if sha is None else await self._vault.text(token, sha)
+        finally:
+            await self._app.revoke(token)
+        if sha is None:
+            return NoteContent(path=path, exists=False)
+        return NoteContent(path=path, exists=True, text=text[:NOTE_CHARS])
+
+    async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
+        """Create or replace a public note. Refuses to publish or unpublish one."""
+        await self._origin(task_id)
+        path = request.path
+        if not self.layout.publishable(path):
+            raise PermissionDeniedError(
+                "public notes go under the vault outside Private, templates and hidden folders"
+            )
+        _refuse_secrets(request.text)
+        draft = is_draft(request.text)
+        token = await self._token()
+        try:
+            writer = self._require_writer()
+            current = await writer.current_sha(token, path, self._policy.branch)
+            if current is None and not draft:
+                raise PermissionDeniedError(
+                    "a new note must have draft: true in its frontmatter; the owner publishes it"
+                )
+            if current is not None and is_draft(await self._vault.text(token, current)) != draft:
+                raise PermissionDeniedError(
+                    "a write cannot change the note's draft flag; the owner publishes "
+                    "or unpublishes it"
+                )
+            action: Literal["created", "updated"] = "created" if current is None else "updated"
+            message = f"blog: {action} {PurePosixPath(path).stem}"
+            if draft:
+                message += " [skip ci]"
+            sha = await writer.put(token, path, request.text, message, self._policy.branch)
+        finally:
+            await self._app.revoke(token)
+        note = parse_note(path, sha, request.text, self.layout, self._clock.now())
+        async with self._uow() as uow:
+            await uow.vault.upsert(note)
+            await uow.commit()
+        _log.info("public note %s: %s", action, path)
+        return NoteWritten(action=action, path=path, draft=draft)
 
     async def _origin(self, task_id: uuid.UUID) -> tuple[Task, Session]:
         """The task and its session; refuse unless the work began with the owner in Slack."""

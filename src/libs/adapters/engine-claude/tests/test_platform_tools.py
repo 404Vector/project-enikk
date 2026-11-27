@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock
 from pydantic import SecretStr
 
 from enikk_contracts.agents import PlatformTool, ToolPolicy
+from enikk_contracts.memory import NoteContent, NoteRead, NoteWrite, NoteWritten
 from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptCandidateRequest,
@@ -22,6 +23,7 @@ from enikk_engine_claude.platform_tools import (
     PROPOSE_PROMPT_TOOL,
     READ_PROMPT_TOOL,
     granted_platform_tools,
+    memory_tools,
     platform_server,
     propose_prompt_tool,
     read_prompt_tool,
@@ -36,6 +38,7 @@ if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeAgentOptions, Message
 
     from enikk_engine_claude.transcripts import TranscriptApi
+    from enikk_runtime.ports import MemoryKeeper
 
 pytestmark = pytest.mark.anyio
 
@@ -229,3 +232,54 @@ def test_a_role_without_platform_defaults_gets_no_platform_tools() -> None:
     assert platform_server(CurrentJob(bare), memory=object(), diagnostics=object()) is None  # type: ignore[arg-type]
     usual = _with_tools(ToolPolicy())
     assert len(granted_platform_tools(usual, **every)) > 0
+
+
+class _Notes:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.reads: list[NoteRead] = []
+        self.writes: list[NoteWrite] = []
+        self._error = error
+
+    async def read_note(self, task_id: uuid.UUID, request: NoteRead) -> NoteContent:
+        self.reads.append(request)
+        return NoteContent(path=request.path, exists=True, text="---\ndraft: true\n---\n본문")
+
+    async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
+        if self._error is not None:
+            raise self._error
+        self.writes.append(request)
+        return NoteWritten(action="created", path=request.path, draft=True)
+
+
+def _note_tools(notes: _Notes, job: EngineJob) -> dict[str, Any]:
+    tools = memory_tools(CurrentJob(job), cast("MemoryKeeper", notes))
+    return {t.name: t for t in tools}
+
+
+def test_blog_tools_go_with_memory() -> None:
+    granted = granted_platform_tools(_with_tools(ToolPolicy()), memory=True)
+    assert {"mcp__enikk__read_note", "mcp__enikk__write_note"} <= set(granted)
+
+
+async def test_blog_tools_read_and_write_under_the_lease() -> None:
+    job = _job()
+    notes = _Notes()
+    tools = _note_tools(notes, job)
+    read = await tools["read_note"].handler({"path": "vault/Garden/x.md"})
+    assert not read["is_error"]
+    assert "Reference only" in read["content"][0]["text"]
+    assert "본문" in read["content"][0]["text"]
+    written = await tools["write_note"].handler({"path": "vault/Garden/x.md", "text": "글"})
+    assert not written["is_error"]
+    assert "a draft, not published" in written["content"][0]["text"]
+    assert notes.writes == [NoteWrite(lease_id=job.lease_id, path="vault/Garden/x.md", text="글")]
+
+
+async def test_write_note_reports_refusals() -> None:
+    error = CoreConflictError("a new note must have draft: true", status=403)
+    tools = _note_tools(_Notes(error), _job())
+    result = await tools["write_note"].handler({"path": "vault/Garden/x.md", "text": "글"})
+    assert result["is_error"]
+    assert "draft: true" in result["content"][0]["text"]
+    empty = await tools["write_note"].handler({"path": "vault/Garden/x.md", "text": ""})
+    assert empty["is_error"]

@@ -59,6 +59,40 @@ class ForgetRequest(Contract):
     path: NotePath
 
 
+NoteText = Annotated[str, StringConstraints(min_length=1, max_length=100_000)]
+
+
+class NoteRead(Contract):
+    """Read one note of the vault as it is, frontmatter included (ADR-0049)."""
+
+    lease_id: uuid.UUID
+    path: NotePath
+
+
+class NoteContent(Contract):
+    path: NotePath
+    exists: bool
+    text: Annotated[str, StringConstraints(max_length=100_000)] = ""
+
+
+class NoteWrite(Contract):
+    """Create or replace a public note of the vault, the owner's blog (ADR-0049).
+
+    ``text`` is the whole file, frontmatter included. Only from a task the owner
+    started; a new note must be a draft, and a write never changes whether a note
+    is published."""
+
+    lease_id: uuid.UUID
+    path: NotePath
+    text: NoteText
+
+
+class NoteWritten(Contract):
+    action: Literal["created", "updated"]
+    path: NotePath
+    draft: bool
+
+
 class MemoryWritten(Contract):
     action: Literal["remembered", "updated", "forgotten"]
     path: NotePath

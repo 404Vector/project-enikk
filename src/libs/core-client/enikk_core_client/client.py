@@ -17,7 +17,7 @@ from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
-from enikk_contracts.memory import MemoryMatches, MemoryWritten
+from enikk_contracts.memory import MemoryMatches, MemoryWritten, NoteContent, NoteWritten
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch, OutboxFile, OutboxFileQuery
 from enikk_contracts.prompts import (
     PromotionLinked,
@@ -74,6 +74,8 @@ if TYPE_CHECKING:
     from enikk_contracts.memory import (
         ForgetRequest,
         MemorySearch,
+        NoteRead,
+        NoteWrite,
         RememberRequest,
         UpdateMemoryRequest,
     )
@@ -264,6 +266,16 @@ class CoreClient:
     async def forget_memory(self, task_id: uuid.UUID, request: ForgetRequest) -> MemoryWritten:
         path = routes.MEMORY_FORGET.format(task_id=task_id)
         return _parse(MemoryWritten, await self._post(path, request, 60))
+
+    async def read_note(self, task_id: uuid.UUID, request: NoteRead) -> NoteContent:
+        """One note of the owner's vault as it is, frontmatter included (ADR-0049)."""
+        path = routes.NOTE_READ.format(task_id=task_id)
+        return _parse(NoteContent, await self._post(path, request, 60))
+
+    async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
+        """Create or replace a public note of the owner's vault, the blog (ADR-0049)."""
+        path = routes.NOTE_WRITE.format(task_id=task_id)
+        return _parse(NoteWritten, await self._post(path, request, 60))
 
     async def post_thread_file(
         self, task_id: uuid.UUID, request: ThreadFileRequest

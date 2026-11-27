@@ -24,6 +24,8 @@ KIND_DIRS: Final = {
     "대화": NoteKind.CONVERSATION,
 }
 CONTEXT_KINDS: Final = frozenset({NoteKind.PREFERENCE, NoteKind.FACT, NoteKind.WORK})
+UNPUBLISHED_DIRS: Final = frozenset({"Private", "private", "templates", ".obsidian"})
+"""Folders the blog leaves out (the vault's Quartz ``ignorePatterns``), at any depth."""
 
 
 class VaultNote(FrozenModel):
@@ -62,6 +64,16 @@ class MemoryLayout(FrozenModel):
 
     def is_enikks(self, path: str) -> bool:
         return path.startswith(self.enikk_dir)
+
+    def publishable(self, path: str) -> bool:
+        """A note the blog can publish: under ``notes_root``, outside every folder the
+        blog leaves out, with no hidden or relative parts."""
+        if not self.readable(path):
+            return False
+        parts = path.removeprefix(self.notes_root).split("/")
+        return all(p and not p.startswith(".") for p in parts) and not any(
+            p in UNPUBLISHED_DIRS for p in parts[:-1]
+        )
 
 
 def context_notes(

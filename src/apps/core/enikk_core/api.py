@@ -48,6 +48,10 @@ from enikk_contracts.memory import (
     MemoryMatches,
     MemorySearch,
     MemoryWritten,
+    NoteContent,
+    NoteRead,
+    NoteWrite,
+    NoteWritten,
     RememberRequest,
     UpdateMemoryRequest,
 )
@@ -372,6 +376,22 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, MemorySearch)
         await usecases.verify_lease(scope, task_id, body.lease_id)
         return _json(await _memory(services).search(body))
+
+    @app.post(routes.NOTE_READ, responses={200: {"model": NoteContent}})
+    @requires("runtime")
+    async def read_note(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, NoteRead)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).read_note(body))
+
+    @app.post(routes.NOTE_WRITE, responses={200: {"model": NoteWritten}})
+    @requires("runtime")
+    async def write_note(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, NoteWrite)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).write_note(task_id, body))
 
     @app.post(routes.THREAD_FILE, responses={200: {"model": ThreadActionDone}})
     @requires("runtime")
