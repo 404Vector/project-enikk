@@ -131,6 +131,10 @@ class FakeWriter:
         self.messages.append(message)
         return self.vault.notes.pop(path, None) is not None
 
+    async def current_sha(self, token: InstallationToken, path: str, branch: str) -> str | None:
+        found = self.vault.notes.get(path)
+        return None if found is None else found[0]
+
 
 async def _owner_task(harness: Harness, connector: str = "slack") -> tuple[object, object]:
     from enikk_contracts.common import ConnectorKind, ConversationRef
@@ -316,3 +320,122 @@ async def test_recall_searches_the_whole_vault(
     assert match.path == OWNER_NOTE
     assert "Argo CD" in match.snippet
     assert match.snippet.startswith("…")
+
+
+# ---------------------------------------------------------------- the blog (ADR-0049)
+
+POST = "vault/Garden/Engineering/꼬리 지연.md"
+DRAFT_POST = "---\ntitle: 꼬리 지연\ndraft: true\n---\n# 꼬리 지연\n\n본문\n"
+PUBLISHED = "---\ntitle: Kubernetes\n---\n# Kubernetes\n\n소유자의 글\n"
+
+
+def test_public_paths_leave_out_what_the_blog_hides() -> None:
+    assert LAYOUT.publishable("vault/Garden/Engineering/AWS.md")
+    assert LAYOUT.publishable("vault/Blog.md")
+    for path in (
+        "vault/Private/enikk/선호/x.md",
+        "vault/Project/private/x.md",
+        "vault/templates/x.md",
+        "vault/.obsidian/x.md",
+        "vault/Garden/../Private/x.md",
+        "vault/Garden/.hidden/x.md",
+        "vault/Garden//x.md",
+        "vault/Garden/x.png",
+        "docs/x.md",
+    ):
+        assert not LAYOUT.publishable(path), path
+
+
+async def test_a_new_post_is_written_as_a_draft_and_read_back(
+    harness: Harness, keeper: MemoryService, vault: VaultApi, writer: FakeWriter
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteRead, NoteWrite
+
+    _, work = await _owner_task(harness)
+    lease = uuid.uuid4()
+    written = await keeper.write_note(
+        work.id,  # type: ignore[attr-defined]
+        NoteWrite(lease_id=lease, path=POST, text=DRAFT_POST),
+    )
+    assert (written.action, written.draft) == ("created", True)
+    assert vault.notes[POST][1] == DRAFT_POST
+    assert writer.messages[-1].endswith("[skip ci]")
+    assert ("vault.hyeongseok-kim", TokenPurpose.MEMORY) in harness.github.issued
+    read = await keeper.read_note(NoteRead(lease_id=lease, path=POST))
+    assert (read.exists, read.text) == (True, DRAFT_POST)
+    missing = await keeper.read_note(NoteRead(lease_id=lease, path="vault/Garden/없음.md"))
+    assert not missing.exists
+    async with harness.db.unit_of_work() as uow:
+        [found] = await uow.vault.search(["본문"], 5)
+    assert found.path == POST
+
+
+async def test_the_owners_published_note_can_be_edited_but_not_unpublished(
+    harness: Harness, keeper: MemoryService, vault: VaultApi, writer: FakeWriter
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteWrite
+    from enikk_core_domain.errors import PermissionDeniedError
+
+    _, work = await _owner_task(harness)
+    vault.put(OWNER_NOTE, PUBLISHED)
+    edited = PUBLISHED.replace("소유자의 글", "고친 글")
+    written = await keeper.write_note(
+        work.id,  # type: ignore[attr-defined]
+        NoteWrite(lease_id=uuid.uuid4(), path=OWNER_NOTE, text=edited),
+    )
+    assert (written.action, written.draft) == ("updated", False)
+    assert vault.notes[OWNER_NOTE][1] == edited
+    assert "[skip ci]" not in writer.messages[-1]
+    hidden = edited.replace("title: Kubernetes\n", "title: Kubernetes\ndraft: true\n")
+    with pytest.raises(PermissionDeniedError, match="draft"):
+        await keeper.write_note(
+            work.id,  # type: ignore[attr-defined]
+            NoteWrite(lease_id=uuid.uuid4(), path=OWNER_NOTE, text=hidden),
+        )
+    assert vault.notes[OWNER_NOTE][1] == edited
+
+
+async def test_public_writes_refuse_publishing_hidden_folders_secrets_and_others(
+    harness: Harness, keeper: MemoryService, vault: VaultApi
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteWrite
+    from enikk_core_domain.errors import InvalidRequestError, PermissionDeniedError
+
+    _, work = await _owner_task(harness)
+    vault.put(POST, DRAFT_POST)
+
+    async def write(path: str, text: str, task: object = work) -> None:
+        await keeper.write_note(
+            task.id,  # type: ignore[attr-defined]
+            NoteWrite(lease_id=uuid.uuid4(), path=path, text=text),
+        )
+
+    with pytest.raises(PermissionDeniedError, match="draft"):
+        await write("vault/Garden/새 글.md", "# 새 글\n\n바로 공개\n")
+    with pytest.raises(PermissionDeniedError, match="draft"):
+        await write(POST, "# 꼬리 지연\n\n공개로 바꿈\n")
+    with pytest.raises(PermissionDeniedError):
+        await write("vault/Private/enikk/선호/x.md", DRAFT_POST)
+    with pytest.raises(InvalidRequestError):
+        await write(POST, DRAFT_POST + "ghp_" + "a" * 36)
+    _, smoke = await _owner_task(harness, "smoke")
+    with pytest.raises(PermissionDeniedError):
+        await write(POST, DRAFT_POST, smoke)
+    assert vault.notes[POST][1] == DRAFT_POST
+    assert "vault/Garden/새 글.md" not in vault.notes
+
+
+def test_drafts_follow_the_blogs_rule() -> None:
+    from enikk_core.memory import is_draft
+
+    assert is_draft(DRAFT_POST)
+    assert is_draft("---\ndraft: 'true'\n---\nx")
+    assert not is_draft(PUBLISHED)
+    assert not is_draft("draft: true\n")
+    assert not is_draft("---\ndraft: [\n---\nx")
