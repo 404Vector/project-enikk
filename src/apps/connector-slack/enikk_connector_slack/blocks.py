@@ -225,13 +225,17 @@ RUNNING_TEXT: Final = "작업 중"
 ALREADY_FINISHED_TEXT: Final = "이미 끝난 작업입니다. 아무것도 바뀌지 않았습니다."
 
 
-def running(task_id: str) -> Message:
-    """One line in the thread while a task runs, with the owner's [취소] button (ADR-0037 3b)."""
+def running(task_id: str, emoji: str | None = None) -> Message:
+    """One line in the thread while a task runs, with the owner's [취소] button (ADR-0037 3b).
+
+    With ``emoji`` (a custom emoji, without colons) the line shows only that emoji; the
+    notification text stays "작업 중".
+    """
     return Message(
         text=RUNNING_TEXT,
         blocks=(
             Section(
-                text=Text(text=RUNNING_TEXT),
+                text=Text(text=RUNNING_TEXT if emoji is None else f":{emoji}:"),
                 accessory=Button(
                     text=Text(type="plain_text", text="취소"),
                     action_id=CANCEL_ACTION,

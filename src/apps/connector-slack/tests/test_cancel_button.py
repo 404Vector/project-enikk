@@ -67,6 +67,26 @@ async def test_a_started_task_gets_one_line_with_the_button() -> None:
     assert slack.posts == []
 
 
+async def test_the_line_says_working_without_a_running_emoji() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    await _relay(core, slack, OutboundKind.STARTED)
+    [(_, _, message)] = slack.replies
+    [section] = message.payload()
+    assert message.text == blocks.RUNNING_TEXT
+    assert section["text"] == {"type": "mrkdwn", "text": blocks.RUNNING_TEXT}
+
+
+async def test_the_running_emoji_replaces_the_words_but_not_the_notification() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    core.pending.append(_message(OutboundKind.STARTED))
+    await OutboxRelay(core, slack, POLICY, running_emoji="e-loading").relay_once()
+    [(_, _, message)] = slack.replies
+    [section] = message.payload()
+    assert message.text == blocks.RUNNING_TEXT
+    assert section["text"] == {"type": "mrkdwn", "text": ":e-loading:"}
+    assert "accessory" in section
+
+
 @pytest.mark.parametrize("kind", [OutboundKind.REPLY, OutboundKind.FAILURE])
 async def test_the_button_goes_away_when_the_task_ends(kind: OutboundKind) -> None:
     core, slack = FakeCore(), FakeSlack()

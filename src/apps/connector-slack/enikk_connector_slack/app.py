@@ -69,6 +69,7 @@ class ConnectorSlackApp:
                 marker=marker,
                 owner=config.owner,
                 channels=config.agent_channels,
+                running_emoji=config.running_emoji,
             )
             reporter = WorkspaceReporter(core, slack, s.workspace_report_seconds)
             socket = SocketModeClient(app_token=app_token.get_secret_value(), web_client=web)
