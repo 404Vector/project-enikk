@@ -70,6 +70,9 @@ class PlatformTool(StrEnum):
     GITHUB = "github"
     """A short-lived GitHub token for the platform repository in the shell: push agent
     branches, open and close pull requests (ADR-0041 §1)."""
+    VAULT_PRIVATE = "vault-private"
+    """Write the owner's notes that the blog never publishes (``Private/`` and the like),
+    outside enikk's own folder (ADR-0051)."""
 
 
 class ToolPolicy(Contract):

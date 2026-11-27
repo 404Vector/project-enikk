@@ -80,6 +80,16 @@ class MemoryLayout(FrozenModel):
         parts = path.removeprefix(self.reference_dir).split("/")
         return all(p and not p.startswith(".") for p in parts)
 
+    def private(self, path: str) -> bool:
+        """One of the owner's notes the blog leaves out: inside a folder the blog skips,
+        outside enikk's folder, with no hidden or relative parts."""
+        if not self.readable(path) or self.is_enikks(path):
+            return False
+        parts = path.removeprefix(self.notes_root).split("/")
+        return all(p and not p.startswith(".") for p in parts) and any(
+            p in UNPUBLISHED_DIRS for p in parts[:-1]
+        )
+
     def publishable(self, path: str) -> bool:
         """A note the blog can publish: under ``notes_root``, outside every folder the
         blog leaves out, with no hidden or relative parts."""

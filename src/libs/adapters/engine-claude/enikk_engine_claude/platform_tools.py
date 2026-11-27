@@ -161,9 +161,11 @@ WRITE_NOTE_DESCRIPTION: Final = (
     "'vault/', ending in .md, outside Private, private, templates and hidden folders; "
     "or a reference note under 'vault/Private/enikk/자료/' (any sub-folders; searched "
     "with recall and read with read_note, never handed to every task; always "
-    "'draft: true'). text: the whole file, frontmatter included; or file: a file in "
+    "'draft: true'); a role granted vault-private may also write the owner's notes in "
+    "Private and other folders the blog leaves out, except enikk's folder. text: the "
+    "whole file, frontmatter included; or file: a file in "
     "this thread's worktree or tmp holding it, for long notes. read_note first to keep "
-    "what should stay. A new note must have 'draft: true' in its frontmatter, and a "
+    "what should stay. A new public note must have 'draft: true' in its frontmatter, and a "
     "write cannot add or remove the draft flag of an existing note: publishing and "
     "unpublishing stay with the owner. Git keeps the history."
 )

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Final, Literal, Protocol, Self
 import yaml
 from pydantic import model_validator
 
+from enikk_contracts.agents import PlatformTool
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.memory import (
     MemoryMatch,
@@ -386,12 +387,18 @@ class MemoryService:
         return NoteContent(path=path, exists=True, text=text[:NOTE_CHARS])
 
     async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
-        """Create or replace a public note or one of enikk's reference notes. Refuses to
+        """Create or replace a public note, one of enikk's reference notes or, for a role
+        granted ``vault-private``, one of the owner's unpublished notes. Refuses to
         publish or unpublish a note."""
-        await self._origin(task_id)
+        task, _ = await self._origin(task_id)
         path = request.path
         reference = self.layout.is_reference(path)
-        if not reference and not self.layout.publishable(path):
+        private = self.layout.private(path)
+        if private and not self._grants(task, PlatformTool.VAULT_PRIVATE):
+            raise PermissionDeniedError(
+                f"role '{task.agent}' may not write the owner's unpublished notes"
+            )
+        if not (reference or private or self.layout.publishable(path)):
             raise PermissionDeniedError(
                 "notes go under the vault outside Private, templates and hidden folders, "
                 f"or under {self.layout.reference_dir}"
@@ -406,19 +413,23 @@ class MemoryService:
         try:
             writer = self._require_writer()
             current = await writer.current_sha(token, path, self._policy.branch)
-            if current is None and not draft:
+            if current is None and not draft and not private:
                 raise PermissionDeniedError(
                     "a new note must have draft: true in its frontmatter; the owner publishes it"
                 )
-            if current is not None and is_draft(await self._vault.text(token, current)) != draft:
+            if (
+                current is not None
+                and not private
+                and is_draft(await self._vault.text(token, current)) != draft
+            ):
                 raise PermissionDeniedError(
                     "a write cannot change the note's draft flag; the owner publishes "
                     "or unpublishes it"
                 )
             action: Literal["created", "updated"] = "created" if current is None else "updated"
-            prefix = "reference" if reference else "blog"
+            prefix = "reference" if reference else "notes" if private else "blog"
             message = f"{prefix}: {action} {PurePosixPath(path).stem}"
-            if draft:
+            if draft or private:
                 message += " [skip ci]"
             sha = await writer.put(token, path, request.text, message, self._policy.branch)
         finally:
@@ -428,7 +439,11 @@ class MemoryService:
             await uow.vault.upsert(note)
             await uow.commit()
         _log.info("public note %s: %s", action, path)
-        return NoteWritten(action=action, path=path, draft=draft)
+        return NoteWritten(action=action, path=path, draft=draft or private)
+
+    def _grants(self, task: Task, tool: PlatformTool) -> bool:
+        definition = None if self._agents is None else self._agents.get(task.agent)
+        return definition is not None and tool in definition.tools.platform
 
     async def _origin(self, task_id: uuid.UUID) -> tuple[Task, Session]:
         """The task and its session; refuse unless the work began with the owner in Slack."""

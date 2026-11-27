@@ -91,6 +91,7 @@ class NoteWritten(Contract):
     action: Literal["created", "updated"]
     path: NotePath
     draft: bool
+    """True when the blog does not publish the note: a draft or an unpublished folder."""
 
 
 class MemoryWritten(Contract):

@@ -493,3 +493,84 @@ async def test_reference_notes_are_written_as_drafts_and_never_handed_to_tasks(
             work.id,  # type: ignore[attr-defined]
             NoteWrite(lease_id=uuid.uuid4(), path="vault/Private/enikk/선호/x.md", text=DRAFT_POST),
         )
+
+
+# ------------------------------------------------- the owner's unpublished notes (ADR-0051)
+
+PRIVATE_NOTE = "vault/Private/일기/2026-11-28.md"
+
+
+def test_private_paths_are_the_owners_unpublished_notes() -> None:
+    assert LAYOUT.private(PRIVATE_NOTE)
+    assert LAYOUT.private("vault/Project/private/x.md")
+    assert LAYOUT.private("vault/templates/주간.md")
+    for path in (
+        "vault/Private/enikk/선호/x.md",
+        "vault/Private/enikk/자료/NIKKE/NIKKE.md",
+        "vault/Garden/x.md",
+        "vault/Private/../Garden/x.md",
+        "vault/.obsidian/x.md",
+        "vault/Private/.hidden/x.md",
+    ):
+        assert not LAYOUT.private(path), path
+
+
+def _granted_keeper(harness: Harness, vault: VaultApi, writer: FakeWriter) -> MemoryService:
+    from enikk_contracts.agents import PlatformTool, ToolPolicy
+    from enikk_core_domain.testing import StaticAgentCatalog, agent
+    from enikk_kernel.ids import RandomIdGenerator
+
+    keeper_agent = agent("assistant").model_copy(
+        update={"tools": ToolPolicy(platform=(PlatformTool.VAULT_PRIVATE,))}
+    )
+    return MemoryService(
+        uow=harness.db.unit_of_work,
+        app=harness.github,
+        vault=vault,
+        policy=MemoryPolicy(repository="vault.hyeongseok-kim"),
+        clock=harness.clock,
+        writer=writer,
+        ids=RandomIdGenerator(),
+        agents=StaticAgentCatalog(keeper_agent),
+    )
+
+
+async def test_a_granted_role_writes_the_owners_private_notes(
+    harness: Harness, vault: VaultApi, writer: FakeWriter
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteWrite
+    from enikk_core_domain.errors import PermissionDeniedError
+
+    keeper = _granted_keeper(harness, vault, writer)
+    _, work = await _owner_task(harness)
+    written = await keeper.write_note(
+        work.id,  # type: ignore[attr-defined]
+        NoteWrite(lease_id=uuid.uuid4(), path=PRIVATE_NOTE, text="# 일기\n\n오늘\n"),
+    )
+    assert (written.action, written.draft) == ("created", True)
+    assert writer.messages[-1].startswith("notes: created")
+    assert writer.messages[-1].endswith("[skip ci]")
+    with pytest.raises(PermissionDeniedError):
+        await keeper.write_note(
+            work.id,  # type: ignore[attr-defined]
+            NoteWrite(lease_id=uuid.uuid4(), path=PREF, text="---\ndraft: true\n---\nx"),
+        )
+
+
+async def test_other_roles_may_not_write_the_owners_private_notes(
+    harness: Harness, keeper: MemoryService, vault: VaultApi
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteWrite
+    from enikk_core_domain.errors import PermissionDeniedError
+
+    _, work = await _owner_task(harness)
+    with pytest.raises(PermissionDeniedError, match="unpublished"):
+        await keeper.write_note(
+            work.id,  # type: ignore[attr-defined]
+            NoteWrite(lease_id=uuid.uuid4(), path=PRIVATE_NOTE, text="# 일기\n"),
+        )
+    assert PRIVATE_NOTE not in vault.notes
