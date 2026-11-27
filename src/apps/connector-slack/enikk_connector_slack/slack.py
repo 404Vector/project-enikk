@@ -144,11 +144,24 @@ class SlackWebApi:
             _log.warning("could not attach %s: %r", filename, exc)
 
     async def upload_file(
-        self, channel: str, thread: str, filename: str, content: bytes, title: str
+        self,
+        channel: str,
+        thread: str,
+        filename: str,
+        content: bytes,
+        title: str,
+        persona: Persona | None = None,
     ) -> None:
+        username, icon = _shown_as(persona)
         try:
             await self._web.files_upload_v2(
-                channel=channel, thread_ts=thread, filename=filename, content=content, title=title
+                channel=channel,
+                thread_ts=thread,
+                filename=filename,
+                content=content,
+                title=title,
+                username=username,
+                icon_emoji=icon,
             )
         except SlackApiError as exc:
             raise _delivery_error("files.uploadV2", exc) from exc
@@ -295,7 +308,8 @@ def _error_code(exc: SlackApiError) -> str:
 
 
 def _shown_as(persona: Persona | None) -> tuple[str | None, str | None]:
-    """``username`` and ``icon_emoji`` for ``chat.postMessage`` (chat:write.customize)."""
+    """``username`` and ``icon_emoji`` for ``chat.postMessage`` and
+    ``files.completeUploadExternal`` (chat:write.customize)."""
     if persona is None:
         return None, None
     icon = None if persona.icon_emoji is None else f":{persona.icon_emoji}:"
