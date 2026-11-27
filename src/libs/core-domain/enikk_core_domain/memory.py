@@ -24,6 +24,9 @@ KIND_DIRS: Final = {
     "대화": NoteKind.CONVERSATION,
 }
 CONTEXT_KINDS: Final = frozenset({NoteKind.PREFERENCE, NoteKind.FACT, NoteKind.WORK})
+REFERENCE_FOLDER: Final = "자료"
+"""Enikk's reference notes, in any sub-folders: searched and read, never handed to every
+task (ADR-0050)."""
 UNPUBLISHED_DIRS: Final = frozenset({"Private", "private", "templates", ".obsidian"})
 """Folders the blog leaves out (the vault's Quartz ``ignorePatterns``), at any depth."""
 
@@ -64,6 +67,18 @@ class MemoryLayout(FrozenModel):
 
     def is_enikks(self, path: str) -> bool:
         return path.startswith(self.enikk_dir)
+
+    @property
+    def reference_dir(self) -> str:
+        return f"{self.enikk_dir}{REFERENCE_FOLDER}/"
+
+    def is_reference(self, path: str) -> bool:
+        """A reference note: a Markdown file under enikk's reference folder, with no
+        hidden or relative parts."""
+        if not path.startswith(self.reference_dir) or not path.endswith(".md"):
+            return False
+        parts = path.removeprefix(self.reference_dir).split("/")
+        return all(p and not p.startswith(".") for p in parts)
 
     def publishable(self, path: str) -> bool:
         """A note the blog can publish: under ``notes_root``, outside every folder the

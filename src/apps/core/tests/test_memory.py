@@ -439,3 +439,57 @@ def test_drafts_follow_the_blogs_rule() -> None:
     assert not is_draft(PUBLISHED)
     assert not is_draft("draft: true\n")
     assert not is_draft("---\ndraft: [\n---\nx")
+
+
+# ------------------------------------------------------- reference notes (ADR-0050)
+
+REFERENCE = "vault/Private/enikk/자료/NIKKE/엘리시온/Best Seller/레이블.md"
+
+
+def test_reference_paths_stay_in_enikks_reference_folder() -> None:
+    assert LAYOUT.is_reference(REFERENCE)
+    assert LAYOUT.is_reference("vault/Private/enikk/자료/NIKKE.md")
+    for path in (
+        "vault/Private/enikk/사실/x.md",
+        "vault/Private/enikk/자료/../선호/x.md",
+        "vault/Private/enikk/자료/.hidden/x.md",
+        "vault/Private/enikk/자료//x.md",
+        "vault/Private/enikk/자료/x.png",
+        "vault/Private/other/자료/x.md",
+    ):
+        assert not LAYOUT.is_reference(path), path
+    assert LAYOUT.kind_of(REFERENCE) is NoteKind.NOTE
+
+
+async def test_reference_notes_are_written_as_drafts_and_never_handed_to_tasks(
+    harness: Harness, keeper: MemoryService, vault: VaultApi, writer: FakeWriter
+) -> None:
+    import uuid
+
+    from enikk_contracts.memory import NoteWrite
+    from enikk_core_domain.errors import PermissionDeniedError
+
+    _, work = await _owner_task(harness)
+    written = await keeper.write_note(
+        work.id,  # type: ignore[attr-defined]
+        NoteWrite(lease_id=uuid.uuid4(), path=REFERENCE, text=DRAFT_POST),
+    )
+    assert (written.action, written.draft) == ("created", True)
+    assert writer.messages[-1].startswith("reference: created")
+    assert writer.messages[-1].endswith("[skip ci]")
+    assert await keeper.for_task() == ()
+    async with harness.db.unit_of_work() as uow:
+        [found] = await uow.vault.search(["본문"], 5)
+    assert found.path == REFERENCE
+    with pytest.raises(PermissionDeniedError, match="draft"):
+        await keeper.write_note(
+            work.id,  # type: ignore[attr-defined]
+            NoteWrite(
+                lease_id=uuid.uuid4(), path=REFERENCE.replace("레이블", "팬텀"), text="# x\n"
+            ),
+        )
+    with pytest.raises(PermissionDeniedError):
+        await keeper.write_note(
+            work.id,  # type: ignore[attr-defined]
+            NoteWrite(lease_id=uuid.uuid4(), path="vault/Private/enikk/선호/x.md", text=DRAFT_POST),
+        )

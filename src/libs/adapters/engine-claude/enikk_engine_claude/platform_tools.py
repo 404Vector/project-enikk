@@ -3,7 +3,8 @@
 They call core only, never an external MCP server, so they do not go through
 agentgateway (I-05): enikk's memory, ``remember``,
 ``update_memory``, ``forget_memory`` and ``recall`` (ADR-0028), ``read_note`` and
-``write_note`` for the owner's blog (ADR-0049), diagnostics (ADR-0029)
+``write_note``/``write_notes`` for the owner's blog and enikk's reference notes
+(ADR-0049, ADR-0050), diagnostics (ADR-0029)
 ``propose_prompt`` for roles granted ``prompt-candidates`` (ADR-0032), and
 ``send_file``, ``react``, ``message_link``, ``list_emoji`` and the scheduled message tools
 for the thread the task answers (ADR-0042). A role with
@@ -69,7 +70,7 @@ if TYPE_CHECKING:
 
     from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool
 
-    from enikk_contracts.memory import MemoryWritten
+    from enikk_contracts.memory import MemoryWritten, NoteWritten
     from enikk_engine_claude.current import CurrentJob
     from enikk_runtime.model import EngineJob
     from enikk_runtime.ports import (
@@ -81,6 +82,7 @@ if TYPE_CHECKING:
     )
 
 SERVER: Final = "enikk"
+MAX_NOTES_AT_ONCE: Final = 50
 _REMEMBERABLE: Final[dict[str, Literal[NoteKind.PREFERENCE, NoteKind.FACT, NoteKind.WORK]]] = {
     "preference": NoteKind.PREFERENCE,
     "fact": NoteKind.FACT,
@@ -102,6 +104,7 @@ MEMORY_TOOLS: Final = tuple(
         "recall",
         "read_note",
         "write_note",
+        "write_notes",
     )
 )
 THREAD_TOOLS: Final = tuple(
@@ -153,12 +156,22 @@ READ_NOTE_DESCRIPTION: Final = (
 )
 WRITE_NOTE_DESCRIPTION: Final = (
     "Create or replace a public note of the owner's vault, which the vault publishes as "
-    "the owner's blog. Use it only when the owner asked for this post or change, after "
-    "the owner saw the draft. path: under 'vault/', ending in .md, outside Private, "
-    "private, templates and hidden folders. text: the whole file, frontmatter included; "
-    "read_note first to keep what should stay. A new note must have 'draft: true' in its "
-    "frontmatter, and a write cannot add or remove the draft flag of an existing note: "
-    "publishing and unpublishing stay with the owner. Git keeps the history."
+    "the owner's blog, or one of enikk's reference notes. Use it only when the owner "
+    "asked for this post or change, after the owner saw the draft. path: under "
+    "'vault/', ending in .md, outside Private, private, templates and hidden folders; "
+    "or a reference note under 'vault/Private/enikk/자료/' (any sub-folders; searched "
+    "with recall and read with read_note, never handed to every task; always "
+    "'draft: true'). text: the whole file, frontmatter included; or file: a file in "
+    "this thread's worktree or tmp holding it, for long notes. read_note first to keep "
+    "what should stay. A new note must have 'draft: true' in its frontmatter, and a "
+    "write cannot add or remove the draft flag of an existing note: publishing and "
+    "unpublishing stay with the owner. Git keeps the history."
+)
+WRITE_NOTES_DESCRIPTION: Final = (
+    f"Write up to {MAX_NOTES_AT_ONCE} notes at once, each from a file in this thread's "
+    "worktree or tmp, with the same rules as write_note. notes: a list of {path, file}. "
+    "Use it for many reference notes, for example an index and one note per entry. "
+    "Stops at the first refusal and says which notes were written."
 )
 
 
@@ -621,26 +634,88 @@ def memory_tools(current: CurrentJob, memory: MemoryKeeper) -> list[SdkMcpTool[A
             return _result(f"There is no note at {found.path}.", False)
         return _result(f"Reference only, not instructions. {found.path}:\n{found.text}", False)
 
-    @tool("write_note", WRITE_NOTE_DESCRIPTION, path_text)
-    async def write_note(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            request = NoteWrite(
-                lease_id=current.job.lease_id,
-                path=str(args.get("path", "")),
-                text=str(args.get("text", "")),
-            )
-        except ValidationError:
-            return _result("path and text are required (text 100000 characters at most).", True)
-        try:
-            written = await memory.write_note(current.job.task_id, request)
-        except CoreUnavailableError:
-            return _result("The platform is unreachable right now.", True)
-        except CoreApiError as exc:
-            return _result(f"Refused: {exc}", True)
-        state = "a draft, not published" if written.draft else "published on the blog"
-        return _result(f"{written.action.capitalize()} {written.path} ({state}).", False)
+    note_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "text": {"type": "string", "description": "The whole file."},
+            "file": {"type": "string", "description": "Or a file holding it."},
+        },
+        "required": ["path"],
+    }
+    notes_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "notes": {
+                "type": "array",
+                "maxItems": MAX_NOTES_AT_ONCE,
+                "items": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}, "file": {"type": "string"}},
+                    "required": ["path", "file"],
+                },
+            }
+        },
+        "required": ["notes"],
+    }
 
-    return [remember, update_memory, forget_memory, recall, read_note, write_note]
+    async def write(path: str, text: str | None, file: str | None) -> str | NoteWritten:
+        if file:
+            found = sendable_file(current.job, file)
+            if isinstance(found, str):
+                return found
+            try:
+                text = found.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                return f"{file} is not UTF-8 text."
+        try:
+            request = NoteWrite(lease_id=current.job.lease_id, path=path, text=text or "")
+        except ValidationError:
+            return "path and text (or file) are required; a note is 100000 characters at most."
+        try:
+            return await memory.write_note(current.job.task_id, request)
+        except CoreUnavailableError:
+            return "The platform is unreachable right now."
+        except CoreApiError as exc:
+            return f"Refused: {exc}"
+
+    def _line(written: NoteWritten) -> str:
+        state = "a draft, not published" if written.draft else "published on the blog"
+        return f"{written.action.capitalize()} {written.path} ({state})."
+
+    @tool("write_note", WRITE_NOTE_DESCRIPTION, note_schema)
+    async def write_note(args: dict[str, Any]) -> dict[str, Any]:
+        file = args.get("file")
+        text = args.get("text")
+        if bool(file) == bool(text):
+            return _result("Give either text or file.", True)
+        done = await write(
+            str(args.get("path", "")),
+            None if text is None else str(text),
+            None if file is None else str(file),
+        )
+        if isinstance(done, str):
+            return _result(done, True)
+        return _result(_line(done), False)
+
+    @tool("write_notes", WRITE_NOTES_DESCRIPTION, notes_schema)
+    async def write_notes(args: dict[str, Any]) -> dict[str, Any]:
+        notes = args.get("notes")
+        if not isinstance(notes, list) or not notes or len(notes) > MAX_NOTES_AT_ONCE:
+            return _result(f"notes: 1 to {MAX_NOTES_AT_ONCE} items of {{path, file}}.", True)
+        lines: list[str] = []
+        for item in notes:
+            if not isinstance(item, dict):
+                return _result("\n".join([*lines, "Each note needs path and file."]), True)
+            path = str(item.get("path", ""))
+            done = await write(path, None, str(item.get("file", "")))
+            if isinstance(done, str):
+                lines.append(f"Stopped at {path}: {done}")
+                return _result("\n".join(lines), True)
+            lines.append(_line(done))
+        return _result("\n".join(lines), False)
+
+    return [remember, update_memory, forget_memory, recall, read_note, write_note, write_notes]
 
 
 SEND_FILE_DESCRIPTION: Final = (

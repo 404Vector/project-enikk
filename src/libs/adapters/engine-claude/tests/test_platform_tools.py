@@ -283,3 +283,71 @@ async def test_write_note_reports_refusals() -> None:
     assert "draft: true" in result["content"][0]["text"]
     empty = await tools["write_note"].handler({"path": "vault/Garden/x.md", "text": ""})
     assert empty["is_error"]
+
+
+def _job_with_tmp(tmp_path: Path) -> EngineJob:
+    from enikk_runtime.model import SessionWorkspace
+
+    session = "00000000-0000-0000-0000-000000000001"
+    workspace = SessionWorkspace(
+        repository="404Vector/project-enikk",
+        repo_dir=tmp_path / "repo.git",
+        snapshot_dir=None,
+        commit=None,
+        fetched_at=None,
+        fresh=True,
+        worktree_dir=None,
+        branch=None,
+        tmp_dir=tmp_path / "tmp" / session,
+    )
+    workspace.tmp_dir.mkdir(parents=True)
+    return _job().model_copy(update={"workspace": workspace})
+
+
+async def test_write_note_reads_a_file_from_the_thread(tmp_path: Path) -> None:
+    job = _job_with_tmp(tmp_path)
+    assert job.workspace is not None
+    note = job.workspace.tmp_dir / "index.md"
+    note.write_text("---\ndraft: true\n---\n인덱스", encoding="utf-8")
+    notes = _Notes()
+    tools = _note_tools(notes, job)
+    done = await tools["write_note"].handler({"path": "vault/x.md", "file": str(note)})
+    assert not done["is_error"]
+    assert notes.writes[0].text == "---\ndraft: true\n---\n인덱스"
+    outside = tmp_path / "outside.md"
+    outside.write_text("x", encoding="utf-8")
+    refused = await tools["write_note"].handler({"path": "vault/x.md", "file": str(outside)})
+    assert refused["is_error"]
+    both = await tools["write_note"].handler({"path": "vault/x.md", "file": str(note), "text": "y"})
+    assert both["is_error"]
+
+
+async def test_write_notes_writes_each_and_stops_at_a_refusal(tmp_path: Path) -> None:
+    job = _job_with_tmp(tmp_path)
+    assert job.workspace is not None
+    files = []
+    for name in ("a", "b"):
+        f = job.workspace.tmp_dir / f"{name}.md"
+        f.write_text(name, encoding="utf-8")
+        files.append(f)
+    notes = _Notes()
+    tools = _note_tools(notes, job)
+    done = await tools["write_notes"].handler(
+        {"notes": [{"path": f"vault/{f.stem}.md", "file": str(f)} for f in files]}
+    )
+    assert not done["is_error"]
+    assert [w.text for w in notes.writes] == ["a", "b"]
+    stopped = await tools["write_notes"].handler(
+        {
+            "notes": [
+                {"path": "vault/a.md", "file": str(files[0])},
+                {"path": "vault/c.md", "file": str(tmp_path / "missing.md")},
+                {"path": "vault/b.md", "file": str(files[1])},
+            ]
+        }
+    )
+    assert stopped["is_error"]
+    assert "Stopped at vault/c.md" in stopped["content"][0]["text"]
+    assert len(notes.writes) == 3
+    too_many = await tools["write_notes"].handler({"notes": []})
+    assert too_many["is_error"]
