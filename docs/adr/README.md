@@ -34,7 +34,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0025](0025-thread-follow-up-on-agent-prs.md) | 위임한 스레드에서 PR 을 끝까지 따라가고, 같은 PR 을 이어서 고친다 | 승인 (§2 스레드 알림 방식은 ADR-0036 으로 부분 대체) | 2026-11-22 |
 | [0026](0026-slack-notice-destinations.md) | Slack 알림을 어디에 올리는가 — 배포 알림은 #release, 개발 요청은 상태와 상세를 나눈다 | 승인 (승인 요청 위치와 §4 는 ADR-0036 으로 부분 대체) | 2026-11-22 |
 | [0027](0027-thread-context-for-the-thread-agent.md) | 스레드의 역할은 그 스레드에 올라온 다른 글도 본다 | 승인 | 2026-11-22 |
-| [0028](0028-memory-in-the-owners-vault.md) | 에닉의 기억은 소유자의 Obsidian 볼트에 둔다 | 승인 (§5 는 ADR-0035 로 부분 대체) | 2026-11-22 |
+| [0028](0028-memory-in-the-owners-vault.md) | 에닉의 기억은 소유자의 Obsidian 볼트에 둔다 | 승인 (§5 는 ADR-0035, §2 쓰기 범위는 ADR-0049 로 부분 대체) | 2026-11-22 |
 | [0029](0029-read-only-diagnostics.md) | 에닉이 자기 상태를 읽어 진단한다 (읽기 전용) | 승인 (셸의 클러스터 읽기는 ADR-0041 3c 로 추가) | 2026-11-23 |
 | [0030](0030-tests-without-docker-in-the-dev-pod.md) | 개발 Pod 에서 Docker 없이 영속성 통합 테스트를 돌린다 | 승인 | 2026-11-22 |
 | [0031](0031-one-agent-many-roles.md) | 에이전트는 에닉 하나이고, `agents/*.yaml` 은 에닉의 역할이다 | 승인 → 결정 1 은 ADR-0037 5b 로 대체(`agents/*.yaml` 은 에이전트의 정의) | 2026-11-23 |
@@ -55,6 +55,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0046](0046-image-daily-budget-as-a-tool-setting.md) | 이미지 하루 상한을 추정 비용으로 하고, 값은 Langfuse 도구 설정에 둔다 | 승인 | 2026-11-26 |
 | [0047](0047-delegation-wakes-the-thread.md) | 에닉이 다른 에이전트에 일을 맡기고, 결과로 스레드가 깨어난다 | 승인 | 2026-11-26 |
 | [0048](0048-faster-deploys.md) | 배포 시간을 줄인다 | 승인 (§1 이미지 레이어, §2 arm64 먼저 게시 구현) | 2026-11-26 |
+| [0049](0049-agents-manage-the-owners-blog.md) | 에닉이 소유자의 블로그(볼트의 공개 노트)를 관리한다 | 승인 | 2026-11-27 |
 
 ## 상태 정의
 
