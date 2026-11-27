@@ -64,7 +64,7 @@ class OutboxRelay:
         self._running_emoji = running_emoji
         self._owner = owner
         self._personas = {c.channel: c.persona for c in channels}
-        """Agent channels' names and icons for the replies and [취소] buttons posted there
+        """Agent channels' names and icons for the replies, files and [취소] buttons posted there
         (ADR-0045)."""
         self._slack = slack
         self._marker = Marker(slack, Reactions()) if marker is None else marker
@@ -161,6 +161,7 @@ class OutboxRelay:
     async def _file(self, message: OutboundMessage) -> None:
         """Attach the message's file in its thread (ADR-0042); say so when Slack refuses it."""
         conversation = message.conversation
+        persona = self._personas.get(conversation.channel)
         try:
             file = await self._core.outbox_file(message.message_id)
         except CoreNotFoundError:
@@ -173,13 +174,17 @@ class OutboxRelay:
                 file.filename,
                 base64.b64decode(file.content_base64),
                 message.text,
+                persona,
             )
         except SlackDeliveryError as exc:
             if exc.transient:
                 raise
             _log.error("dropped file %s for task %s: %s", file.filename, message.task_id, exc)
             await self._slack.post_reply(
-                conversation.channel, conversation.thread, FILE_FAILED.format(name=file.filename)
+                conversation.channel,
+                conversation.thread,
+                FILE_FAILED.format(name=file.filename),
+                persona,
             )
 
     async def _started(self, message: OutboundMessage) -> None:

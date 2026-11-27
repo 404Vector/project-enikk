@@ -126,9 +126,16 @@ class SlackApi(Protocol):
         ...
 
     async def upload_file(
-        self, channel: str, thread: str, filename: str, content: bytes, title: str
+        self,
+        channel: str,
+        thread: str,
+        filename: str,
+        content: bytes,
+        title: str,
+        persona: Persona | None = None,
     ) -> None:
-        """Attach a file in the thread (ADR-0042). Raises ``SlackDeliveryError``."""
+        """Attach a file in the thread (ADR-0042), under ``persona``'s name and icon if
+        given (ADR-0045). Raises ``SlackDeliveryError``."""
         ...
 
     async def update_message(

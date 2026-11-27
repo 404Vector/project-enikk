@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import uuid
 from pathlib import Path
 
@@ -12,12 +13,13 @@ from pydantic import ValidationError
 from enikk_connector_slack import blocks
 from enikk_connector_slack.config import AgentChannel, Persona, Routes, SlackConfig
 from enikk_connector_slack.events import SlackMessage
-from enikk_connector_slack.outbound import OutboxRelay, RelayPolicy
+from enikk_connector_slack.outbound import FILE_FAILED, OutboxRelay, RelayPolicy
+from enikk_connector_slack.ports import SlackDeliveryError
 from enikk_connector_slack.routing import Router
 from enikk_connector_slack.slack import SlackWebApi
 from enikk_connector_slack.testing import BOT, OWNER, FakeCore, FakeSlack
 from enikk_contracts.common import ConnectorKind, ConversationRef
-from enikk_contracts.outbox import OutboundKind, OutboundMessage
+from enikk_contracts.outbox import OutboundKind, OutboundMessage, OutboxFile
 
 REPO = Path(__file__).resolve().parents[4]
 RITA = Persona(name="리타", icon_emoji="e-rita")
@@ -128,6 +130,38 @@ async def test_the_cancel_button_in_an_agent_channel_shows_its_persona() -> None
     assert slack.personas == [("C0RITA", RITA)]
 
 
+def _with_file(core: FakeCore, message: OutboundMessage) -> None:
+    core.files[message.message_id] = OutboxFile(
+        filename="shot.png", content_base64=base64.b64encode(b"png").decode()
+    )
+
+
+@pytest.mark.anyio
+async def test_files_in_an_agent_channel_show_its_persona() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    rita, enikk = _outbound("C0RITA", OutboundKind.FILE), _outbound("D1", OutboundKind.FILE)
+    for message in (rita, enikk):
+        _with_file(core, message)
+    core.pending = [rita, enikk]
+    relay = OutboxRelay(core, slack, POLICY, channels=CONFIG.agent_channels)
+    assert await relay.relay_once() == 2
+    assert [f[0] for f in slack.files] == ["C0RITA", "D1"]
+    assert slack.personas == [("C0RITA", RITA)]
+
+
+@pytest.mark.anyio
+async def test_a_refused_file_in_an_agent_channel_is_reported_under_its_persona() -> None:
+    core, slack = FakeCore(), FakeSlack()
+    message = _outbound("C0RITA", OutboundKind.FILE)
+    _with_file(core, message)
+    core.pending = [message]
+    slack.fail_files.append(SlackDeliveryError("files.uploadV2: invalid", transient=False))
+    relay = OutboxRelay(core, slack, POLICY, channels=CONFIG.agent_channels)
+    await relay.relay_once()
+    assert slack.posts == [("C0RITA", "5.0", FILE_FAILED.format(name="shot.png"))]
+    assert slack.personas == [("C0RITA", RITA), ("C0RITA", RITA)]
+
+
 class _Web:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -135,6 +169,10 @@ class _Web:
     async def chat_postMessage(self, **kwargs: object) -> dict[str, object]:  # noqa: N802
         self.calls.append(kwargs)
         return {"ok": True, "channel": "C0RITA", "ts": "6.0"}
+
+    async def files_upload_v2(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(kwargs)
+        return {"ok": True}
 
 
 @pytest.mark.anyio
@@ -150,3 +188,15 @@ async def test_persona_sets_the_name_and_icon_of_the_post() -> None:
     assert (web.calls[2]["username"], web.calls[2]["icon_emoji"]) == (None, None)
     await api.post_message("C0RITA", blocks.running("t-1"), thread="5.0", persona=RITA)
     assert (web.calls[3]["username"], web.calls[3]["icon_emoji"]) == ("리타", ":e-rita:")
+
+
+@pytest.mark.anyio
+async def test_persona_sets_the_name_and_icon_of_a_file() -> None:
+    web = _Web()
+    api = SlackWebApi(web)  # type: ignore[arg-type]
+    await api.upload_file("C0RITA", "5.0", "shot.png", b"png", "shot", RITA)
+    await api.upload_file("C0RITA", "5.0", "shot.png", b"png", "shot", Persona(name="리타"))
+    await api.upload_file("D1", "5.0", "shot.png", b"png", "shot")
+    assert (web.calls[0]["username"], web.calls[0]["icon_emoji"]) == ("리타", ":e-rita:")
+    assert (web.calls[1]["username"], web.calls[1]["icon_emoji"]) == ("리타", None)
+    assert (web.calls[2]["username"], web.calls[2]["icon_emoji"]) == (None, None)

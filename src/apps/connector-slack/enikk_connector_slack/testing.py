@@ -223,8 +223,16 @@ class FakeSlack:
         self.uploads.append((channel, thread, filename, content))
 
     async def upload_file(
-        self, channel: str, thread: str, filename: str, content: bytes, title: str
+        self,
+        channel: str,
+        thread: str,
+        filename: str,
+        content: bytes,
+        title: str,
+        persona: Persona | None = None,
     ) -> None:
+        if persona is not None:
+            self.personas.append((channel, persona))
         if self.fail_files:
             raise self.fail_files.pop(0)
         self.files.append((channel, thread, filename, content, title))
