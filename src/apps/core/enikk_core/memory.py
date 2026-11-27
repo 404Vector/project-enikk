@@ -12,7 +12,8 @@ the thread what it did.
 Agents also read any note of the vault and write the owner's public notes, the
 blog (ADR-0049): only from work the owner started, outside the folders the blog
 leaves out. A new note is always a draft, and a write never publishes or
-unpublishes a note; that stays with the owner.
+unpublishes a note; that stays with the owner. The same tool writes enikk's
+reference notes under its folder's ``자료/`` (ADR-0050), always as drafts.
 """
 
 from __future__ import annotations
@@ -385,15 +386,22 @@ class MemoryService:
         return NoteContent(path=path, exists=True, text=text[:NOTE_CHARS])
 
     async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
-        """Create or replace a public note. Refuses to publish or unpublish one."""
+        """Create or replace a public note or one of enikk's reference notes. Refuses to
+        publish or unpublish a note."""
         await self._origin(task_id)
         path = request.path
-        if not self.layout.publishable(path):
+        reference = self.layout.is_reference(path)
+        if not reference and not self.layout.publishable(path):
             raise PermissionDeniedError(
-                "public notes go under the vault outside Private, templates and hidden folders"
+                "notes go under the vault outside Private, templates and hidden folders, "
+                f"or under {self.layout.reference_dir}"
             )
         _refuse_secrets(request.text)
         draft = is_draft(request.text)
+        if reference and not draft:
+            raise PermissionDeniedError(
+                "a reference note under enikk's folder must have draft: true in its frontmatter"
+            )
         token = await self._token()
         try:
             writer = self._require_writer()
@@ -408,7 +416,8 @@ class MemoryService:
                     "or unpublishes it"
                 )
             action: Literal["created", "updated"] = "created" if current is None else "updated"
-            message = f"blog: {action} {PurePosixPath(path).stem}"
+            prefix = "reference" if reference else "blog"
+            message = f"{prefix}: {action} {PurePosixPath(path).stem}"
             if draft:
                 message += " [skip ci]"
             sha = await writer.put(token, path, request.text, message, self._policy.branch)
