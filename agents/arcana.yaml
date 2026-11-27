@@ -1,0 +1,24 @@
+name: arcana
+description: Arcana, the owner's blog and notes agent in her own Slack channel (the Obsidian vault)
+engine: claude
+# Arcana's own prompt (character and rules). The connector routes her channel to her
+# (config/slack.yaml agent_channels, ADR-0045, ADR-0051).
+prompt:
+  name: arcana
+  label: production
+tools:
+  # The vault tools (recall, read_note, write_note, write_notes) come with the platform
+  # defaults. No image, Unity or scheduler tools.
+  # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
+  # web returns is untrusted input. No browser automation.
+  builtin:
+    [Read, Write, Edit, NotebookEdit, Glob, Grep, Bash, Monitor, TaskStop,
+     WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
+  # The owner's unpublished notes (Private/ and the like), outside enikk's folder
+  # (ADR-0051). No prompt candidates and no GitHub token: changes to enikk itself go
+  # through enikk.
+  platform: [vault-private]
+# Room for long writing and editing work in one thread.
+limits:
+  max_turns: 100
+  timeout_seconds: 3600

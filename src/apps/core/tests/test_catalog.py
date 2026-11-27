@@ -105,11 +105,23 @@ def test_the_summarizer_has_no_tools() -> None:
         assert tools.platform_defaults is False, name
 
 
-def test_enikk_hands_work_to_rita() -> None:
+def test_enikk_hands_work_to_rita_and_arcana() -> None:
     catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
     enikk = catalog.get("enikk")
     assert enikk is not None
-    assert enikk.delegates == ("rita",)
+    assert enikk.delegates == ("rita", "arcana")
+
+
+def test_only_arcana_writes_the_owners_unpublished_notes() -> None:
+    from enikk_contracts.agents import PlatformTool
+
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    granted = {
+        name
+        for name in catalog.names()
+        if PlatformTool.VAULT_PRIVATE in catalog.get(name).tools.platform  # type: ignore[union-attr]
+    }
+    assert granted == {"arcana"}
 
 
 @pytest.mark.parametrize(

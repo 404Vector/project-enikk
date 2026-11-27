@@ -49,3 +49,8 @@ agent_channels:
     persona:
       name: 리타
       icon_emoji: rita
+  - channel: C0CMDCK8UNR
+    agent: arcana
+    persona:
+      name: 아르카나
+      icon_emoji: arcana
