@@ -4,9 +4,10 @@
 # the token (mcpAuthorization; others are also left out of tools/list), and hand the
 # session (ADR-0041 §3) and the issuing task and lease from the token to the server
 # (transformations; any such headers from the caller are replaced). The token itself is
-# not forwarded, except to the Unity relay, which checks it again (ADR-0044 §5). The
-# require rule is the gateway's ceiling of tools for the server. After a change, bump
-# enikk.dev/revision in deployment.yaml so the gateway restarts with it.
+# not forwarded, except to the Unity relay and the Drive server, which check it again
+# (ADR-0044 §5, ADR-0053 §4). The require rule is the gateway's ceiling of tools for
+# the server. After a change, bump enikk.dev/revision in deployment.yaml so the gateway
+# restarts with it.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -111,3 +112,33 @@ data:
                       targets:
                         - name: unity
                           mcp: { host: "http://enikk-unity.enikk.svc/mcp" }
+              - name: drive
+                matches:
+                  - path: { pathPrefix: /mcp/drive }
+                policies:
+                  mcpAuthentication:
+                    issuer: "enikk-core"
+                    audiences: ["enikk-agentgateway"]
+                    jwks: { url: "http://enikk-core.enikk.svc/v1/mcp/jwks" }
+                    mode: strict
+                    resourceMetadata: {}
+                  mcpAuthorization:
+                    # Ceiling for this server: the three exchange tools (ADR-0053 §2).
+                    rules:
+                      - require: 'mcp.tool.name in ["drive_put", "drive_get", "drive_list"]'
+                      - allow: '("drive:" + mcp.tool.name) in jwt.tools'
+                  transformations:
+                    request:
+                      set:
+                        x-enikk-session-id: jwt.session
+                        x-enikk-task-id: jwt.task
+                        x-enikk-lease-id: jwt.lease
+                        # The server checks the token itself and takes the session from
+                        # it; its Service is reachable without the gateway (ADR-0053 §4).
+                        x-enikk-mcp-token: jwt.rawToken.unredacted()
+                backends:
+                  - mcp:
+                      statefulMode: stateless
+                      targets:
+                        - name: drive
+                          mcp: { host: "http://enikk-drive.enikk.svc/mcp" }

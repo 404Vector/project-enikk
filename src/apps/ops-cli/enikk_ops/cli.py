@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import sys
+import webbrowser
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 from pydantic import SecretStr
 
-from enikk_contracts.credentials import CredentialName  # noqa: TC001 - typer reads annotations
+from enikk_contracts.credentials import CredentialName
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.logging import configure_logging
 from enikk_ops.container import Container
+from enikk_ops.drive_auth import DriveAuth
 
 app = typer.Typer(no_args_is_help=True, help="enikk ops: cluster bootstrap and local tools.")
 argocd_app = typer.Typer(no_args_is_help=True, help="Argo CD (GitOps controller).")
@@ -125,6 +128,20 @@ def secret_sync(ctx: typer.Context) -> None:
     """Write every local credential into core's Secret; names not in the file are removed."""
     synced = _container(ctx).credential_sync.run()
     typer.echo(f"synced {len(synced)} credentials: {', '.join(synced)}")
+
+
+@app.command("drive-auth")
+def drive_auth(ctx: typer.Context) -> None:
+    """Allow the Drive server into your Google Drive (ADR-0053): opens the browser for
+    consent and saves the refresh token. Set drive.oauth-client-id and
+    drive.oauth-client-secret first. The token is never printed."""
+    file = _container(ctx).secret_file
+    with httpx.Client(timeout=30.0) as http:
+        DriveAuth(file, http, open_browser=webbrowser.open, say=typer.echo).run()
+    typer.echo(
+        f"{CredentialName.DRIVE_OAUTH_REFRESH_TOKEN} saved to {file.path}. "
+        "Apply it with: enikk-ops secret sync"
+    )
 
 
 @smoke_app.command("core")

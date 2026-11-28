@@ -1,0 +1,5 @@
+apiVersion: v2
+name: enikk-drive
+description: File exchange through a Google Drive folder as MCP tools (ADR-0053)
+type: application
+version: 0.1.0

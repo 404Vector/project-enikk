@@ -14,6 +14,7 @@ members = [
     "enikk-core",
     "enikk-core-client",
     "enikk-core-domain",
+    "enikk-drive",
     "enikk-engine-claude",
     "enikk-github",
     "enikk-imagegen",
@@ -760,6 +761,33 @@ requires-dist = [
 ]
 
 [[package]]
+name = "enikk-drive"
+version = "0.1.0"
+source = { editable = "src/apps/drive" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "enikk-contracts" },
+    { name = "enikk-core-client" },
+    { name = "enikk-kernel" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
+    { name = "enikk-contracts", editable = "src/libs/contracts" },
+    { name = "enikk-core-client", editable = "src/libs/core-client" },
+    { name = "enikk-kernel", editable = "src/libs/kernel" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "mcp", specifier = ">=2.3" },
+    { name = "starlette", specifier = ">=0.40" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[[package]]
 name = "enikk-engine-claude"
 version = "0.1.0"
 source = { editable = "src/libs/adapters/engine-claude" }
@@ -915,6 +943,7 @@ dependencies = [
     { name = "enikk-core-client" },
     { name = "enikk-kernel" },
     { name = "enikk-platform" },
+    { name = "httpx" },
     { name = "pyyaml" },
     { name = "typer" },
 ]
@@ -925,6 +954,7 @@ requires-dist = [
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-platform", editable = "src/libs/adapters/platform" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "typer", specifier = ">=0.15" },
 ]

@@ -63,3 +63,11 @@ spec:
             helm:
               name: image.repository
               tag: image.tag
+    - namePattern: enikk-drive
+      images:
+        - alias: drive
+          imageName: ghcr.io/404vector/enikk-drive
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag

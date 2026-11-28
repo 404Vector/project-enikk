@@ -59,6 +59,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0050](0050-reference-notes-under-enikks-folder.md) | 에닉의 폴더 아래에 '자료' 층을 둔다 | 승인 | 2026-11-28 |
 | [0051](0051-arcana-the-blog-agent.md) | 블로그와 노트를 맡는 에이전트 아르카나 | 승인 (§1~§4 구현) | 2026-11-28 |
 | [0052](0052-agents-schedule-themselves.md) | 에이전트는 자기 스케줄을 만든다 | 승인 (구현) | 2026-11-28 |
+| [0053](0053-drive-file-exchange-tool-server.md) | Google Drive 폴더로 파일을 주고받는 도구 서버 | 승인 | 2026-11-28 |
 
 ## 상태 정의
 
