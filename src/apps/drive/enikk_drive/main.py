@@ -12,6 +12,7 @@ import httpx
 import uvicorn
 
 from enikk_contracts.credentials import CredentialName, CredentialRequest
+from enikk_contracts.routes import MCP_JWKS
 from enikk_core_client import CoreClient, FileTokenSource
 from enikk_core_client.credentials import wait_for_credentials
 from enikk_drive.app import create_app
@@ -19,6 +20,7 @@ from enikk_drive.drive_api import DriveApi, OAuthToken
 from enikk_drive.files import Workspace
 from enikk_drive.service import ExchangeService
 from enikk_drive.settings import DriveSettings
+from enikk_drive.tokens import TokenVerifier
 from enikk_drive.tools import SERVER_NAME
 from enikk_kernel.errors import EnikkError
 from enikk_kernel.logging import configure_logging
@@ -61,7 +63,8 @@ def main() -> None:
             root_folder=settings.root_folder,
             max_bytes=settings.max_file_mb * 1024 * 1024,
         )
-        app = create_app(service, allowed_hosts=settings.allowed_hosts)
+        verifier = TokenVerifier(http, settings.core_url.rstrip("/") + MCP_JWKS)
+        app = create_app(service, verifier, allowed_hosts=settings.allowed_hosts)
         _log.info(
             "starting %s port=%d root_folder=%s max_file_mb=%d",
             SERVER_NAME,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import itertools
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -8,9 +10,13 @@ from typing import TYPE_CHECKING
 import httpx
 import pydantic_core
 import pytest
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from pydantic import SecretStr
 from starlette.testclient import TestClient
 
+from enikk_contracts.mcp import TOKEN_AUDIENCE, TOKEN_ISSUER
 from enikk_drive import drive_api
 from enikk_drive.app import HEALTH_PATH, MCP_PATH, create_app
 from enikk_drive.drive_api import (
@@ -25,7 +31,7 @@ from enikk_drive.drive_api import (
 from enikk_drive.files import LocalFileError, Workspace
 from enikk_drive.paths import DrivePathError, parse
 from enikk_drive.service import MY_DRIVE, ExchangeError, ExchangeService
-from enikk_drive.tools import SESSION_HEADER
+from enikk_drive.tokens import TOKEN_HEADER, TokenRejectedError, TokenVerifier
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -36,7 +42,11 @@ pytestmark = pytest.mark.anyio
 SESSION = uuid.uuid4()
 OTHER = uuid.uuid4()
 HOST = "testserver"
-MCP_HEADERS = {"accept": "application/json, text/event-stream", SESSION_HEADER: str(SESSION)}
+ACCEPT = {"accept": "application/json, text/event-stream"}
+JWKS_URL = "http://core.test/v1/mcp/jwks"
+KID = "test-key"
+SIGNING_KEY = ec.generate_private_key(ec.SECP256R1())
+ALL_TOOLS = ["drive:drive_put", "drive:drive_get", "drive:drive_list"]
 MB = 1024 * 1024
 WHEN = datetime(2026, 11, 28, 5, 0, tzinfo=UTC)
 
@@ -431,19 +441,91 @@ async def test_download_streams_to_the_file_and_stops_at_the_limit(tmp_path: Pat
     assert not (tmp_path / ".small.bin.part").exists()
 
 
+# ---------------------------------------------------------------- task tokens
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _token(
+    tools: list[str] = ALL_TOOLS,
+    *,
+    session: str = str(SESSION),
+    key: ec.EllipticCurvePrivateKey = SIGNING_KEY,
+    exp_in: int = 600,
+) -> str:
+    header = _b64(pydantic_core.to_json({"alg": "ES256", "typ": "JWT", "kid": KID}))
+    claims = {
+        "iss": TOKEN_ISSUER,
+        "aud": TOKEN_AUDIENCE,
+        "sub": "task:t",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + exp_in,
+        "task": "t",
+        "lease": "l",
+        "agent": "rita",
+        "session": session,
+        "tools": tools,
+    }
+    signing_input = f"{header}.{_b64(pydantic_core.to_json(claims))}"
+    r, s = decode_dss_signature(key.sign(signing_input.encode(), ec.ECDSA(hashes.SHA256())))
+    return f"{signing_input}.{_b64(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))}"
+
+
+def _verifier() -> TokenVerifier:
+    numbers = SIGNING_KEY.public_key().public_numbers()
+    jwk = {
+        "kty": "EC",
+        "crv": "P-256",
+        "alg": "ES256",
+        "use": "sig",
+        "kid": KID,
+        "x": _b64(numbers.x.to_bytes(32, "big")),
+        "y": _b64(numbers.y.to_bytes(32, "big")),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == JWKS_URL
+        return httpx.Response(200, json={"keys": [jwk]})
+
+    return TokenVerifier(httpx.AsyncClient(transport=httpx.MockTransport(handler)), JWKS_URL)
+
+
+async def test_a_valid_token_names_the_drive_tools() -> None:
+    claims = await _verifier().verify({TOKEN_HEADER: f"Bearer {_token(['drive:drive_list'])}"})
+    assert claims.allows("drive_list")
+    assert not claims.allows("drive_put")
+    assert claims.session == str(SESSION)
+
+
+@pytest.mark.parametrize(
+    ("headers", "match"),
+    [
+        ({}, "no task token"),
+        ({TOKEN_HEADER: "not-a-jwt"}, "malformed"),
+        ({TOKEN_HEADER: _token(key=ec.generate_private_key(ec.SECP256R1()))}, "signature"),
+        ({TOKEN_HEADER: _token(exp_in=-600)}, "expired"),
+    ],
+)
+async def test_bad_tokens_are_rejected(headers: dict[str, str], match: str) -> None:
+    with pytest.raises(TokenRejectedError, match=match):
+        await _verifier().verify(headers)
+
+
 # ---------------------------------------------------------------- MCP
 
 
 @pytest.fixture
 def mcp(tmp_path: Path) -> Iterator[tuple[TestClient, FakeDrive]]:
     drive = FakeDrive()
-    app = create_app(_service(tmp_path, drive), allowed_hosts=(HOST,))
+    app = create_app(_service(tmp_path, drive), _verifier(), allowed_hosts=(HOST,))
     with TestClient(app) as client:
         yield client, drive
 
 
 def _call(
-    client: TestClient, name: str, arguments: dict[str, object], headers: dict[str, str]
+    client: TestClient, name: str, arguments: dict[str, object], token: str | None
 ) -> dict[str, object]:
     body = {
         "jsonrpc": "2.0",
@@ -451,6 +533,9 @@ def _call(
         "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
     }
+    headers = dict(ACCEPT)
+    if token is not None:
+        headers[TOKEN_HEADER] = f"Bearer {token}"
     response = client.post(MCP_PATH, json=body, headers=headers)
     assert response.status_code == 200
     result: dict[str, object] = response.json()["result"]
@@ -465,25 +550,37 @@ def test_health(mcp: tuple[TestClient, FakeDrive]) -> None:
 def test_tools_are_listed(mcp: tuple[TestClient, FakeDrive]) -> None:
     client, _ = mcp
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-    tools = client.post(MCP_PATH, json=body, headers=MCP_HEADERS).json()["result"]["tools"]
+    tools = client.post(MCP_PATH, json=body, headers=ACCEPT).json()["result"]["tools"]
     assert {tool["name"] for tool in tools} == {"drive_put", "drive_get", "drive_list"}
 
 
 def test_put_and_get_over_mcp(mcp: tuple[TestClient, FakeDrive], tmp_path: Path) -> None:
     client, _ = mcp
     _own(tmp_path)
-    put = _call(client, "drive_put", {"path": "hero.png", "dest": "to-unity/"}, MCP_HEADERS)
+    put = _call(client, "drive_put", {"path": "hero.png", "dest": "to-unity/"}, _token())
     assert put["isError"] is False
     assert put["structuredContent"]["drive_path"] == "to-unity/hero.png"  # type: ignore[index]
-    got = _call(client, "drive_get", {"path": "to-unity/hero.png"}, MCP_HEADERS)
+    got = _call(client, "drive_get", {"path": "to-unity/hero.png"}, _token())
     assert got["isError"] is False
     path = str(got["structuredContent"]["path"])  # type: ignore[index]
     assert path.startswith(str(tmp_path / "tmp" / str(SESSION) / "drive"))
 
 
-def test_a_call_without_a_session_is_refused(mcp: tuple[TestClient, FakeDrive]) -> None:
+def test_the_session_comes_from_the_token(
+    mcp: tuple[TestClient, FakeDrive], tmp_path: Path
+) -> None:
     client, drive = mcp
-    headers = {"accept": MCP_HEADERS["accept"]}
-    result = _call(client, "drive_put", {"path": "x.png"}, headers)
+    _own(tmp_path)
+    result = _call(client, "drive_put", {"path": "hero.png"}, _token(session=str(OTHER)))
     assert result["isError"] is True
+    assert drive.uploads == []
+
+
+def test_without_a_valid_token_nothing_moves(mcp: tuple[TestClient, FakeDrive]) -> None:
+    client, drive = mcp
+    assert _call(client, "drive_list", {}, None)["isError"] is True
+    assert (
+        _call(client, "drive_put", {"path": "x.png"}, _token(["drive:drive_get"]))["isError"]
+        is True
+    )
     assert drive.items == {}

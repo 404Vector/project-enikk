@@ -4,6 +4,7 @@ the tool results; only paths, sizes and times do."""
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
@@ -12,16 +13,19 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import ToolAnnotations
 from pydantic import Field
 
+from enikk_drive.tokens import TokenRejectedError
 from enikk_kernel.errors import EnikkError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
     from enikk_drive.service import ExchangeService
+    from enikk_drive.tokens import TokenVerifier
     from enikk_kernel.models import FrozenModel
 
+_log = logging.getLogger(__name__)
+
 SERVER_NAME: Final = "enikk-drive"
-SESSION_HEADER: Final = "x-enikk-session-id"
 WRITES: Final = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
 )
@@ -29,7 +33,7 @@ READS: Final = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 DrivePathText = Annotated[str, Field(max_length=2048)]
 
 
-def build_server(service: ExchangeService) -> MCPServer:
+def build_server(service: ExchangeService, verifier: TokenVerifier) -> MCPServer:
     root = service.root_folder
     server = MCPServer(
         SERVER_NAME,
@@ -52,32 +56,41 @@ def build_server(service: ExchangeService) -> MCPServer:
         ending in / is a folder that keeps the file name. Missing folders are created.
         An existing file is replaced only with overwrite=true (Drive keeps the old
         revision)."""
-        return await _call(service.put(_session(ctx), path, dest, overwrite=overwrite))
+        session = await _session(verifier, ctx, "drive_put")
+        return await _call(service.put(session, path, dest, overwrite=overwrite))
 
     @server.tool(annotations=WRITES)
     async def drive_get(path: DrivePathText, ctx: Context) -> dict[str, Any]:
         """Download a file from the exchange folder into this thread's tmp, under
         drive/ with the same folders. Returns the local path, ready for send_file or
         other tools. Google Docs, folders and shortcuts cannot be got."""
-        return await _call(service.get(_session(ctx), path))
+        session = await _session(verifier, ctx, "drive_get")
+        return await _call(service.get(session, path))
 
     @server.tool(annotations=READS)
-    async def drive_list(folder: DrivePathText = "") -> dict[str, Any]:
+    async def drive_list(ctx: Context, folder: DrivePathText = "") -> dict[str, Any]:
         """List one folder of the exchange folder (empty: its top): names, kinds,
         sizes and modified times, at most 200. Use it to see whether a file from the
         PC has synced."""
+        await _session(verifier, ctx, "drive_list")
         return await _call(service.list_folder(folder))
 
     return server
 
 
-def _session(ctx: Context) -> uuid.UUID:
-    """The calling session, set by the gateway from core's token (ADR-0041 §3)."""
-    headers = {key.lower(): value for key, value in (ctx.headers or {}).items()}
+async def _session(verifier: TokenVerifier, ctx: Context, tool: str) -> uuid.UUID:
+    """The calling session, from core's task token once it is checked and names the tool
+    (ADR-0052 §4)."""
     try:
-        return uuid.UUID(headers[SESSION_HEADER])
-    except (KeyError, ValueError) as exc:
-        raise ToolError(f"the request must carry {SESSION_HEADER} as a UUID") from exc
+        claims = await verifier.verify(ctx.headers)
+        if not claims.allows(tool):
+            raise TokenRejectedError(f"the task's token does not allow {tool}")
+        return uuid.UUID(claims.session)
+    except TokenRejectedError as exc:
+        _log.warning("refused %s: %s", tool, exc)
+        raise ToolError(str(exc)) from exc
+    except ValueError as exc:
+        raise ToolError("the task token's session is not a UUID") from exc
 
 
 async def _call(pending: Awaitable[FrozenModel]) -> dict[str, Any]:

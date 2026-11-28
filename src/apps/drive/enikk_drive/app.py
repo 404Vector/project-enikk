@@ -14,13 +14,16 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
     from enikk_drive.service import ExchangeService
+    from enikk_drive.tokens import TokenVerifier
 
 MCP_PATH: Final = "/mcp"
 HEALTH_PATH: Final = "/healthz"
 
 
-def create_app(service: ExchangeService, *, allowed_hosts: tuple[str, ...]) -> Starlette:
-    server = build_server(service)
+def create_app(
+    service: ExchangeService, verifier: TokenVerifier, *, allowed_hosts: tuple[str, ...]
+) -> Starlette:
+    server = build_server(service, verifier)
     server.custom_route(HEALTH_PATH, methods=["GET"], include_in_schema=False)(_health)
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

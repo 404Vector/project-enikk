@@ -765,6 +765,7 @@ name = "enikk-drive"
 version = "0.1.0"
 source = { editable = "src/apps/drive" }
 dependencies = [
+    { name = "cryptography" },
     { name = "enikk-contracts" },
     { name = "enikk-core-client" },
     { name = "enikk-kernel" },
@@ -776,6 +777,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "enikk-contracts", editable = "src/libs/contracts" },
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
@@ -941,6 +943,7 @@ dependencies = [
     { name = "enikk-core-client" },
     { name = "enikk-kernel" },
     { name = "enikk-platform" },
+    { name = "httpx" },
     { name = "pyyaml" },
     { name = "typer" },
 ]
@@ -951,6 +954,7 @@ requires-dist = [
     { name = "enikk-core-client", editable = "src/libs/core-client" },
     { name = "enikk-kernel", editable = "src/libs/kernel" },
     { name = "enikk-platform", editable = "src/libs/adapters/platform" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "typer", specifier = ">=0.15" },
 ]
