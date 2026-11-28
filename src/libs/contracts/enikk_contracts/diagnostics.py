@@ -85,6 +85,7 @@ class Service(StrEnum):
     SCHEDULER = "scheduler"
     IMAGEGEN = "imagegen"
     UNITY = "unity"
+    DRIVE = "drive"
     AGENTGATEWAY = "agentgateway"
 
 

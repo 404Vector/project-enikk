@@ -80,6 +80,7 @@ SELECTORS: Final = {
     Service.SCHEDULER: "app.kubernetes.io/name=enikk-scheduler",
     Service.IMAGEGEN: "app.kubernetes.io/name=enikk-imagegen",
     Service.UNITY: "app.kubernetes.io/name=enikk-unity",
+    Service.DRIVE: "app.kubernetes.io/name=enikk-drive",
     Service.AGENTGATEWAY: "app.kubernetes.io/name=enikk-agentgateway",
 }
 
