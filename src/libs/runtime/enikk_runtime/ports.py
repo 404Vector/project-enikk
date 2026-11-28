@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from enikk_contracts.agents import PromptRef
+    from enikk_contracts.attachments import AttachmentContent, AttachmentFetch
     from enikk_contracts.common import Engine
     from enikk_contracts.delegation import AskCreated, AskRequest, Delegated, DelegateRequest
     from enikk_contracts.diagnostics import (
@@ -84,6 +85,9 @@ class TaskSource(Protocol):
     async def lease_task(self, request: LeaseRequest) -> LeaseResponse: ...
     async def heartbeat(self, task_id: uuid.UUID, beat: Heartbeat) -> LeaseExtended: ...
     async def report_result(self, task_id: uuid.UUID, report: ResultReport) -> ResultAccepted: ...
+    async def fetch_attachment(
+        self, task_id: uuid.UUID, index: int, fetch: AttachmentFetch
+    ) -> AttachmentContent: ...
 
 
 class Workspaces(Protocol):

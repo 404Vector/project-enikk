@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING
 
 from enikk_connector_slack.config import Persona, Routes, SlackConfig
 from enikk_connector_slack.events import PostedMessage
-from enikk_connector_slack.ports import WorkspaceView
+from enikk_connector_slack.ports import SlackDeliveryError, WorkspaceView
 from enikk_contracts.approvals import (
     DecisionResult,
     NoticeAcked,
     NoticeBatch,
     ResolutionOutcome,
 )
+from enikk_contracts.attachments import AttachmentState, AttachmentStored
 from enikk_contracts.delegation import AskResult, AskStatus
 from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
@@ -29,8 +30,9 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from enikk_connector_slack.blocks import Message
-    from enikk_connector_slack.events import MessageRef
+    from enikk_connector_slack.events import MessageRef, SlackFile
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
+    from enikk_contracts.attachments import AttachmentUpload
     from enikk_contracts.delegation import AskDecision
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import NoteChangeDecision, NoteChangePosted
@@ -83,6 +85,14 @@ class FakeCore:
         self.cancel_finds_nothing = False
         self.files: dict[uuid.UUID, OutboxFile] = {}
         self.workspace_reports: list[SlackWorkspaceReport] = []
+        self.attachments: list[tuple[uuid.UUID, int, AttachmentUpload]] = []
+
+    async def upload_attachment(
+        self, task_id: uuid.UUID, index: int, upload: AttachmentUpload
+    ) -> AttachmentStored:
+        self.attachments.append((task_id, index, upload))
+        state = AttachmentState.FAILED if upload.failure else AttachmentState.READY
+        return AttachmentStored(state=state)
 
     async def outbox_file(self, message_id: uuid.UUID) -> OutboxFile:
         found = self.files.get(message_id)
@@ -206,6 +216,15 @@ class FakeSlack:
         self.fail_channels: dict[str, Exception] = {}
         self.channel_ids: dict[str, str] = {}
         self.unknown_emoji: set[str] = set()
+        self.downloads: dict[str, bytes] = {}
+
+    async def download_file(self, file: SlackFile, limit: int) -> bytes:
+        found = self.downloads.get(file.id)
+        if found is None:
+            raise SlackDeliveryError(f"file {file.id}: download answered 404", transient=False)
+        if len(found) > limit:
+            raise SlackDeliveryError(f"larger than {limit} bytes", transient=False)
+        return found
 
     async def channel_id(self, name: str) -> str | None:
         return self.channel_ids.get(name)

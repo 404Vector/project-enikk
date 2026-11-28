@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from enikk_connector_slack.blocks import Message
     from enikk_connector_slack.config import Persona
-    from enikk_connector_slack.events import MessageRef, PostedMessage
+    from enikk_connector_slack.events import MessageRef, PostedMessage, SlackFile
     from enikk_contracts.approvals import (
         DecisionRequest,
         DecisionResult,
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         NoticeBatch,
         NoticePoll,
     )
+    from enikk_contracts.attachments import AttachmentStored, AttachmentUpload
     from enikk_contracts.delegation import AskDecision, AskResult
     from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
@@ -58,6 +59,10 @@ class CoreApi(Protocol):
     async def ack_outbox(self, ack: OutboxAck) -> OutboxAcked: ...
 
     async def outbox_file(self, message_id: uuid.UUID) -> OutboxFile: ...
+
+    async def upload_attachment(
+        self, task_id: uuid.UUID, index: int, upload: AttachmentUpload
+    ) -> AttachmentStored: ...
 
     async def poll_notices(self, poll: NoticePoll) -> NoticeBatch: ...
 
@@ -134,6 +139,12 @@ class SlackApi(Protocol):
 
         ``channel`` may be a user ID (their DM with the app). Raises ``SlackDeliveryError``.
         """
+        ...
+
+    async def download_file(self, file: SlackFile, limit: int) -> bytes:
+        """The bytes of a file the owner attached (``files:read``, ADR-0042 2b).
+
+        Raises ``SlackDeliveryError`` when it cannot be read or is larger than ``limit``."""
         ...
 
     async def upload_text(

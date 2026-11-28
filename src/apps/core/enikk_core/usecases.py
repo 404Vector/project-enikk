@@ -11,6 +11,13 @@ from typing import TYPE_CHECKING, Final
 from pydantic import HttpUrl
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.attachments import (
+    MAX_ATTACHMENT_BYTES,
+    AttachmentContent,
+    AttachmentState,
+    AttachmentStored,
+    TaskAttachment,
+)
 from enikk_contracts.common import ConnectorKind, ConversationRef
 from enikk_contracts.delegation import (
     ASK_EVENT_PREFIX,
@@ -60,8 +67,8 @@ from enikk_core_domain.errors import (
     PermissionDeniedError,
     UnknownAgentError,
 )
+from enikk_core_domain.model import Attachment, OutboxMessage, Session, Task
 from enikk_core_domain.model import OutboxFile as StoredFile
-from enikk_core_domain.model import OutboxMessage, Session, Task
 from enikk_core_domain.redaction import looks_secret
 from enikk_core_domain.thread_context import MAX_MESSAGES, with_thread_context
 
@@ -73,6 +80,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from enikk_contracts.agents import AgentDefinition
+    from enikk_contracts.attachments import AttachmentFetch, AttachmentUpload
     from enikk_contracts.common import Engine
     from enikk_contracts.delegation import DelegateRequest
     from enikk_contracts.events import InboundEvent
@@ -105,6 +113,8 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 STARTED_TEXT: Final = "작업 중"
+ATTACHMENT_RETENTION: Final = timedelta(days=1)
+"""Attachments of a task that never ended are deleted after this (ADR-0042 2b)."""
 CANCELLED_TEXT: Final = "취소했습니다."
 DELEGATED_CANCELLED_TEXT: Final = "{agent} 에게 맡긴 작업도 취소했습니다."
 DELEGATED_DONE_TEXT: Final = (
@@ -212,6 +222,13 @@ class CoreUseCases:
                 execution=definition.execution if definition else Execution.SHARED,
             )
             await uow.tasks.add(task)
+            for index, info in enumerate(event.attachments):
+                await uow.tasks.add_attachment(
+                    Attachment(
+                        task_id=task.id, index=index, name=info.name, size=info.size, created_at=now
+                    )
+                )
+            await uow.tasks.drop_attachments_before(now - ATTACHMENT_RETENTION)
             await uow.commit()
         _log.info("task %s queued for agent %s", task.id, task.agent)
         return EventAccepted(
@@ -262,6 +279,50 @@ class CoreUseCases:
             filename=file.filename, content_base64=base64.b64encode(file.content).decode()
         )
 
+    async def upload_attachment(
+        self, connector: ConnectorKind, task_id: uuid.UUID, index: int, upload: AttachmentUpload
+    ) -> AttachmentStored:
+        """Store the bytes of a pending attachment, or why it has none (ADR-0042 2b).
+
+        An attachment already settled keeps its state, so a repeated upload changes nothing."""
+        content = None if upload.content_base64 is None else _decoded(upload.content_base64)
+        async with self._uow() as uow:
+            task = await uow.tasks.get_for_update(task_id)
+            session = None if task is None else await uow.sessions.get(task.session_id)
+            if task is None or session is None or session.conversation.connector is not connector:
+                raise NotFoundError(f"task {task_id} not found")
+            attachment = await uow.tasks.attachment(task_id, index)
+            if attachment is None:
+                raise NotFoundError(f"task {task_id} has no attachment {index}")
+            if attachment.state is not AttachmentState.PENDING:
+                return AttachmentStored(state=attachment.state)
+            if content is None:
+                settled = attachment.failed(upload.failure or "not uploaded")
+            elif len(content) > MAX_ATTACHMENT_BYTES:
+                settled = attachment.failed(f"larger than {MAX_ATTACHMENT_BYTES} bytes")
+            else:
+                settled = attachment.ready(content)
+            await uow.tasks.update_attachment(settled)
+            await uow.commit()
+        _log.info("task %s attachment %d: %s", task_id, index, settled.state)
+        return AttachmentStored(state=settled.state)
+
+    async def fetch_attachment(
+        self, scope: WorkerScope, task_id: uuid.UUID, index: int, fetch: AttachmentFetch
+    ) -> AttachmentContent:
+        """An attachment of the leased task; ``PENDING`` until the connector uploads it."""
+        async with self._uow() as uow:
+            await self._leased_task(uow, scope, task_id, fetch.lease_id)
+            attachment = await uow.tasks.attachment(task_id, index)
+        if attachment is None:
+            raise NotFoundError(f"task {task_id} has no attachment {index}")
+        if attachment.state is AttachmentState.READY and attachment.content is not None:
+            return AttachmentContent(
+                state=attachment.state,
+                content_base64=base64.b64encode(attachment.content).decode(),
+            )
+        return AttachmentContent(state=attachment.state, detail=attachment.detail)
+
     async def cancel_task(self, connector: ConnectorKind, task_id: uuid.UUID) -> CancelResult:
         """Cancel the queued and running tasks of ``task_id``'s session (ADR-0037 3b).
 
@@ -275,6 +336,7 @@ class CoreUseCases:
             cancelled: list[uuid.UUID] = []
             for active in await uow.tasks.active_in_session(session.id):
                 await uow.tasks.update(active.cancel(now))
+                await uow.tasks.drop_attachments(active.id)
                 cancelled.append(active.id)
             cancelled.extend(await self._cancel_delegated(uow, session, now))
             if cancelled:
@@ -427,6 +489,11 @@ class CoreUseCases:
             await self._publish_started(uow, session, leased)
             await uow.commit()
         _log.info("task %s leased (attempt %d)", leased.id, leased.attempt)
+        async with self._uow() as uow:
+            attachments = tuple(
+                TaskAttachment(index=a.index, name=a.name, size=a.size)
+                for a in await uow.tasks.attachments(leased.id)
+            )
         scheduled = session.conversation.connector is ConnectorKind.SCHEDULE
         memories = () if scheduled else await self._memories()
         github_token = (
@@ -447,6 +514,7 @@ class CoreUseCases:
             mcp_token=self._mcp_token(leased.id, leased.last_lease_id, session.id, definition),
             github_token=github_token,
             one_off=scheduled,
+            attachments=attachments,
         )
 
     def _mcp_token(
@@ -522,6 +590,8 @@ class CoreUseCases:
                     now=now,
                 )
             await uow.tasks.update(done)
+            if done.terminal:
+                await uow.tasks.drop_attachments(done.id)
             await self._publish_outcome(uow, done)
             await uow.commit()
         _log.info("task %s reported %s", done.id, done.status)

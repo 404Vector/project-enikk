@@ -11,6 +11,7 @@ import pytest
 from enikk_contracts.delegation import delegated_session_id
 from enikk_kernel.process import SubprocessRunner
 from enikk_kernel.testing import ManualClock
+from enikk_runtime.attachments import SavedAttachment
 from enikk_runtime.memory import HEADER as MEMORY_HEADER
 from enikk_runtime.memory import with_memories
 from enikk_runtime.workspace import (
@@ -452,3 +453,15 @@ def test_uncommitted_changes_keep_the_branch_in_place(tmp_path: Path, origin: Or
 
     assert _in_worktree(ws.worktree_dir).git("rev-parse", "HEAD") == first
     assert (ws.worktree_dir / "README.md").read_text() == "edited\n"
+
+
+def test_the_note_names_the_attachments(tmp_path: Path, origin: Origin) -> None:
+    origin.commit("a.txt", "a\n")
+    ws = _workspaces(tmp_path, origin, _clock()).prepare(SESSION)
+    saved = (
+        SavedAttachment(name="a.png", path=ws.tmp_dir / "attachments" / "1" / "a.png"),
+        SavedAttachment(name="b.zip", detail="too large"),
+    )
+    text = with_workspace("봐 줘", ws, saved)
+    assert f"- 첨부 파일: {ws.tmp_dir / 'attachments' / '1' / 'a.png'} (" in text
+    assert "- 첨부 파일 b.zip: 받지 못했다(too large)" in text
