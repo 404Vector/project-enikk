@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
 from enikk_contracts.diagnostics import (
+    ActionRun,
+    ActionWorkflow,
     AppState,
     DeploymentEvent,
     Deployments,
@@ -22,6 +24,7 @@ from enikk_contracts.diagnostics import (
     Service,
     TaskDetail,
     TaskSummary,
+    VaultActions,
 )
 from enikk_core_domain.errors import DependencyUnavailableError, NotFoundError
 from enikk_core_domain.redaction import redact
@@ -35,16 +38,26 @@ if TYPE_CHECKING:
         PullsQuery,
         RecentTasksQuery,
         TaskDetailQuery,
+        VaultActionsQuery,
     )
     from enikk_core.approval.service import PullsApi
     from enikk_core.github import GitHubAppApi
     from enikk_core_domain.model import Task
     from enikk_core_domain.ports import ApplicationReader, UnitOfWork, UnitOfWorkFactory
+    from enikk_github.activity import RecentRun, Workflow
+    from enikk_github.app import InstallationToken
     from enikk_kernel.clock import Clock
 
 HEAD: Final = 1_500
 MAX_LINE: Final = 2_000
 DEPLOYMENT_KINDS: Final = ("deployment-finished", "build-failed")
+FAILED_RUNS_EXPLAINED: Final = 3
+
+
+class ActionsApi(Protocol):
+    async def recent_runs(self, token: InstallationToken, limit: int) -> list[RecentRun]: ...
+    async def workflows(self, token: InstallationToken) -> list[Workflow]: ...
+    async def failed_steps(self, token: InstallationToken, run_id: int) -> list[str]: ...
 
 
 class LogApi(Protocol):
@@ -56,6 +69,8 @@ class DiagnosticsPolicy(FrozenModel):
     namespace: str = "enikk"
     apps: tuple[str, ...] = ()
     repository: str = "project-enikk"
+    vault_repository: str | None = None
+    """The owner's vault, whose Actions build the blog; ``None`` without memory."""
 
 
 SELECTORS: Final = {
@@ -80,6 +95,7 @@ class DiagnosticsService:
         apps: ApplicationReader | None = None,
         github: GitHubAppApi | None = None,
         pulls: PullsApi | None = None,
+        actions: ActionsApi | None = None,
     ) -> None:
         self._uow = uow
         self._clock = clock
@@ -88,6 +104,7 @@ class DiagnosticsService:
         self._apps = apps
         self._github = github
         self._pulls = pulls
+        self._actions = actions
 
     async def recent_tasks(self, query: RecentTasksQuery) -> RecentTasks:
         since = self._clock.now() - timedelta(hours=query.hours)
@@ -210,6 +227,41 @@ class DiagnosticsService:
         finally:
             await self._github.revoke(token)
         return Pulls(pulls=tuple(found))
+
+    async def vault_actions(self, query: VaultActionsQuery) -> VaultActions:
+        repository = self._policy.vault_repository
+        if self._github is None or self._actions is None or repository is None:
+            raise DependencyUnavailableError("the vault repository is not configured")
+        token = await self._github.installation_token(repository, TokenPurpose.WATCH)
+        try:
+            workflows = await self._actions.workflows(token)
+            runs = await self._actions.recent_runs(token, query.limit)
+            explained: dict[int, list[str]] = {}
+            for run in [r for r in runs if r.failed][:FAILED_RUNS_EXPLAINED]:
+                explained[run.id] = await self._actions.failed_steps(token, run.id)
+        finally:
+            await self._github.revoke(token)
+        return VaultActions(
+            repository=f"{self._github.owner}/{repository}",
+            workflows=tuple(
+                ActionWorkflow(name=w.name[:300], path=w.path[:300], state=w.state)
+                for w in workflows
+            ),
+            runs=tuple(
+                ActionRun(
+                    workflow=r.workflow[:300],
+                    event=r.event,
+                    branch=r.branch,
+                    head_sha=r.head_sha,
+                    status=r.status,
+                    conclusion=r.conclusion,
+                    created_at=r.created_at,
+                    url=r.url,
+                    failed_steps=tuple(redact(s)[:300] for s in explained.get(r.id, ())),
+                )
+                for r in runs
+            ),
+        )
 
 
 async def _summary(uow: UnitOfWork, task: Task) -> TaskSummary:

@@ -31,6 +31,7 @@ from enikk_contracts.diagnostics import (
     RecentTasksQuery,
     Service,
     TaskDetailQuery,
+    VaultActionsQuery,
 )
 from enikk_contracts.memory import (
     ForgetRequest,
@@ -92,7 +93,14 @@ _REMEMBERABLE: Final[dict[str, Literal[NoteKind.PREFERENCE, NoteKind.FACT, NoteK
 }
 DIAGNOSTIC_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}"
-    for name in ("recent_tasks", "task_detail", "deployments", "service_logs", "pull_requests")
+    for name in (
+        "recent_tasks",
+        "task_detail",
+        "deployments",
+        "service_logs",
+        "pull_requests",
+        "vault_actions",
+    )
 )
 PROPOSE_PROMPT_TOOL: Final = f"mcp__{SERVER}__propose_prompt"
 READ_PROMPT_TOOL: Final = f"mcp__{SERVER}__read_prompt"
@@ -542,7 +550,24 @@ def diagnostic_tools(current: CurrentJob, diagnostics: Diagnostician) -> list[Sd
         query = PullsQuery(lease_id=current.job.lease_id)
         return await _shown(diagnostics.diagnose_pulls(current.job.task_id, query))
 
-    return [recent_tasks, task_detail, deployments, service_logs, pull_requests]
+    @tool(
+        "vault_actions",
+        "GitHub Actions of the owner's vault repository, which builds and publishes the "
+        "blog: each workflow and whether it is enabled, and the most recent runs with "
+        "their result; failed runs name the failed job and step. limit (default 10, at "
+        "most 20) is optional. " + DIAGNOSTICS_NOTE,
+        {"type": "object", "properties": {"limit": {"type": "integer"}}},
+    )
+    async def vault_actions(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            query = VaultActionsQuery(
+                lease_id=current.job.lease_id, limit=int(args.get("limit") or 10)
+            )
+        except (ValidationError, ValueError):
+            return _result("limit must be between 1 and 20.", True)
+        return await _shown(diagnostics.diagnose_vault_actions(current.job.task_id, query))
+
+    return [recent_tasks, task_detail, deployments, service_logs, pull_requests, vault_actions]
 
 
 async def _shown(call: Awaitable[BaseModel]) -> dict[str, Any]:

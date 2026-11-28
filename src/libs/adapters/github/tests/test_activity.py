@@ -93,3 +93,48 @@ async def test_pull_of_commit_is_the_merged_one() -> None:
     pull = await _activity(httpx.MockTransport(handle)).pull_of_commit(TOKEN, SHA)
     assert pull is not None
     assert (pull.number, pull.title, pull.branch) == (4, "feat: merged", "agent/b")
+
+
+async def test_recent_runs_workflows_and_failed_steps() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/actions/runs"):
+            run = {
+                "id": 7,
+                "name": "publish",
+                "event": "push",
+                "head_branch": "main",
+                "head_sha": SHA,
+                "status": "completed",
+                "conclusion": "failure",
+                "html_url": "https://github.com/404Vector/vault/actions/runs/7",
+                "created_at": "2026-11-28T03:00:00Z",
+            }
+            return httpx.Response(200, json={"workflow_runs": [run]})
+        if path.endswith("/actions/workflows"):
+            workflow = {"name": "publish", "path": ".github/workflows/publish.yml"}
+            return httpx.Response(
+                200, json={"workflows": [{**workflow, "state": "disabled_inactivity"}]}
+            )
+        jobs = [
+            {
+                "name": "build",
+                "conclusion": "failure",
+                "steps": [
+                    {"name": "checkout", "conclusion": "success"},
+                    {"name": "push to pages", "conclusion": "failure"},
+                ],
+            },
+            {"name": "lint", "conclusion": "success", "steps": []},
+            {"name": "setup", "conclusion": "startup_failure", "steps": []},
+        ]
+        return httpx.Response(200, json={"jobs": jobs})
+
+    activity = _activity(httpx.MockTransport(handle))
+    [run] = await activity.recent_runs(TOKEN, 5)
+    [workflow] = await activity.workflows(TOKEN)
+    steps = await activity.failed_steps(TOKEN, run.id)
+    assert run.failed
+    assert (run.workflow, run.branch) == ("publish", "main")
+    assert workflow.state == "disabled_inactivity"
+    assert steps == ["build / push to pages", "setup"]

@@ -12,7 +12,14 @@ from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.delegation import Delegated
 from enikk_contracts.deployments import RevertResult
-from enikk_contracts.diagnostics import Deployments, LogLines, Pulls, RecentTasks, TaskDetail
+from enikk_contracts.diagnostics import (
+    Deployments,
+    LogLines,
+    Pulls,
+    RecentTasks,
+    TaskDetail,
+    VaultActions,
+)
 from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth
@@ -77,6 +84,7 @@ if TYPE_CHECKING:
         PullsQuery,
         RecentTasksQuery,
         TaskDetailQuery,
+        VaultActionsQuery,
     )
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import (
@@ -391,6 +399,13 @@ class CoreClient:
         """Read-only diagnostics (ADR-0029)."""
         path = routes.DIAG_PULLS.format(task_id=task_id)
         return _parse(Pulls, await self._post(path, query, 30))
+
+    async def diagnose_vault_actions(
+        self, task_id: uuid.UUID, query: VaultActionsQuery
+    ) -> VaultActions:
+        """Read-only diagnostics (ADR-0029)."""
+        path = routes.DIAG_VAULT_ACTIONS.format(task_id=task_id)
+        return _parse(VaultActions, await self._post(path, query, 30))
 
     async def list_schedules(self, query: ScheduleQuery) -> ScheduleList:
         """Schedules, for the task named in the query. Scheduler only (ADR-0039)."""
