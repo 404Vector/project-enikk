@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from slack_sdk.errors import SlackApiError
 from slack_sdk.socket_mode.response import SocketModeResponse
 
-from enikk_connector_slack.events import AuthIdentity, EventCallback, PostedMessage
+from enikk_connector_slack.events import AuthIdentity, EventCallback, PostedMessage, SlackFile
 from enikk_connector_slack.ports import SlackDeliveryError, WorkspaceView
 from enikk_kernel.errors import ConfigurationError
 
@@ -38,6 +38,11 @@ TRANSIENT_ERRORS: Final = frozenset(
 IGNORED_REACTION_ERRORS: Final = frozenset({"already_reacted", "no_reaction"})
 UNKNOWN_EMOJI: Final = "invalid_name"
 EMOJI_NAME: Final = re.compile(r"[a-z0-9_+'\-]{1,100}")
+
+SLACK_FILES: Final = "https://files.slack.com/"
+"""Attachments are downloaded only from here, so the bot token goes nowhere else."""
+DOWNLOAD_TIMEOUT: Final = aiohttp.ClientTimeout(total=120)
+HTTP_OK: Final = 200
 
 _log = logging.getLogger(__name__)
 
@@ -130,6 +135,34 @@ class SlackWebApi:
             raise SlackDeliveryError(f"chat.postMessage: {exc!r}", transient=True) from exc
         except ValidationError as exc:
             raise SlackDeliveryError("chat.postMessage: no channel/ts", transient=False) from exc
+
+    async def download_file(self, file: SlackFile, limit: int) -> bytes:
+        url = file.url_private_download
+        if url is None and file.id:
+            try:
+                info = await self._web.files_info(file=file.id)
+            except SlackApiError as exc:
+                raise _delivery_error("files.info", exc) from exc
+            found = info.get("file")
+            url = found.get("url_private_download") if isinstance(found, dict) else None
+        if not isinstance(url, str) or not url.startswith(SLACK_FILES):
+            raise SlackDeliveryError(f"file {file.id}: no Slack download address", transient=False)
+        headers = {"Authorization": f"Bearer {self._web.token}"}
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=DOWNLOAD_TIMEOUT) as session,
+                session.get(url, headers=headers, allow_redirects=False) as response,
+            ):
+                if response.status != HTTP_OK:
+                    raise SlackDeliveryError(
+                        f"file {file.id}: download answered {response.status}", transient=False
+                    )
+                content = await response.content.read(limit + 1)
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise SlackDeliveryError(f"file {file.id}: {exc!r}", transient=True) from exc
+        if len(content) > limit:
+            raise SlackDeliveryError(f"larger than {limit} bytes", transient=False)
+        return content
 
     async def upload_text(
         self, channel: str, thread: str, filename: str, content: str, title: str

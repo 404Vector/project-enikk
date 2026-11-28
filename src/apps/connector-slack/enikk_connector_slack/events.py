@@ -18,7 +18,10 @@ class SlackPayload(BaseModel):
 
 
 class SlackFile(SlackPayload):
+    id: str = ""
     name: str = ""
+    size: int = 0
+    url_private_download: str | None = None
 
 
 class SlackMessage(SlackPayload):
