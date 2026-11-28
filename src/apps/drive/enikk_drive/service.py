@@ -1,5 +1,5 @@
 """The exchange: put a thread's file into the exchange folder, get one out, list one
-folder (ADR-0052). Every Drive path is walked from the exchange folder by name, one
+folder (ADR-0053). Every Drive path is walked from the exchange folder by name, one
 folder at a time, so nothing outside it is reached. Shortcuts are never followed."""
 
 from __future__ import annotations

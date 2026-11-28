@@ -1,4 +1,4 @@
-"""Files on the runtime's shared volume (ADR-0052 §2): uploads come from the calling
+"""Files on the runtime's shared volume (ADR-0053 §2): uploads come from the calling
 thread's own tmp or worktree, downloads go to its ``tmp/<session>/drive``."""
 
 from __future__ import annotations

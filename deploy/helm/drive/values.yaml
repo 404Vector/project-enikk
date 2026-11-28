@@ -1,4 +1,4 @@
-# Off switch (ADR-0052 "되돌리기"): false runs no replicas.
+# Off switch (ADR-0053 "되돌리기"): false runs no replicas.
 enabled: true
 
 image:
@@ -13,7 +13,7 @@ coreUrl: http://enikk-core.enikk.svc
 # Lifetime of the audience=enikk-core projected token. kubelet rotates it.
 coreTokenSeconds: 3600
 
-# The exchange folder at the top of the owner's My Drive (ADR-0052 §3). The tools
+# The exchange folder at the top of the owner's My Drive (ADR-0053 §3). The tools
 # reach nothing outside it; it is created on first use when missing.
 rootFolder: enikk
 # Largest file one call may move, either way.

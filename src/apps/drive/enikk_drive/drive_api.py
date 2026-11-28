@@ -1,4 +1,4 @@
-"""Google OAuth and the Drive v3 REST calls the exchange tools need (ADR-0052 §2).
+"""Google OAuth and the Drive v3 REST calls the exchange tools need (ADR-0053 §2).
 
 The refresh token becomes a short access token, cached until a minute before it
 expires. Uploads use resumable sessions in chunks; downloads stream to a file.

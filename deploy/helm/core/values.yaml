@@ -101,7 +101,7 @@ roleBindings:
     role: tool
     credentials: [unity.api-key]
   # The Drive exchange server: the owner's Google OAuth client and refresh token only
-  # (ADR-0052, I-09).
+  # (ADR-0053, I-09).
   - namespace: enikk
     service_account: enikk-drive
     role: tool

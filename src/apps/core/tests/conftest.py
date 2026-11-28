@@ -8,6 +8,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from enikk_contracts.agents import ToolPolicy
 from enikk_contracts.common import ConnectorKind, Engine
 from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices, create_app
@@ -140,6 +141,9 @@ def harness() -> Harness:
     catalog = StaticAgentCatalog(
         agent("assistant", Engine.CLAUDE),
         agent("painter", Engine.GEMINI),
+        agent("builder", Engine.CLAUDE).model_copy(
+            update={"tools": ToolPolicy(builtin=("Bash",), platform_defaults=False)}
+        ),
     )
     usecases = CoreUseCases(
         uow=db.unit_of_work,

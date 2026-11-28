@@ -39,7 +39,7 @@ src/
 │  ├─ scheduler/       enikk_scheduler      스케줄러: 시계와 스케줄 MCP 도구 (ADR-0039)
 │  ├─ imagegen/        enikk_imagegen       이미지 생성: Gemini 이미지 MCP 도구와 화풍 (ADR-0043)
 │  ├─ unity/           enikk_unity          소유자 PC 의 Unity MCP 서버 중계: 키를 붙여 전달 (ADR-0044)
-│  ├─ drive/           enikk_drive          Google Drive 교환 폴더로 파일 주고받기 MCP 도구 (ADR-0052)
+│  ├─ drive/           enikk_drive          Google Drive 교환 폴더로 파일 주고받기 MCP 도구 (ADR-0053)
 │  ├─ ops-cli/         enikk_ops            부트스트랩, 로컬 개발 도구
 │  └─ mcp-<name>/      enikk_mcp_<name>     자체 MCP 서버 (필요해질 때 추가)
 │

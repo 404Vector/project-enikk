@@ -129,6 +129,23 @@ def tools_beyond(wanted: ToolPolicy, granted: ToolPolicy) -> list[str]:
     return beyond
 
 
+def may_manage(caller: AgentDefinition | None, target: AgentDefinition | None) -> bool:
+    """Whether the calling agent may create, change, run or see schedules of ``target``
+    (ADR-0052).
+
+    An agent manages its own schedules, those of the agents it delegates to, and those of
+    any agent whose tools it has itself. A schedule whose agent has no definition any
+    more can do nothing, so any known caller may manage it.
+    """
+    if caller is None:
+        return False
+    if target is None:
+        return True
+    if caller.name == target.name or target.name in caller.delegates:
+        return True
+    return not tools_beyond(target.tools, caller.tools)
+
+
 def needs_approval(spec: ScheduleSpec, target: AgentDefinition, caller_agent: str) -> bool:
     """Whether the change is outside the caller's own range (ADR-0039 §5).
 

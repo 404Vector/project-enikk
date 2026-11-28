@@ -7,8 +7,14 @@ prompt:
   name: rita
   label: production
 tools:
-  # Game art and the owner's Unity editor only; no scheduler (ADR-0045).
+  # Game art, the owner's Unity editor and her own schedules (ADR-0045, ADR-0052).
   mcp:
+    # Her own schedules only: core lets an agent manage schedules of itself, its
+    # delegates and agents whose tools it has (ADR-0052).
+    - server: scheduler
+      allow:
+        [list_schedules, get_schedule, list_runs, create_schedule, update_schedule,
+         pause_schedule, resume_schedule, delete_schedule, run_now]
     # Images with the Gemini API, saved to the thread's tmp (ADR-0043).
     - server: imagegen
       allow:
@@ -31,7 +37,7 @@ tools:
          refresh_unity, run_tests, script_apply_edits, set_active_instance, unity_docs,
          unity_reflect, validate_script, list_unity_resources, read_unity_resource]
     # File exchange through the owner's Google Drive folder "enikk", which the Windows
-    # PC syncs; file bytes never pass through the tool results (ADR-0052).
+    # PC syncs; file bytes never pass through the tool results (ADR-0053).
     - server: drive
       allow: [drive_put, drive_get, drive_list]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the

@@ -16,7 +16,7 @@
 
 ## 결정
 ### 1. 에이전트 정의
-- `agents/arcana.yaml`. 프롬프트 `arcana`(Langfuse). 기본 도구와 플랫폼 기본 도구(기억, 볼트 도구, 스레드 도구)를 쓴다. 이미지·Unity·스케줄러 도구는 없다.
+- `agents/arcana.yaml`. 프롬프트 `arcana`(Langfuse). 기본 도구와 플랫폼 기본 도구(기억, 볼트 도구, 스레드 도구)를 쓴다. 이미지·Unity 도구는 없다. ~~스케줄러 도구도 없다.~~ 스케줄러는 ADR-0052 로 대체: 자기 스케줄만 다룬다.
 - 새 플랫폼 권한 `vault-private` 를 아르카나 정의에만 준다.
 - 에닉의 `delegates` 에 `arcana` 를 더한다(ADR-0047).
 - 전용 채널 `C0CMDCK8UNR`, 표시 이름 `아르카나`, 아이콘 `:arcana:`(ADR-0045).

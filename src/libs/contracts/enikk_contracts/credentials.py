@@ -24,7 +24,7 @@ class CredentialName(StrEnum):
     """Key of the owner's Unity MCP server, for the Unity relay alone (ADR-0044, I-09)."""
     DRIVE_OAUTH_CLIENT_ID = "drive.oauth-client-id"
     """The owner's Google OAuth client (installed app), for the Drive server alone
-    (ADR-0052, I-09)."""
+    (ADR-0053, I-09)."""
     DRIVE_OAUTH_CLIENT_SECRET = "drive.oauth-client-secret"
     DRIVE_OAUTH_REFRESH_TOKEN = "drive.oauth-refresh-token"
     """From ``enikk-ops drive-auth`` on the owner's PC; reaches the owner's Drive."""

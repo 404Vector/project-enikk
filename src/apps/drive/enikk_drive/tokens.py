@@ -1,4 +1,4 @@
-"""Core's task tokens, checked again by the Drive server (ADR-0052 §4, as ADR-0044 §5).
+"""Core's task tokens, checked again by the Drive server (ADR-0053 §4, as ADR-0044 §5).
 
 agentgateway checks the token and copies it into ``x-enikk-mcp-token``. The server checks
 it once more with core's public keys (``/v1/mcp/jwks``), so a caller that reaches the

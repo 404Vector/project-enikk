@@ -1,4 +1,4 @@
-"""The Drive server's refresh token from the owner's consent (ADR-0052 §5).
+"""The Drive server's refresh token from the owner's consent (ADR-0053 §5).
 
 Installed-app OAuth with PKCE and a loopback redirect: the browser asks the owner to
 allow Drive access, Google redirects to a one-shot local listener, and the code is

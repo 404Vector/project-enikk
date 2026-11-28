@@ -3,7 +3,8 @@
 Every request names the calling session (or task and lease). Core finds the task with
 a live lease and takes the agent and session from it. Any session may change schedules
 and nothing waits for approval; a schedule's tools never exceed its agent's definition
-(ADR-0041 §1, I-39).
+(ADR-0041 §1, I-39). An agent sees and manages only the schedules whose agent it may
+manage: itself, its delegates, or an agent whose tools it has (ADR-0052).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from enikk_contracts.schedules import (
 )
 from enikk_core.schedule_runs import ScheduleRunner
 from enikk_core_domain.errors import NotFoundError, PermissionDeniedError
-from enikk_core_domain.schedules import Schedule, check_spec
+from enikk_core_domain.schedules import Schedule, check_spec, may_manage
 
 if TYPE_CHECKING:
     from enikk_contracts.agents import AgentDefinition
@@ -64,34 +65,36 @@ class ScheduleService:
 
     async def run_now(self, name: str, request: RunNow) -> RunView:
         async with self._uow() as uow:
-            await self._caller(uow, request.caller)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, request.caller)
+            schedule = await self._managed(uow, name, task)
         run = await self._runner.run_now(schedule)
         return run.view()
 
     async def list(self, query: ScheduleQuery) -> ScheduleList:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller)
+            task, _ = await self._caller(uow, query.caller)
             schedules = await uow.schedules.all(MAX_LISTED)
-        return ScheduleList(schedules=tuple(s.view() for s in schedules))
+        caller = self._catalog.get(task.agent)
+        mine = (s for s in schedules if may_manage(caller, self._catalog.get(s.spec.agent)))
+        return ScheduleList(schedules=tuple(s.view() for s in mine))
 
     async def get(self, name: str, query: ScheduleQuery) -> ScheduleView:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, query.caller)
+            schedule = await self._managed(uow, name, task)
         return schedule.view()
 
     async def runs(self, name: str, query: RunsQuery) -> RunList:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, query.caller)
+            schedule = await self._managed(uow, name, task)
             runs = await uow.schedule_runs.latest(schedule.id, query.limit)
         return RunList(runs=tuple(r.view() for r in runs))
 
     async def create(self, request: ScheduleCreate) -> ScheduleView:
         async with self._uow() as uow:
             task, session = await self._caller(uow, request.caller)
-            spec, _ = self._checked(request.spec)
+            spec, _ = self._checked(request.spec, task)
             schedule = Schedule.create(
                 schedule_id=self._ids.new(),
                 name=request.name,
@@ -107,9 +110,9 @@ class ScheduleService:
 
     async def update(self, name: str, request: ScheduleUpdate) -> ScheduleView:
         async with self._uow() as uow:
-            await self._caller(uow, request.caller)
-            spec, _ = self._checked(request.spec)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, request.caller)
+            spec, _ = self._checked(request.spec, task)
+            schedule = await self._managed(uow, name, task)
             changed = schedule.replace(spec, approval=False, now=self._clock.now())
             await uow.schedules.update(changed)
             await uow.commit()
@@ -117,8 +120,8 @@ class ScheduleService:
 
     async def pause(self, name: str, request: SchedulePause) -> ScheduleView:
         async with self._uow() as uow:
-            await self._caller(uow, request.caller)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, request.caller)
+            schedule = await self._managed(uow, name, task)
             now = self._clock.now()
             changed = schedule.pause(now) if request.paused else schedule.resume(now)
             await uow.schedules.update(changed)
@@ -127,8 +130,8 @@ class ScheduleService:
 
     async def delete(self, name: str, query: ScheduleQuery) -> ScheduleDeleted:
         async with self._uow() as uow:
-            await self._caller(uow, query.caller)
-            schedule = await self._named(uow, name)
+            task, _ = await self._caller(uow, query.caller)
+            schedule = await self._managed(uow, name, task)
             await uow.schedules.delete(schedule.id)
             await uow.commit()
         return ScheduleDeleted(id=schedule.id)
@@ -157,9 +160,21 @@ class ScheduleService:
         task.verify_lease(caller.lease_id, now)
         return task
 
-    def _checked(self, spec: ScheduleSpec) -> tuple[ScheduleSpec, AgentDefinition]:
+    def _checked(self, spec: ScheduleSpec, task: Task) -> tuple[ScheduleSpec, AgentDefinition]:
         definition = check_spec(spec, self._catalog.get(spec.agent))
+        self._may_manage(task, definition.name)
         return spec.model_copy(update={"agent": definition.name}), definition
+
+    async def _managed(self, uow: UnitOfWork, name: str, task: Task) -> Schedule:
+        schedule = await self._named(uow, name)
+        self._may_manage(task, schedule.spec.agent)
+        return schedule
+
+    def _may_manage(self, task: Task, agent: str) -> None:
+        if not may_manage(self._catalog.get(task.agent), self._catalog.get(agent)):
+            raise PermissionDeniedError(
+                f"agent '{task.agent}' may not manage schedules of '{agent}' (ADR-0052)"
+            )
 
     def _agent_name(self, agent: str) -> str:
         definition = self._catalog.get(agent)

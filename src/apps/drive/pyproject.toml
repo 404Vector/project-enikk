@@ -1,7 +1,7 @@
 [project]
 name = "enikk-drive"
 version = "0.1.0"
-description = "enikk-drive: file exchange through a Google Drive folder as MCP tools (ADR-0052)"
+description = "enikk-drive: file exchange through a Google Drive folder as MCP tools (ADR-0053)"
 requires-python = ">=3.12"
 dependencies = [
     "enikk-kernel",

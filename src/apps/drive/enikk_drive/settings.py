@@ -18,7 +18,7 @@ class DriveSettings(ServiceSettings, env_prefix="ENIKK_DRIVE_"):
     upload_url: str = "https://www.googleapis.com/upload/drive/v3"
     root_folder: str = Field(default="enikk", min_length=1, max_length=255)
     """Name of the exchange folder at the top of My Drive. The tools reach nothing
-    outside it (ADR-0052 §3). Created on first use when missing."""
+    outside it (ADR-0053 §3). Created on first use when missing."""
     max_file_mb: int = Field(default=100, ge=1, le=2048)
     """Largest file one call may move, either way."""
     request_seconds: float = Field(default=300.0, gt=0)

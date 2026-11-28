@@ -1,4 +1,4 @@
-"""The exchange MCP tools (ADR-0052): put a thread's file into the Drive exchange
+"""The exchange MCP tools (ADR-0053): put a thread's file into the Drive exchange
 folder, get one into the thread's tmp, list a folder. File bytes never pass through
 the tool results; only paths, sizes and times do."""
 
@@ -39,7 +39,7 @@ def build_server(service: ExchangeService, verifier: TokenVerifier) -> MCPServer
         SERVER_NAME,
         instructions=(
             f"File exchange through the Google Drive folder '{root}' at the top of the "
-            "owner's My Drive (ADR-0052). The owner's Windows PC syncs that folder with "
+            "owner's My Drive (ADR-0053). The owner's Windows PC syncs that folder with "
             "Drive for Desktop, so the Unity tools can read and write it as a local folder. "
             "Drive paths are inside that folder, e.g. to-unity/hero.png; nothing outside "
             "it is reached. Syncing to the PC takes seconds to minutes. File bytes never "
@@ -80,7 +80,7 @@ def build_server(service: ExchangeService, verifier: TokenVerifier) -> MCPServer
 
 async def _session(verifier: TokenVerifier, ctx: Context, tool: str) -> uuid.UUID:
     """The calling session, from core's task token once it is checked and names the tool
-    (ADR-0052 §4)."""
+    (ADR-0053 §4)."""
     try:
         claims = await verifier.verify(ctx.headers)
         if not claims.allows(tool):

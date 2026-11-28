@@ -5,7 +5,7 @@
 # session (ADR-0041 §3) and the issuing task and lease from the token to the server
 # (transformations; any such headers from the caller are replaced). The token itself is
 # not forwarded, except to the Unity relay and the Drive server, which check it again
-# (ADR-0044 §5, ADR-0052 §4). The require rule is the gateway's ceiling of tools for
+# (ADR-0044 §5, ADR-0053 §4). The require rule is the gateway's ceiling of tools for
 # the server. After a change, bump enikk.dev/revision in deployment.yaml so the gateway
 # restarts with it.
 apiVersion: v1
@@ -123,7 +123,7 @@ data:
                     mode: strict
                     resourceMetadata: {}
                   mcpAuthorization:
-                    # Ceiling for this server: the three exchange tools (ADR-0052 §2).
+                    # Ceiling for this server: the three exchange tools (ADR-0053 §2).
                     rules:
                       - require: 'mcp.tool.name in ["drive_put", "drive_get", "drive_list"]'
                       - allow: '("drive:" + mcp.tool.name) in jwt.tools'
@@ -134,7 +134,7 @@ data:
                         x-enikk-task-id: jwt.task
                         x-enikk-lease-id: jwt.lease
                         # The server checks the token itself and takes the session from
-                        # it; its Service is reachable without the gateway (ADR-0052 §4).
+                        # it; its Service is reachable without the gateway (ADR-0053 §4).
                         x-enikk-mcp-token: jwt.rawToken.unredacted()
                 backends:
                   - mcp:

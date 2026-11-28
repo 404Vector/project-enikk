@@ -132,7 +132,7 @@ def secret_sync(ctx: typer.Context) -> None:
 
 @app.command("drive-auth")
 def drive_auth(ctx: typer.Context) -> None:
-    """Allow the Drive server into your Google Drive (ADR-0052): opens the browser for
+    """Allow the Drive server into your Google Drive (ADR-0053): opens the browser for
     consent and saves the refresh token. Set drive.oauth-client-id and
     drive.oauth-client-secret first. The token is never printed."""
     file = _container(ctx).secret_file
