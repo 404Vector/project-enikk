@@ -112,6 +112,21 @@ def test_enikk_hands_work_to_rita_and_arcana() -> None:
     assert enikk.delegates == ("rita", "arcana")
 
 
+def test_rita_and_arcana_schedule_only_themselves() -> None:
+    """ADR-0052: they have the scheduler, and no schedule lends them another's tools."""
+    from enikk_core_domain.schedules import may_manage
+
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    for name in ("rita", "arcana"):
+        definition = catalog.get(name)
+        assert definition is not None
+        assert "scheduler" in {grant.server for grant in definition.tools.mcp}, name
+        others = [other for other in catalog.names() if other not in {name, "summarizer"}]
+        assert not [o for o in others if may_manage(definition, catalog.get(o))], name
+    enikk = catalog.get("enikk")
+    assert all(may_manage(enikk, catalog.get(name)) for name in catalog.names())
+
+
 def test_only_arcana_writes_the_owners_unpublished_notes() -> None:
     from enikk_contracts.agents import PlatformTool
 
