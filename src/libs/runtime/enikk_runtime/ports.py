@@ -22,6 +22,8 @@ if TYPE_CHECKING:
         RecentTasksQuery,
         TaskDetail,
         TaskDetailQuery,
+        VaultActions,
+        VaultActionsQuery,
     )
     from enikk_contracts.memory import (
         ForgetRequest,
@@ -170,6 +172,9 @@ class Diagnostician(Protocol):
     ) -> Deployments: ...
     async def diagnose_logs(self, task_id: uuid.UUID, query: LogsQuery) -> LogLines: ...
     async def diagnose_pulls(self, task_id: uuid.UUID, query: PullsQuery) -> Pulls: ...
+    async def diagnose_vault_actions(
+        self, task_id: uuid.UUID, query: VaultActionsQuery
+    ) -> VaultActions: ...
 
 
 class PromptStore(Protocol):

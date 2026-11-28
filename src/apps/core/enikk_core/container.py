@@ -182,6 +182,7 @@ def _diagnostics(
             namespace=d.namespace,
             apps=settings.deployments.apps,
             repository=settings.github.self_repository,
+            vault_repository=settings.memory.repository if settings.memory.enabled else None,
         ),
         logs=KubeLogReader.in_cluster(LogConfig(api_url=d.api_url)),
         apps=KubeApplicationReader.in_cluster(
@@ -189,6 +190,7 @@ def _diagnostics(
         ),
         github=app,
         pulls=None if app is None else PullRequests(app),
+        actions=None if app is None else RepositoryActivity(app),
     )
 
 

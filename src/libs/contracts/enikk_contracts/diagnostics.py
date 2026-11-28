@@ -117,3 +117,35 @@ class PullStatus(Contract):
 
 class Pulls(Contract):
     pulls: tuple[PullStatus, ...]
+
+
+class VaultActionsQuery(Contract):
+    lease_id: uuid.UUID
+    limit: Annotated[int, Field(ge=1, le=20)] = 10
+
+
+class ActionWorkflow(Contract):
+    name: Short
+    path: Short
+    state: str
+    """``active``, or why it is off (``disabled_manually``, ``disabled_inactivity``)."""
+
+
+class ActionRun(Contract):
+    workflow: Short
+    event: str
+    branch: str | None = None
+    head_sha: str
+    status: str
+    conclusion: str | None = None
+    created_at: datetime
+    url: str
+    failed_steps: tuple[Short, ...] = ()
+
+
+class VaultActions(Contract):
+    """GitHub Actions of the owner's vault repository, which builds the blog."""
+
+    repository: str
+    workflows: tuple[ActionWorkflow, ...]
+    runs: tuple[ActionRun, ...]

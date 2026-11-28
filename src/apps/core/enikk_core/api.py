@@ -37,6 +37,8 @@ from enikk_contracts.diagnostics import (
     RecentTasksQuery,
     TaskDetail,
     TaskDetailQuery,
+    VaultActions,
+    VaultActionsQuery,
 )
 from enikk_contracts.errors import ErrorCode, ErrorResponse
 from enikk_contracts.events import EventAccepted, InboundEvent
@@ -350,6 +352,14 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PullsQuery)
         await usecases.verify_lease(scope, task_id, body.lease_id)
         return _json(await _diagnostics(services).pulls(body))
+
+    @app.post(routes.DIAG_VAULT_ACTIONS, responses={200: {"model": VaultActions}})
+    @requires("runtime")
+    async def diagnose_vault_actions(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, VaultActionsQuery)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _diagnostics(services).vault_actions(body))
 
     @app.post(routes.MEMORY_REMEMBER, responses={200: {"model": MemoryWritten}})
     @requires("runtime")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,15 +15,21 @@ from enikk_contracts.diagnostics import (
     RecentTasksQuery,
     Service,
     TaskDetailQuery,
+    VaultActionsQuery,
 )
 from enikk_contracts.tasks import TaskStatus
 from enikk_core.diagnostics import SELECTORS, DiagnosticsPolicy, DiagnosticsService
+from enikk_core_domain.errors import DependencyUnavailableError
 from enikk_core_domain.model import Notice
 from enikk_core_domain.redaction import MASK, looks_secret, redact
 from enikk_core_domain.testing import session, task
+from enikk_github.activity import RecentRun, Workflow
+from enikk_github.permissions import TokenPurpose
 
 if TYPE_CHECKING:
     from conftest import Harness
+
+    from enikk_github.app import InstallationToken
 
 pytestmark = pytest.mark.anyio
 
@@ -117,3 +123,56 @@ def test_every_service_has_a_log_selector() -> None:
     assert set(SELECTORS) == set(Service)
     assert SELECTORS[Service.SCHEDULER] == "app.kubernetes.io/name=enikk-scheduler"
     assert SELECTORS[Service.AGENTGATEWAY] == "app.kubernetes.io/name=enikk-agentgateway"
+
+
+class FakeActions:
+    def __init__(self) -> None:
+        self.explained: list[int] = []
+
+    async def workflows(self, token: InstallationToken) -> list[Workflow]:
+        return [Workflow(name="publish", path=".github/workflows/publish.yml", state="active")]
+
+    async def recent_runs(self, token: InstallationToken, limit: int) -> list[RecentRun]:
+        return [
+            RecentRun(
+                id=i,
+                workflow="publish",
+                event="push",
+                branch="main",
+                head_sha="a" * 40,
+                status="completed",
+                conclusion="failure" if i < 5 else "success",
+                url=f"https://github.com/404Vector/vault/actions/runs/{i}",
+                created_at=datetime(2026, 11, 28, tzinfo=UTC) - timedelta(hours=i),
+            )
+            for i in range(limit)
+        ]
+
+    async def failed_steps(self, token: InstallationToken, run_id: int) -> list[str]:
+        self.explained.append(run_id)
+        return [f"build / push with {SECRET}"]
+
+
+async def test_vault_actions_explain_the_latest_failures(harness: Harness) -> None:
+    actions = FakeActions()
+    diag = DiagnosticsService(
+        uow=harness.db.unit_of_work,
+        clock=harness.clock,
+        policy=DiagnosticsPolicy(vault_repository="vault.hyeongseok-kim"),
+        github=harness.github,
+        actions=actions,
+    )
+    found = await diag.vault_actions(VaultActionsQuery(lease_id=LEASE, limit=8))
+    assert found.repository.endswith("/vault.hyeongseok-kim")
+    assert [w.state for w in found.workflows] == ["active"]
+    assert len(found.runs) == 8
+    assert actions.explained == [0, 1, 2]
+    assert found.runs[0].failed_steps == (f"build / push with {MASK}",)
+    assert found.runs[5].failed_steps == ()
+    assert harness.github.issued[-1] == ("vault.hyeongseok-kim", TokenPurpose.WATCH)
+    assert harness.github.revoked[-1] == "vault.hyeongseok-kim"
+
+
+async def test_vault_actions_need_the_vault(diag: DiagnosticsService) -> None:
+    with pytest.raises(DependencyUnavailableError):
+        await diag.vault_actions(VaultActionsQuery(lease_id=LEASE))
