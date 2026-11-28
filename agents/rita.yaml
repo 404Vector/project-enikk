@@ -30,6 +30,10 @@ tools:
          manage_texture, manage_tools, manage_ui, manage_vfx, read_console,
          refresh_unity, run_tests, script_apply_edits, set_active_instance, unity_docs,
          unity_reflect, validate_script, list_unity_resources, read_unity_resource]
+    # File exchange through the owner's Google Drive folder "enikk", which the Windows
+    # PC syncs; file bytes never pass through the tool results (ADR-0052).
+    - server: drive
+      allow: [drive_put, drive_get, drive_list]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
   # web returns is untrusted input. No browser automation.
   builtin:

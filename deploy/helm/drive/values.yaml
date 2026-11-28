@@ -1,0 +1,31 @@
+# Off switch (ADR-0052 "되돌리기"): false runs no replicas.
+enabled: true
+
+image:
+  repository: ghcr.io/404vector/enikk-drive
+  # Set by Argo CD Image Updater. While empty, the Deployment runs no replicas.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The Google OAuth client and refresh token come from core (ADR-0013, I-09).
+coreUrl: http://enikk-core.enikk.svc
+
+# Lifetime of the audience=enikk-core projected token. kubelet rotates it.
+coreTokenSeconds: 3600
+
+# The exchange folder at the top of the owner's My Drive (ADR-0052 §3). The tools
+# reach nothing outside it; it is created on first use when missing.
+rootFolder: enikk
+# Largest file one call may move, either way.
+maxFileMb: 100
+
+# The runtime's shared volume (ADR-0037 §7): uploads are read from the calling
+# thread's tmp or worktree, downloads go to tmp/<session>/drive. One node, so the
+# ReadWriteOnce claim can be mounted here too.
+workspace:
+  claimName: enikk-runtime-claude-data
+  mountPath: /data
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { memory: 256Mi }
