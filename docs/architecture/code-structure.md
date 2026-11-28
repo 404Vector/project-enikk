@@ -1,7 +1,7 @@
 # 코드 구조
 
 - 상태: 승인
-- 최종 갱신: 2026-11-26
+- 최종 갱신: 2026-11-28
 - 근거: ADR-0003, ADR-0005, ADR-0006, ADR-0007, ADR-0010, ADR-0011, P-01, P-02, P-13, P-14
 
 ## 1. 전제
@@ -39,6 +39,7 @@ src/
 │  ├─ scheduler/       enikk_scheduler      스케줄러: 시계와 스케줄 MCP 도구 (ADR-0039)
 │  ├─ imagegen/        enikk_imagegen       이미지 생성: Gemini 이미지 MCP 도구와 화풍 (ADR-0043)
 │  ├─ unity/           enikk_unity          소유자 PC 의 Unity MCP 서버 중계: 키를 붙여 전달 (ADR-0044)
+│  ├─ drive/           enikk_drive          Google Drive 교환 폴더로 파일 주고받기 MCP 도구 (ADR-0052)
 │  ├─ ops-cli/         enikk_ops            부트스트랩, 로컬 개발 도구
 │  └─ mcp-<name>/      enikk_mcp_<name>     자체 MCP 서버 (필요해질 때 추가)
 │
