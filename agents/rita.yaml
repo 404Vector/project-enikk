@@ -7,8 +7,14 @@ prompt:
   name: rita
   label: production
 tools:
-  # Game art and the owner's Unity editor only; no scheduler (ADR-0045).
+  # Game art, the owner's Unity editor and her own schedules (ADR-0045, ADR-0052).
   mcp:
+    # Her own schedules only: core lets an agent manage schedules of itself, its
+    # delegates and agents whose tools it has (ADR-0052).
+    - server: scheduler
+      allow:
+        [list_schedules, get_schedule, list_runs, create_schedule, update_schedule,
+         pause_schedule, resume_schedule, delete_schedule, run_now]
     # Images with the Gemini API, saved to the thread's tmp (ADR-0043).
     - server: imagegen
       allow:

@@ -58,8 +58,12 @@ async def api(harness: Harness) -> AsyncIterator[Api]:
         yield Api(client)
 
 
-async def _caller(harness: Harness, connector: ConnectorKind = ConnectorKind.SLACK) -> Caller:
+async def _caller(
+    harness: Harness, connector: ConnectorKind = ConnectorKind.SLACK, agent: str = "assistant"
+) -> Caller:
     owner = session(thread=str(uuid.uuid4()))
+    if agent != "assistant":
+        owner = owner.model_copy(update={"agent": agent})
     if connector is not ConnectorKind.SLACK:
         where = ConversationRef(connector=connector, channel="schedule", thread="1")
         owner = owner.model_copy(update={"conversation": where})
@@ -221,3 +225,45 @@ async def test_a_session_caller_is_its_running_task(harness: Harness, api: Api) 
     assert (await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=nobody))).status_code == 403
     harness.clock.advance(timedelta(hours=2))
     assert (await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=caller))).status_code == 403
+
+
+async def test_an_agent_manages_only_schedules_it_may(harness: Harness, api: Api) -> None:
+    """ADR-0052: builder has Bash but not the default tools; assistant the reverse."""
+    builder = await _caller(harness, agent="builder")
+    assistant = await _caller(harness)
+    own = await api.post(
+        routes.SCHEDULES,
+        ScheduleCreate(caller=builder, name="build", spec=_spec(agent="builder")),
+    )
+    assert own.status_code == 200, own.text
+    assert ScheduleView.model_validate_json(own.content).owner_agent == "builder"
+    await api.post(routes.SCHEDULES, ScheduleCreate(caller=assistant, name="news", spec=_spec()))
+
+    refused = [
+        await api.post(routes.SCHEDULES, ScheduleCreate(caller=builder, name="x", spec=_spec())),
+        await api.post(
+            routes.SCHEDULE_UPDATE.format(name="news"),
+            ScheduleUpdate(caller=builder, spec=_spec(agent="builder")),
+        ),
+        await api.post(
+            routes.SCHEDULE_UPDATE.format(name="build"),
+            ScheduleUpdate(caller=builder, spec=_spec()),
+        ),
+        await api.post(
+            routes.SCHEDULE_PAUSE.format(name="news"), SchedulePause(caller=builder, paused=True)
+        ),
+        await api.post(routes.SCHEDULE_GET.format(name="news"), ScheduleQuery(caller=builder)),
+        await api.post(routes.SCHEDULE_RUNS.format(name="news"), ScheduleQuery(caller=builder)),
+        await api.post(routes.SCHEDULE_DELETE.format(name="news"), ScheduleQuery(caller=builder)),
+        await api.post(routes.SCHEDULE_GET.format(name="build"), ScheduleQuery(caller=assistant)),
+    ]
+    assert [r.status_code for r in refused] == [403] * len(refused)
+    assert "ADR-0052" in refused[0].text
+
+    def names(response: httpx.Response) -> list[str]:
+        return [s.name for s in ScheduleList.model_validate_json(response.content).schedules]
+
+    listed = await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=builder))
+    assert names(listed) == ["build"]
+    listed = await api.post(routes.SCHEDULES_LIST, ScheduleQuery(caller=assistant))
+    assert names(listed) == ["news"]

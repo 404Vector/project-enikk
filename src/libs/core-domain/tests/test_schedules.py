@@ -28,6 +28,7 @@ from enikk_core_domain.errors import InvalidRequestError, InvalidTransitionError
 from enikk_core_domain.schedules import (
     Schedule,
     check_spec,
+    may_manage,
     needs_approval,
     parse_cron,
     tools_beyond,
@@ -140,6 +141,39 @@ def test_own_range_applies_at_once() -> None:
 def test_other_agents_and_frequent_runs_need_approval() -> None:
     assert needs_approval(schedule_spec(agent="other"), OTHER, "enikk")
     assert needs_approval(schedule_spec(cron="*/9 * * * *"), ENIKK, "enikk")
+
+
+def test_an_agent_manages_itself_its_delegates_and_agents_it_covers() -> None:
+    """ADR-0052: no agent reaches tools it does not have through a schedule."""
+    painter = ENIKK.model_copy(
+        update={
+            "name": "painter",
+            "aliases": (),
+            "tools": ToolPolicy(mcp=(McpToolGrant(server="imagegen", allow=("generate",)),)),
+        }
+    )
+    writer = ENIKK.model_copy(
+        update={"name": "writer", "aliases": (), "tools": ToolPolicy(builtin=("Read",))}
+    )
+    quiet = ENIKK.model_copy(
+        update={"name": "quiet", "aliases": (), "tools": ToolPolicy(platform_defaults=False)}
+    )
+    boss = ENIKK.model_copy(update={"delegates": ("painter",)})
+    assert may_manage(painter, painter)
+    assert not may_manage(painter, ENIKK)
+    assert not may_manage(painter, writer)
+    assert may_manage(boss, painter)
+    assert not may_manage(ENIKK, painter)
+    assert may_manage(ENIKK, writer)
+    assert may_manage(painter, quiet)
+    assert not may_manage(quiet, painter)
+    vault = writer.model_copy(update={"tools": ToolPolicy(platform=(PlatformTool.VAULT_PRIVATE,))})
+    assert not may_manage(ENIKK, vault)
+
+
+def test_unknown_callers_manage_nothing_and_orphans_are_anyones() -> None:
+    assert not may_manage(None, ENIKK)
+    assert may_manage(OTHER, None)
 
 
 def _schedule(*, approval: bool) -> Schedule:

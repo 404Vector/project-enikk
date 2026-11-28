@@ -8,7 +8,14 @@ prompt:
   label: production
 tools:
   # The vault tools (recall, read_note, write_note, write_notes) come with the platform
-  # defaults. No image, Unity or scheduler tools.
+  # defaults. No image or Unity tools.
+  mcp:
+    # Her own schedules only: core lets an agent manage schedules of itself, its
+    # delegates and agents whose tools it has (ADR-0052).
+    - server: scheduler
+      allow:
+        [list_schedules, get_schedule, list_runs, create_schedule, update_schedule,
+         pause_schedule, resume_schedule, delete_schedule, run_now]
   # SDK built-in tools, run in the engine's Landlock sandbox (ADR-0033, I-14). What the
   # web returns is untrusted input. No browser automation.
   builtin:

@@ -47,6 +47,7 @@ uv run pytest                    # 영속성 통합 테스트는 Postgres 를 �
 - DB 스키마는 `enikk_persistence_sql/tables.py` 와 Alembic 리비전(`migrations/versions/`)을 함께 바꾼다. 둘이 어긋나면 테스트가 실패한다.
 - 새 core API 엔드포인트는 `@requires(<역할>)` 로 허용 역할을 선언한다. 선언이 없으면 앱이 시작되지 않는다.
 - 에이전트 정의(`agents/*.yaml`)는 core 테스트가 검증한다. 프롬프트 본문은 넣지 않는다.
+- 새 에이전트를 만들 때는 스케줄러 도구(`tools.mcp` 의 `scheduler`)를 줄지 소유자에게 먼저 묻는다. 주면 core 가 자기 스케줄만 다루게 한다(ADR-0052).
 - Slack 과 에이전트의 연결 규칙은 `config/slack.yaml` 에 둔다. 에이전트 정의에 Slack 을 넣지 않는다. 에이전트의 전용 채널과 표시 이름·아이콘은 `agent_channels` 에 둔다(ADR-0045).
 
 ## 배포 자산
