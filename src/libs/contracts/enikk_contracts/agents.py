@@ -117,6 +117,9 @@ class AgentDefinition(Contract):
     tools: ToolPolicy = ToolPolicy()
     delegates: Annotated[tuple[AgentName, ...], Field(max_length=10)] = ()
     """Agents this one may hand work to; their results wake its thread (ADR-0047)."""
+    asks: Annotated[tuple[AgentName, ...], Field(max_length=10)] = ()
+    """Agents this one may ask for work; each request runs only after the owner allows it
+    on a card in the thread, and its result wakes the thread (ADR-0054)."""
     limits: Limits = Limits()
 
     @model_validator(mode="after")
@@ -131,6 +134,16 @@ class AgentDefinition(Contract):
             raise ValueError("delegates must differ from each other")
         if {self.name, *self.aliases} & set(self.delegates):
             raise ValueError("an agent does not delegate to itself")
+        return self
+
+    @model_validator(mode="after")
+    def _distinct_asks(self) -> Self:
+        if len(set(self.asks)) != len(self.asks):
+            raise ValueError("asks must differ from each other")
+        if {self.name, *self.aliases} & set(self.asks):
+            raise ValueError("an agent does not ask itself")
+        if set(self.asks) & set(self.delegates):
+            raise ValueError("an agent either delegates to or asks another agent, not both")
         return self
 
     @model_validator(mode="after")

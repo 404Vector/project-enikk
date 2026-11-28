@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from enikk_contracts.credentials import CredentialName
 from enikk_core.api import CoreServices
 from enikk_core.approval.service import ApprovalService
+from enikk_core.asks import AskService
 from enikk_core.catalog import YamlAgentCatalog
 from enikk_core.credentials import CredentialIssuer, DirectoryCredentialStore
 from enikk_core.deployments import DeploymentPolicy, DeploymentService
@@ -39,6 +41,7 @@ from enikk_k8s_auth.authenticator import TokenReviewAuthenticator, TokenReviewCo
 from enikk_k8s_jobs.applications import ArgoConfig, KubeApplicationReader
 from enikk_k8s_jobs.logs import KubeLogReader, LogConfig
 from enikk_kernel.clock import SystemClock
+from enikk_kernel.errors import ConfigurationError
 from enikk_kernel.ids import RandomIdGenerator
 from enikk_langfuse.config import LangfuseConfig
 from enikk_langfuse.registry import LangfusePromptRegistry
@@ -49,6 +52,8 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from enikk_core.settings import CoreSettings
+
+_log = logging.getLogger(__name__)
 
 
 def build_services(settings: CoreSettings) -> CoreServices:
@@ -105,7 +110,26 @@ def build_services(settings: CoreSettings) -> CoreServices:
         diagnostics=_diagnostics(settings, store, clock, uow),
         prompts=_prompts(settings, store, catalog, clock, uow, ids, waker),
         schedules=ScheduleService(uow=uow, catalog=catalog, clock=clock, ids=ids, memory=memory),
+        asks=AskService(
+            uow=uow,
+            catalog=catalog,
+            clock=clock,
+            ids=ids,
+            owner=_owner_or_none(settings),
+            max_attempts=settings.tasks.max_attempts,
+            expires_after=timedelta(hours=settings.asks.expires_hours),
+            waker=waker,
+        ),
     )
+
+
+def _owner_or_none(settings: CoreSettings) -> str | None:
+    """The owner who decides requests between agents (ADR-0054); none refuses them all."""
+    try:
+        return load_owner(settings.prompts.slack_config_file)
+    except ConfigurationError as exc:
+        _log.warning("requests between agents cannot be decided: %s", exc)
+        return None
 
 
 def _github_tokens(

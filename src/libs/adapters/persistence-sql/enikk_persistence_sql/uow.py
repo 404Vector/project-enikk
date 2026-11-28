@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from enikk_core_domain.errors import ConcurrentUpdateError, DependencyUnavailableError
 from enikk_persistence_sql.repositories import (
     SqlApprovalRepository,
+    SqlAskRepository,
     SqlDeploymentWatchRepository,
     SqlDigestRepository,
     SqlDispatchRepository,
@@ -49,6 +50,7 @@ class SqlUnitOfWork:
         self.status_cards = SqlStatusCardRepository(self._db)
         self.prompt_promotions = SqlPromptPromotionRepository(self._db)
         self.note_changes = SqlNoteChangeRepository(self._db)
+        self.asks = SqlAskRepository(self._db)
         self.digests = SqlDigestRepository(self._db)
         self.schedules = SqlScheduleRepository(self._db)
         self.schedule_runs = SqlScheduleRunRepository(self._db)

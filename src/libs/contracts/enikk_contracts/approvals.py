@@ -14,6 +14,7 @@ from pydantic import Field, StringConstraints
 
 from enikk_contracts.base import Contract
 from enikk_contracts.common import ConversationRef, Identifier
+from enikk_contracts.delegation import AskCard
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
 from enikk_contracts.digests import DigestFailed, ScheduleDelivered
 from enikk_contracts.memory import NoteChangeRequested
@@ -174,6 +175,7 @@ OwnerNoticeBody = Annotated[
     | BuildFailed
     | PromotionRequested
     | NoteChangeRequested
+    | AskCard
     | DigestFailed
     | ScheduleDelivered
     | PullStatusCard,

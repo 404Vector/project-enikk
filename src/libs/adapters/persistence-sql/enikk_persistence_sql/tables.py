@@ -191,6 +191,27 @@ class NoteChangeRow(Base):
     decided_by: Mapped[str | None] = mapped_column(String(255))
 
 
+class AskRow(Base):
+    """One agent's request for another agent's work, decided by the owner (ADR-0054)."""
+
+    __tablename__ = "asks"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))
+    requester: Mapped[str] = mapped_column(String(63))
+    agent: Mapped[str] = mapped_column(String(63))
+    request: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    decided_at: Mapped[datetime | None]
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+    queued_task_id: Mapped[uuid.UUID | None]
+
+    __table_args__ = (Index("ix_asks_open", "status", "expires_at"),)
+
+
 class PromptPromotionRow(Base):
     """The owner's promotion request of a prompt candidate (ADR-0032)."""
 

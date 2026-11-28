@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import HttpUrl
 
-from enikk_contracts.delegation import Delegated, DelegateRequest
+from enikk_contracts.delegation import AskCreated, AskRequest, Delegated, DelegateRequest
 from enikk_contracts.thread_actions import (
     LinkTarget,
     MessageLink,
@@ -19,8 +20,10 @@ from enikk_contracts.thread_actions import (
 )
 from enikk_engine_claude.current import CurrentJob
 from enikk_engine_claude.platform_tools import (
+    ASK_TOOL,
     DELEGATE_TOOL,
     THREAD_TOOLS,
+    ask_tool,
     delegate_tool,
     granted_platform_tools,
     sendable_file,
@@ -229,4 +232,46 @@ async def test_delegate_hands_the_request_to_core(tmp_path: Path) -> None:
     assert [(r.agent, r.request) for r in core.requests] == [
         ("rita", "나무를 그려 줘"),
         ("rita", "또"),
+    ]
+
+
+def _asking_job(tmp_path: Path) -> EngineJob:
+    job = _job(tmp_path)
+    return job.model_copy(
+        update={"definition": definition().model_copy(update={"asks": ("enikk",)})}
+    )
+
+
+def test_ask_agent_is_granted_only_to_an_agent_with_asks(tmp_path: Path) -> None:
+    assert ASK_TOOL not in granted_platform_tools(_job(tmp_path), thread=True)
+    assert ASK_TOOL in granted_platform_tools(_asking_job(tmp_path), thread=True)
+    assert ASK_TOOL not in granted_platform_tools(_asking_job(tmp_path), thread=False)
+
+
+class _Asks:
+    def __init__(self) -> None:
+        self.requests: list[AskRequest] = []
+
+    async def ask(self, task_id: uuid.UUID, request: AskRequest) -> AskCreated:
+        self.requests.append(request)
+        return AskCreated(
+            request_id=uuid.uuid4(),
+            agent=request.agent,
+            expires_at=datetime(2026, 11, 29, tzinfo=UTC),
+        )
+
+
+@pytest.mark.anyio
+async def test_ask_agent_leaves_the_request_with_core(tmp_path: Path) -> None:
+    core = _Asks()
+    tool = ask_tool(CurrentJob(_asking_job(tmp_path)), core)  # type: ignore[arg-type]
+
+    asked = await tool.handler({"agent": "enikk", "request": "도구를 더해 줘", "reason": "없음"})
+    wrong = await tool.handler({"agent": "enikk", "request": "x", "reason": ""})
+
+    assert not asked["is_error"]
+    assert "[허가]" in asked["content"][0]["text"]
+    assert wrong["is_error"]
+    assert [(r.agent, r.request, r.reason) for r in core.requests] == [
+        ("enikk", "도구를 더해 줘", "없음")
     ]

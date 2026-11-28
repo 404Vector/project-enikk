@@ -12,12 +12,14 @@ from pydantic import TypeAdapter
 from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
+from enikk_contracts.delegation import AskStatus
 from enikk_contracts.digests import DigestStatus
 from enikk_contracts.memory import NoteChangeAction, NoteChangeStatus, NoteKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.schedules import RunStatus, ScheduleSpec, ScheduleState
 from enikk_contracts.tasks import TaskStatus
+from enikk_core_domain.asks import AskedWork
 from enikk_core_domain.deployments import DeploymentWatch
 from enikk_core_domain.digests import ConversationDigest
 from enikk_core_domain.memory import NoteChange, VaultNote
@@ -37,6 +39,7 @@ from enikk_core_domain.prompts import PromptPromotion
 from enikk_core_domain.schedules import Schedule, ScheduleRun
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    AskRow,
     ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
@@ -229,6 +232,39 @@ def note_change_from_row(row: NoteChangeRow) -> NoteChange:
         created_at=row.created_at,
         decided_at=row.decided_at,
         decided_by=row.decided_by,
+    )
+
+
+def ask_to_row(asked: AskedWork, row: AskRow | None = None) -> AskRow:
+    row = row or AskRow(id=asked.id)
+    row.task_id = asked.task_id
+    row.requester = asked.requester
+    row.agent = asked.agent
+    row.request = asked.request
+    row.reason = asked.reason
+    row.status = asked.status.value
+    row.created_at = asked.created_at
+    row.expires_at = asked.expires_at
+    row.decided_at = asked.decided_at
+    row.decided_by = asked.decided_by
+    row.queued_task_id = asked.queued_task_id
+    return row
+
+
+def ask_from_row(row: AskRow) -> AskedWork:
+    return AskedWork(
+        id=row.id,
+        task_id=row.task_id,
+        requester=row.requester,
+        agent=row.agent,
+        request=row.request,
+        reason=row.reason,
+        status=AskStatus(row.status),
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        decided_at=row.decided_at,
+        decided_by=row.decided_by,
+        queued_task_id=row.queued_task_id,
     )
 
 

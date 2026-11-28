@@ -154,6 +154,32 @@ def test_delegates_must_be_plain_shared_agents(tmp_path: Path, target: str, frag
         YamlAgentCatalog.load(tmp_path)
 
 
+def test_rita_and_arcana_may_ask_enikk_and_no_one_else_asks() -> None:
+    catalog = YamlAgentCatalog.load(REPO_ROOT / "agents")
+    asking = {name: catalog.get(name).asks for name in catalog.names()}  # type: ignore[union-attr]
+    assert {name: asks for name, asks in asking.items() if asks} == {
+        "rita": ("enikk",),
+        "arcana": ("enikk",),
+    }
+
+
+def test_asks_must_name_a_shared_agent(tmp_path: Path) -> None:
+    (tmp_path / "top.yaml").write_text(VALID.format(name="top") + "asks: [ghost]\n")
+    with pytest.raises(ConfigurationError, match="is not an agent"):
+        YamlAgentCatalog.load(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    ["asks: [top]\n", "asks: [good, good]\n", "asks: [good]\ndelegates: [good]\n"],
+)
+def test_asks_are_distinct_others_not_delegates(tmp_path: Path, extra: str) -> None:
+    (tmp_path / "good.yaml").write_text(VALID.format(name="good"))
+    (tmp_path / "top.yaml").write_text(VALID.format(name="top") + extra)
+    with pytest.raises(ConfigurationError, match=r"top\.yaml"):
+        YamlAgentCatalog.load(tmp_path)
+
+
 def test_catalog_reports_every_problem(tmp_path: Path) -> None:
     (tmp_path / "good.yaml").write_text(VALID.format(name="good"))
     (tmp_path / "delegating.yaml").write_text(

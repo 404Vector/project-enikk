@@ -30,7 +30,14 @@ from enikk_contracts.attachments import (
 )
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
-from enikk_contracts.delegation import Delegated, DelegateRequest
+from enikk_contracts.delegation import (
+    AskCreated,
+    AskDecision,
+    AskRequest,
+    AskResult,
+    Delegated,
+    DelegateRequest,
+)
 from enikk_contracts.deployments import RevertRequest, RevertResult
 from enikk_contracts.diagnostics import (
     Deployments,
@@ -149,6 +156,7 @@ if TYPE_CHECKING:
 
     from enikk_contracts.base import Contract
     from enikk_core.approval.service import ApprovalService
+    from enikk_core.asks import AskService
     from enikk_core.credentials import CredentialIssuer
     from enikk_core.deployments import DeploymentService
     from enikk_core.diagnostics import DiagnosticsService
@@ -202,6 +210,7 @@ class CoreServices:
         prompts: PromptService | None = None,
         schedules: ScheduleService | None = None,
         mcp_tokens: McpTokenIssuer | None = None,
+        asks: AskService | None = None,
     ) -> None:
         self.version = version
         self.usecases = usecases
@@ -220,6 +229,7 @@ class CoreServices:
         self.prompts = prompts
         self.schedules = schedules
         self.mcp_tokens = mcp_tokens
+        self.asks = asks
 
 
 def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
@@ -479,6 +489,21 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         scope = _worker(await gate.admit(request))
         body = await _parse(request, DelegateRequest)
         return _json(await usecases.delegate(scope, task_id, body))
+
+    @app.post(routes.TASK_ASK, responses={200: {"model": AskCreated}})
+    @requires("runtime")
+    async def task_ask(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, AskRequest)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _asks(services).ask(task_id, body))
+
+    @app.post(routes.ASK_DECISION, responses={200: {"model": AskResult}})
+    @requires("connector")
+    async def decide_ask(request_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, AskDecision)
+        return _json(await _asks(services).decide(request_id, body))
 
     @app.post(routes.THREAD_SCHEDULED_CANCEL, responses={200: {"model": ScheduledCancelled}})
     @requires("runtime")
@@ -762,6 +787,12 @@ def _memory(services: CoreServices) -> MemoryService:
     return services.memory
 
 
+def _asks(services: CoreServices) -> AskService:
+    if services.asks is None:
+        raise DependencyUnavailableError("requests between agents are not enabled")
+    return services.asks
+
+
 def _prompts(services: CoreServices) -> PromptService:
     if services.prompts is None:
         raise DependencyUnavailableError("prompt candidates are not enabled in core")
@@ -834,6 +865,11 @@ async def _reap_forever(services: CoreServices) -> None:
             await services.usecases.reap_expired_leases()
         except Exception:
             _log.exception("lease reaper iteration failed")
+        try:
+            if services.asks is not None:
+                await services.asks.expire_due()
+        except Exception:
+            _log.exception("expiring requests between agents failed")
         await asyncio.sleep(services.reaper_interval_seconds)
 
 

@@ -29,6 +29,7 @@ from enikk_contracts.schedules import (
 )
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_contracts.transcripts import TranscriptKey
+from enikk_core_domain.asks import AskedWork
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
 from enikk_core_domain.digests import ConversationDigest
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
@@ -146,6 +147,7 @@ class InMemoryDatabase:
         self.status_cards: dict[tuple[str, int], ReviewMessageRef] = {}
         self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
         self.note_changes: dict[uuid.UUID, NoteChange] = {}
+        self.asks: dict[uuid.UUID, AskedWork] = {}
         self.digests: dict[date, ConversationDigest] = {}
         self.schedules: dict[uuid.UUID, Schedule] = {}
         self.schedule_runs: dict[tuple[uuid.UUID, datetime], ScheduleRun] = {}
@@ -172,6 +174,7 @@ class _Staged:
         self.status_cards = dict(db.status_cards)
         self.prompt_promotions = dict(db.prompt_promotions)
         self.note_changes = dict(db.note_changes)
+        self.asks = dict(db.asks)
         self.digests = dict(db.digests)
         self.schedules = dict(db.schedules)
         self.schedule_runs = dict(db.schedule_runs)
@@ -296,6 +299,24 @@ class _NoteChanges:
 
     async def get_for_update(self, change_id: uuid.UUID) -> NoteChange | None:
         return self._staged.note_changes.get(change_id)
+
+
+class _Asks:
+    def __init__(self, staged: _Staged) -> None:
+        self._staged = staged
+
+    async def add(self, asked: AskedWork) -> None:
+        self._staged.asks[asked.id] = asked
+
+    async def update(self, asked: AskedWork) -> None:
+        self._staged.asks[asked.id] = asked
+
+    async def get_for_update(self, request_id: uuid.UUID) -> AskedWork | None:
+        return self._staged.asks.get(request_id)
+
+    async def due(self, now: datetime, limit: int) -> list[AskedWork]:
+        due = [a for a in self._staged.asks.values() if a.expired(now)]
+        return sorted(due, key=lambda a: a.created_at)[:limit]
 
 
 class _Vault:
@@ -694,6 +715,7 @@ class InMemoryUnitOfWork:
         self.status_cards = _StatusCards(self._staged)
         self.prompt_promotions = _PromptPromotions(self._staged)
         self.note_changes = _NoteChanges(self._staged)
+        self.asks = _Asks(self._staged)
         self.digests = _Digests(self._staged)
         self.schedules = _Schedules(self._staged)
         self.schedule_runs = _ScheduleRuns(self._staged)
@@ -729,6 +751,7 @@ class InMemoryUnitOfWork:
         self._db.status_cards = dict(self._staged.status_cards)
         self._db.prompt_promotions = dict(self._staged.prompt_promotions)
         self._db.note_changes = dict(self._staged.note_changes)
+        self._db.asks = dict(self._staged.asks)
         self._db.digests = dict(self._staged.digests)
         self._db.schedules = dict(self._staged.schedules)
         self._db.schedule_runs = dict(self._staged.schedule_runs)
@@ -1381,6 +1404,39 @@ async def check_prompt_promotions(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.prompt_promotions.get_for_update(uuid.uuid4()) is None, "missing")
 
 
+async def check_asks(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    later = T0 + timedelta(hours=24)
+    asked = AskedWork(
+        id=uuid.uuid4(),
+        task_id=work.id,
+        requester="rita",
+        agent="enikk",
+        request="add a tool",
+        reason="I lack it",
+        created_at=T0,
+        expires_at=later,
+    )
+    other = asked.model_copy(update={"id": uuid.uuid4(), "created_at": T0 + timedelta(minutes=1)})
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.asks.add(asked)
+        await uow.asks.add(other)
+        await uow.commit()
+    allowed = asked.approve(T0 + timedelta(minutes=2), "U1", work.id)
+    async with new_uow() as uow:
+        _expect(await uow.asks.get_for_update(asked.id) == asked, "round trip")
+        _expect(list(await uow.asks.due(T0, 10)) == [], "nothing due yet")
+        await uow.asks.update(allowed)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.asks.get_for_update(asked.id) == allowed, "updated")
+        _expect(await uow.asks.get_for_update(uuid.uuid4()) is None, "missing")
+        _expect([a.id for a in await uow.asks.due(later, 10)] == [other.id], "only open ones")
+
+
 async def check_note_changes(new_uow: UnitOfWorkFactory) -> None:
     owner = session()
     work = task(owner)
@@ -1558,6 +1614,7 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_status_cards,
     check_prompt_promotions,
     check_note_changes,
+    check_asks,
     check_held_tasks,
     check_digests_and_day_ranges,
     check_schedules,

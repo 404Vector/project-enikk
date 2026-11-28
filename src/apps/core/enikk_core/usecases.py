@@ -19,7 +19,12 @@ from enikk_contracts.attachments import (
     TaskAttachment,
 )
 from enikk_contracts.common import ConnectorKind, ConversationRef
-from enikk_contracts.delegation import Delegated, delegated_session_id, delegated_thread
+from enikk_contracts.delegation import (
+    ASK_EVENT_PREFIX,
+    Delegated,
+    delegated_session_id,
+    delegated_thread,
+)
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.outbox import (
     SCHEDULED_KINDS,
@@ -112,12 +117,37 @@ ATTACHMENT_RETENTION: Final = timedelta(days=1)
 """Attachments of a task that never ended are deleted after this (ADR-0042 2b)."""
 CANCELLED_TEXT: Final = "취소했습니다."
 DELEGATED_CANCELLED_TEXT: Final = "{agent} 에게 맡긴 작업도 취소했습니다."
-DELEGATED_DONE_TEXT: Final = "{agent} 가 맡은 작업을 마쳤습니다. 결과는 에닉이 이어서 전합니다."
+DELEGATED_DONE_TEXT: Final = (
+    "{agent} 가 맡은 작업을 마쳤습니다. 결과는 이 스레드에서 이어서 전합니다."
+)
 DELEGATION_INPUT: Final = (
     "[위임] 에닉(소유자의 주 에이전트)이 소유자와 대화하다가 맡긴 일입니다. 당신의 답은 "
     "소유자가 아니라 에닉에게 갑니다. 끝나면 무엇을 했는지, 만든 파일의 절대 경로, 남은 "
     "문제를 답에 적으십시오.\n\n"
 )
+
+
+async def child_session(
+    uow: UnitOfWork, parent: Session, target: AgentDefinition, now: datetime
+) -> Session:
+    """The session that does ``target``'s work for the thread session ``parent``, made
+    the first time (ADR-0047 §2, ADR-0054)."""
+    child_id = delegated_session_id(parent.id, target.name)
+    child = await uow.sessions.get(child_id)
+    if child is None:
+        child = Session.start(
+            session_id=child_id,
+            conversation=ConversationRef(
+                connector=parent.conversation.connector,
+                channel=parent.conversation.channel,
+                thread=delegated_thread(parent.conversation.thread, target.name),
+            ),
+            agent=target,
+            now=now,
+            reply_to=parent.conversation,
+        )
+        await uow.sessions.add(child)
+    return child
 
 
 class CoreUseCases:
@@ -332,7 +362,8 @@ class CoreUseCases:
         gets a line in the thread, which also takes its [취소] button away."""
         definition = self._catalog.get(session.agent)
         cancelled: list[uuid.UUID] = []
-        for agent in () if definition is None else definition.delegates:
+        helpers = () if definition is None else (*definition.delegates, *definition.asks)
+        for agent in helpers:
             child = await uow.sessions.get(delegated_session_id(session.id, agent))
             if child is None:
                 continue
@@ -379,21 +410,7 @@ class CoreUseCases:
                     duplicate=True,
                 )
             now = self._clock.now()
-            child_id = delegated_session_id(parent.id, target.name)
-            child = await uow.sessions.get(child_id)
-            if child is None:
-                child = Session.start(
-                    session_id=child_id,
-                    conversation=ConversationRef(
-                        connector=parent.conversation.connector,
-                        channel=parent.conversation.channel,
-                        thread=delegated_thread(parent.conversation.thread, target.name),
-                    ),
-                    agent=target,
-                    now=now,
-                    reply_to=parent.conversation,
-                )
-                await uow.sessions.add(child)
+            child = await child_session(uow, parent, target, now)
             queued = Task.enqueue(
                 task_id=self._ids.new(),
                 session=child,
@@ -417,11 +434,12 @@ class CoreUseCases:
             return False
         succeeded = task.status is TaskStatus.SUCCEEDED
         text = (task.output if succeeded else task.failure) or ""
+        asked = task.source_event_id.startswith(ASK_EVENT_PREFIX)
         return await self._waker.wake(
             uow,
             parent,
             key=f"delegated:{task.id}",
-            text=delegation_event_text(task.agent, succeeded=succeeded, text=text),
+            text=delegation_event_text(task.agent, succeeded=succeeded, text=text, asked=asked),
         )
 
     # ------------------------------------------------------------ runtime

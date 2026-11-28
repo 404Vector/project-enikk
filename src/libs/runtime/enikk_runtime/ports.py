@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from enikk_contracts.agents import PromptRef
     from enikk_contracts.attachments import AttachmentContent, AttachmentFetch
     from enikk_contracts.common import Engine
-    from enikk_contracts.delegation import Delegated, DelegateRequest
+    from enikk_contracts.delegation import AskCreated, AskRequest, Delegated, DelegateRequest
     from enikk_contracts.diagnostics import (
         Deployments,
         DeploymentsQuery,
@@ -145,6 +145,8 @@ class ThreadPoster(Protocol):
     ) -> ScheduledCancelled: ...
 
     async def delegate(self, task_id: uuid.UUID, request: DelegateRequest) -> Delegated: ...
+
+    async def ask(self, task_id: uuid.UUID, request: AskRequest) -> AskCreated: ...
 
 
 class PromptProposer(Protocol):

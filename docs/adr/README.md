@@ -60,6 +60,7 @@ ADR-0001 ~ ADR-0030 의 본문은 결정 당시의 기록이라 고치지 않았
 | [0051](0051-arcana-the-blog-agent.md) | 블로그와 노트를 맡는 에이전트 아르카나 | 승인 (§1~§4 구현) | 2026-11-28 |
 | [0052](0052-agents-schedule-themselves.md) | 에이전트는 자기 스케줄을 만든다 | 승인 (구현) | 2026-11-28 |
 | [0053](0053-drive-file-exchange-tool-server.md) | Google Drive 폴더로 파일을 주고받는 도구 서버 | 승인 | 2026-11-28 |
+| [0054](0054-agents-ask-enikk-with-the-owners-approval.md) | 에이전트가 에닉에게 일을 요청하고, 소유자가 그 스레드에서 허가한다 | 승인 (구현) | 2026-11-28 |
 
 ## 상태 정의
 
