@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.deployments import AppObservation, DeploymentWatch
     from enikk_core_domain.digests import ConversationDigest
-    from enikk_core_domain.memory import VaultNote
+    from enikk_core_domain.memory import NoteChange, VaultNote
     from enikk_core_domain.model import (
         Approval,
         ApprovalState,
@@ -277,6 +277,18 @@ class PromptPromotionRepository(Protocol):
         ...
 
 
+class NoteChangeRepository(Protocol):
+    """The owner's decisions on publishing, unpublishing, deleting or moving notes
+    (ADR-0051 §4)."""
+
+    async def add(self, change: NoteChange) -> None: ...
+    async def update(self, change: NoteChange) -> None: ...
+
+    async def get_for_update(self, change_id: uuid.UUID) -> NoteChange | None:
+        """Load a change and lock it until the unit of work ends."""
+        ...
+
+
 class DigestRepository(Protocol):
     """The state of each day's conversation summary (ADR-0035)."""
 
@@ -347,6 +359,8 @@ class UnitOfWork(Protocol):
     def status_cards(self) -> StatusCardRepository: ...
     @property
     def prompt_promotions(self) -> PromptPromotionRepository: ...
+    @property
+    def note_changes(self) -> NoteChangeRepository: ...
     @property
     def digests(self) -> DigestRepository: ...
     @property

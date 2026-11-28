@@ -14,6 +14,7 @@ from enikk_contracts.agents import AgentDefinition, Execution, PromptRef
 from enikk_contracts.approvals import ChecksFailed, PullRequestCard
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.digests import DigestStatus
+from enikk_contracts.memory import NoteChangeAction, NoteChangeStatus
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.schedules import (
@@ -31,7 +32,7 @@ from enikk_contracts.transcripts import TranscriptKey
 from enikk_core_domain.deployments import AppBaseline, DeploymentWatch
 from enikk_core_domain.digests import ConversationDigest
 from enikk_core_domain.errors import AuthenticationError, ConcurrentUpdateError
-from enikk_core_domain.memory import VaultNote
+from enikk_core_domain.memory import NoteChange, VaultNote
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
@@ -142,6 +143,7 @@ class InMemoryDatabase:
         self.review_messages: dict[tuple[str, int], ReviewMessageRef] = {}
         self.status_cards: dict[tuple[str, int], ReviewMessageRef] = {}
         self.prompt_promotions: dict[uuid.UUID, PromptPromotion] = {}
+        self.note_changes: dict[uuid.UUID, NoteChange] = {}
         self.digests: dict[date, ConversationDigest] = {}
         self.schedules: dict[uuid.UUID, Schedule] = {}
         self.schedule_runs: dict[tuple[uuid.UUID, datetime], ScheduleRun] = {}
@@ -166,6 +168,7 @@ class _Staged:
         self.review_messages = dict(db.review_messages)
         self.status_cards = dict(db.status_cards)
         self.prompt_promotions = dict(db.prompt_promotions)
+        self.note_changes = dict(db.note_changes)
         self.digests = dict(db.digests)
         self.schedules = dict(db.schedules)
         self.schedule_runs = dict(db.schedule_runs)
@@ -276,6 +279,20 @@ class _PromptPromotions:
 
     async def get_for_update(self, promotion_id: uuid.UUID) -> PromptPromotion | None:
         return self._staged.prompt_promotions.get(promotion_id)
+
+
+class _NoteChanges:
+    def __init__(self, staged: _Staged) -> None:
+        self._staged = staged
+
+    async def add(self, change: NoteChange) -> None:
+        self._staged.note_changes[change.id] = change
+
+    async def update(self, change: NoteChange) -> None:
+        self._staged.note_changes[change.id] = change
+
+    async def get_for_update(self, change_id: uuid.UUID) -> NoteChange | None:
+        return self._staged.note_changes.get(change_id)
 
 
 class _Vault:
@@ -650,6 +667,7 @@ class InMemoryUnitOfWork:
         self.review_messages = _ReviewMessages(self._staged)
         self.status_cards = _StatusCards(self._staged)
         self.prompt_promotions = _PromptPromotions(self._staged)
+        self.note_changes = _NoteChanges(self._staged)
         self.digests = _Digests(self._staged)
         self.schedules = _Schedules(self._staged)
         self.schedule_runs = _ScheduleRuns(self._staged)
@@ -683,6 +701,7 @@ class InMemoryUnitOfWork:
         self._db.review_messages = dict(self._staged.review_messages)
         self._db.status_cards = dict(self._staged.status_cards)
         self._db.prompt_promotions = dict(self._staged.prompt_promotions)
+        self._db.note_changes = dict(self._staged.note_changes)
         self._db.digests = dict(self._staged.digests)
         self._db.schedules = dict(self._staged.schedules)
         self._db.schedule_runs = dict(self._staged.schedule_runs)
@@ -1301,6 +1320,34 @@ async def check_prompt_promotions(new_uow: UnitOfWorkFactory) -> None:
         _expect(await uow.prompt_promotions.get_for_update(uuid.uuid4()) is None, "missing")
 
 
+async def check_note_changes(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    asked = NoteChange(
+        id=uuid.uuid4(),
+        action=NoteChangeAction.MOVE,
+        path="vault/Garden/a.md",
+        to="vault/Garden/b.md",
+        reason="rename",
+        blob_sha="abc123",
+        task_id=work.id,
+        created_at=T0,
+    )
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.note_changes.add(asked)
+        await uow.commit()
+    done = asked.decide(NoteChangeStatus.DONE, T0 + timedelta(minutes=1), "U1")
+    async with new_uow() as uow:
+        _expect(await uow.note_changes.get_for_update(asked.id) == asked, "round trip")
+        await uow.note_changes.update(done)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.note_changes.get_for_update(asked.id) == done, "updated")
+        _expect(await uow.note_changes.get_for_update(uuid.uuid4()) is None, "missing")
+
+
 async def check_digests_and_day_ranges(new_uow: UnitOfWorkFactory) -> None:
     owner = session(thread="digest")
     before = task(owner, event="ev-before", now=T0 - timedelta(seconds=1))
@@ -1448,6 +1495,7 @@ CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] =
     check_review_messages,
     check_status_cards,
     check_prompt_promotions,
+    check_note_changes,
     check_held_tasks,
     check_digests_and_day_ranges,
     check_schedules,

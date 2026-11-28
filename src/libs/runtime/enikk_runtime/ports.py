@@ -28,6 +28,8 @@ if TYPE_CHECKING:
         MemoryMatches,
         MemorySearch,
         MemoryWritten,
+        NoteChangeCreated,
+        NoteChangeRequest,
         NoteContent,
         NoteRead,
         NoteWrite,
@@ -101,6 +103,9 @@ class MemoryKeeper(Protocol):
     async def search_memory(self, task_id: uuid.UUID, request: MemorySearch) -> MemoryMatches: ...
     async def read_note(self, task_id: uuid.UUID, request: NoteRead) -> NoteContent: ...
     async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten: ...
+    async def request_note_change(
+        self, task_id: uuid.UUID, request: NoteChangeRequest
+    ) -> NoteChangeCreated: ...
 
 
 class ThreadPoster(Protocol):

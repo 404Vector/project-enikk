@@ -16,6 +16,7 @@ from enikk_contracts.approvals import (
 )
 from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
+from enikk_contracts.memory import NoteChangeLinked, NoteChangeResult, NoteChangeStatus
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch
 from enikk_contracts.prompts import PromotionLinked, PromotionResult, PromotionStatus
 from enikk_contracts.tasks import CancelResult
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from enikk_connector_slack.events import MessageRef
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
     from enikk_contracts.events import InboundEvent
+    from enikk_contracts.memory import NoteChangeDecision, NoteChangePosted
     from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxFile, OutboxPoll
     from enikk_contracts.prompts import PromotionDecision, PromotionPosted
     from enikk_contracts.thread_actions import SlackWorkspaceReport
@@ -70,6 +72,9 @@ class FakeCore:
             detail="반영: assistant 역할은 최대 60초 안에",
         )
         self.promotions_posted: list[tuple[uuid.UUID, PromotionPosted]] = []
+        self.note_decisions: list[tuple[uuid.UUID, NoteChangeDecision]] = []
+        self.note_result = NoteChangeResult(status=NoteChangeStatus.DONE, changed=True)
+        self.notes_posted: list[tuple[uuid.UUID, NoteChangePosted]] = []
         self.cancels: list[uuid.UUID] = []
         self.cancel_finds_nothing = False
         self.files: dict[uuid.UUID, OutboxFile] = {}
@@ -143,6 +148,20 @@ class FakeCore:
     ) -> PromotionLinked:
         self.promotions_posted.append((promotion_id, posted))
         return PromotionLinked(told_origin=True)
+
+    async def decide_note_change(
+        self, change_id: uuid.UUID, decision: NoteChangeDecision
+    ) -> NoteChangeResult:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.note_decisions.append((change_id, decision))
+        return self.note_result
+
+    async def note_change_posted(
+        self, change_id: uuid.UUID, posted: NoteChangePosted
+    ) -> NoteChangeLinked:
+        self.notes_posted.append((change_id, posted))
+        return NoteChangeLinked(told_origin=True)
 
     async def report_slack_workspace(self, report: SlackWorkspaceReport) -> SlackWorkspaceReceived:
         self.workspace_reports.append(report)

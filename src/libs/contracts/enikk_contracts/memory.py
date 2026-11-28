@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import Field, StringConstraints
 
 from enikk_contracts.base import Contract
+from enikk_contracts.common import ConversationRef, Identifier
 
 NotePath = Annotated[str, StringConstraints(min_length=1, max_length=500)]
 
@@ -114,3 +115,83 @@ class MemoryMatch(Contract):
 
 class MemoryMatches(Contract):
     matches: tuple[MemoryMatch, ...]
+
+
+# ------------------------------------------------ changes that need the owner (ADR-0051 §4)
+
+
+class NoteChangeAction(StrEnum):
+    PUBLISH = "publish"
+    """Remove ``draft: true``: the blog publishes the note."""
+    UNPUBLISH = "unpublish"
+    """Add ``draft: true``: the blog takes the note down."""
+    DELETE = "delete"
+    MOVE = "move"
+    """Rename or move the note to ``to``."""
+
+
+class NoteChangeStatus(StrEnum):
+    REQUESTED = "requested"
+    DONE = "done"
+    REJECTED = "rejected"
+    STALE = "stale"
+    """The note changed after the request; nothing was done."""
+
+
+Reason = Annotated[str, StringConstraints(min_length=1, max_length=500)]
+
+
+class NoteChangeRequest(Contract):
+    """Ask the owner to publish, unpublish, delete or move a note. Changes nothing yet."""
+
+    lease_id: uuid.UUID
+    action: NoteChangeAction
+    path: NotePath
+    to: NotePath | None = None
+    """The new path; only for ``move``."""
+    reason: Reason
+
+
+class NoteChangeCreated(Contract):
+    change_id: uuid.UUID
+
+
+class NoteChangeRequested(Contract):
+    """The approval channel: may core make this change to the vault?"""
+
+    kind: Literal["note-change-requested"] = "note-change-requested"
+    change_id: uuid.UUID
+    action: NoteChangeAction
+    path: NotePath
+    to: NotePath | None = None
+    reason: Reason
+    published_before: bool
+    """Whether the blog publishes the note now."""
+    published_after: bool
+    """Whether the blog publishes the note after the change; false after a delete."""
+    excerpt: Annotated[str, StringConstraints(max_length=3_000)] = ""
+    """The start of the note as it is now."""
+    origin: ConversationRef | None = None
+    """The thread that asked for it."""
+
+
+class NoteChangeDecision(Contract):
+    """The owner pressed a button. The connector has checked who pressed it (I-01)."""
+
+    apply: bool
+    decided_by: Identifier
+
+
+class NoteChangeResult(Contract):
+    status: NoteChangeStatus
+    changed: bool
+    """False for a repeated press."""
+    detail: Annotated[str, StringConstraints(max_length=1_000)] = ""
+
+
+class NoteChangePosted(Contract):
+    link: Annotated[str, StringConstraints(min_length=1, max_length=500)] | None = None
+
+
+class NoteChangeLinked(Contract):
+    told_origin: bool

@@ -532,6 +532,7 @@ def _granted_keeper(harness: Harness, vault: VaultApi, writer: FakeWriter) -> Me
         writer=writer,
         ids=RandomIdGenerator(),
         agents=StaticAgentCatalog(keeper_agent),
+        owner="U0OWNER",
     )
 
 
@@ -574,3 +575,150 @@ async def test_other_roles_may_not_write_the_owners_private_notes(
             NoteWrite(lease_id=uuid.uuid4(), path=PRIVATE_NOTE, text="# 일기\n"),
         )
     assert PRIVATE_NOTE not in vault.notes
+
+
+# ------------------------------------------------------ note changes (ADR-0051 §4)
+
+
+def test_set_draft_adds_and_removes_the_flag() -> None:
+    from enikk_core.memory import is_draft, set_draft
+
+    published = set_draft(DRAFT_POST, draft=False)
+    assert not is_draft(published)
+    assert "title: 꼬리 지연" in published
+    assert published.endswith("# 꼬리 지연\n\n본문\n")
+    assert is_draft(set_draft(published, draft=True))
+    assert is_draft(set_draft("# 제목\n", draft=True))
+    assert set_draft("# 제목\n", draft=False) == "# 제목\n"
+
+
+async def _ask(keeper: MemoryService, work: object, **fields: object) -> object:
+    import uuid
+
+    from enikk_contracts.memory import NoteChangeRequest
+
+    request = NoteChangeRequest(lease_id=uuid.uuid4(), reason="이유", **fields)  # type: ignore[arg-type]
+    return await keeper.request_change(work.id, request)  # type: ignore[attr-defined]
+
+
+async def test_publishing_waits_for_the_owner_then_removes_the_draft_flag(
+    harness: Harness, vault: VaultApi, writer: FakeWriter
+) -> None:
+    from enikk_contracts.memory import (
+        NoteChangeAction,
+        NoteChangeDecision,
+        NoteChangeRequested,
+        NoteChangeStatus,
+    )
+    from enikk_core.memory import is_draft
+    from enikk_core_domain.errors import PermissionDeniedError
+
+    keeper = _granted_keeper(harness, vault, writer)
+    _, work = await _owner_task(harness)
+    vault.put(POST, DRAFT_POST)
+    created = await _ask(keeper, work, action=NoteChangeAction.PUBLISH, path=POST)
+    assert vault.notes[POST][1] == DRAFT_POST
+    async with harness.db.unit_of_work() as uow:
+        [notice] = await uow.notices.pending(10)
+    body = notice.body
+    assert isinstance(body, NoteChangeRequested)
+    assert (body.published_before, body.published_after) == (False, True)
+    change_id = created.change_id  # type: ignore[attr-defined]
+    with pytest.raises(PermissionDeniedError):
+        await keeper.decide_change(change_id, NoteChangeDecision(apply=True, decided_by="U0X"))
+    result = await keeper.decide_change(
+        change_id, NoteChangeDecision(apply=True, decided_by="U0OWNER")
+    )
+    assert result.status is NoteChangeStatus.DONE
+    assert not is_draft(vault.notes[POST][1])
+    assert writer.messages[-1] == "blog: publish 꼬리 지연"
+    again = await keeper.decide_change(
+        change_id, NoteChangeDecision(apply=True, decided_by="U0OWNER")
+    )
+    assert not again.changed
+    async with harness.db.unit_of_work() as uow:
+        from enikk_contracts.common import ConnectorKind
+
+        told = await uow.outbox.pending(ConnectorKind.SLACK, 10)
+    assert any("발행했습니다" in m.text for m in told)
+
+
+async def test_a_note_changed_after_the_request_is_left_alone(
+    harness: Harness, vault: VaultApi, writer: FakeWriter
+) -> None:
+    from enikk_contracts.memory import NoteChangeAction, NoteChangeDecision, NoteChangeStatus
+
+    keeper = _granted_keeper(harness, vault, writer)
+    _, work = await _owner_task(harness)
+    vault.put(OWNER_NOTE, PUBLISHED)
+    created = await _ask(keeper, work, action=NoteChangeAction.DELETE, path=OWNER_NOTE)
+    vault.put(OWNER_NOTE, PUBLISHED + "\n덧붙임\n")
+    result = await keeper.decide_change(
+        created.change_id,  # type: ignore[attr-defined]
+        NoteChangeDecision(apply=True, decided_by="U0OWNER"),
+    )
+    assert result.status is NoteChangeStatus.STALE
+    assert OWNER_NOTE in vault.notes
+
+
+async def test_move_delete_and_reject(
+    harness: Harness, vault: VaultApi, writer: FakeWriter
+) -> None:
+    from enikk_contracts.memory import NoteChangeAction, NoteChangeDecision, NoteChangeStatus
+
+    keeper = _granted_keeper(harness, vault, writer)
+    _, work = await _owner_task(harness)
+    vault.put(PRIVATE_NOTE, "# 일기\n")
+    moved_to = "vault/Private/일기/옮김.md"
+    created = await _ask(keeper, work, action=NoteChangeAction.MOVE, path=PRIVATE_NOTE, to=moved_to)
+    done = await keeper.decide_change(
+        created.change_id,  # type: ignore[attr-defined]
+        NoteChangeDecision(apply=True, decided_by="U0OWNER"),
+    )
+    assert done.status is NoteChangeStatus.DONE
+    assert PRIVATE_NOTE not in vault.notes
+    assert vault.notes[moved_to][1] == "# 일기\n"
+    assert writer.messages[-1].endswith("[skip ci]")
+    refused = await _ask(keeper, work, action=NoteChangeAction.DELETE, path=moved_to)
+    rejected = await keeper.decide_change(
+        refused.change_id,  # type: ignore[attr-defined]
+        NoteChangeDecision(apply=False, decided_by="U0OWNER"),
+    )
+    assert rejected.status is NoteChangeStatus.REJECTED
+    assert moved_to in vault.notes
+    deleted = await _ask(keeper, work, action=NoteChangeAction.DELETE, path=moved_to)
+    await keeper.decide_change(
+        deleted.change_id,  # type: ignore[attr-defined]
+        NoteChangeDecision(apply=True, decided_by="U0OWNER"),
+    )
+    assert moved_to not in vault.notes
+
+
+async def test_change_requests_are_checked_before_asking(
+    harness: Harness, keeper: MemoryService, vault: VaultApi, writer: FakeWriter
+) -> None:
+    from enikk_contracts.memory import NoteChangeAction
+    from enikk_core_domain.errors import (
+        InvalidRequestError,
+        NotFoundError,
+        PermissionDeniedError,
+    )
+
+    granted = _granted_keeper(harness, vault, writer)
+    _, work = await _owner_task(harness)
+    vault.put(OWNER_NOTE, PUBLISHED)
+    vault.put(POST, DRAFT_POST)
+    with pytest.raises(PermissionDeniedError):
+        await _ask(keeper, work, action=NoteChangeAction.DELETE, path=OWNER_NOTE)
+    with pytest.raises(InvalidRequestError, match="already published"):
+        await _ask(granted, work, action=NoteChangeAction.PUBLISH, path=OWNER_NOTE)
+    with pytest.raises(InvalidRequestError, match="not published"):
+        await _ask(granted, work, action=NoteChangeAction.UNPUBLISH, path=POST)
+    with pytest.raises(InvalidRequestError, match="already a note"):
+        await _ask(granted, work, action=NoteChangeAction.MOVE, path=POST, to=OWNER_NOTE)
+    with pytest.raises(PermissionDeniedError):
+        await _ask(granted, work, action=NoteChangeAction.DELETE, path=PREF)
+    with pytest.raises(NotFoundError):
+        await _ask(granted, work, action=NoteChangeAction.DELETE, path="vault/Garden/없음.md")
+    with pytest.raises(InvalidRequestError):
+        await _ask(granted, work, action=NoteChangeAction.DELETE, path=POST, to=OWNER_NOTE)

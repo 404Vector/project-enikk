@@ -13,6 +13,7 @@ from enikk_persistence_sql.repositories import (
     SqlDigestRepository,
     SqlDispatchRepository,
     SqlJobQueue,
+    SqlNoteChangeRepository,
     SqlNoticeRepository,
     SqlOutboxRepository,
     SqlPromptPromotionRepository,
@@ -47,6 +48,7 @@ class SqlUnitOfWork:
         self.review_messages = SqlReviewMessageRepository(self._db)
         self.status_cards = SqlStatusCardRepository(self._db)
         self.prompt_promotions = SqlPromptPromotionRepository(self._db)
+        self.note_changes = SqlNoteChangeRepository(self._db)
         self.digests = SqlDigestRepository(self._db)
         self.schedules = SqlScheduleRepository(self._db)
         self.schedule_runs = SqlScheduleRunRepository(self._db)

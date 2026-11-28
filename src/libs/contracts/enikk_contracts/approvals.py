@@ -16,6 +16,7 @@ from enikk_contracts.base import Contract
 from enikk_contracts.common import ConversationRef, Identifier
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished
 from enikk_contracts.digests import DigestFailed, ScheduleDelivered
+from enikk_contracts.memory import NoteChangeRequested
 from enikk_contracts.prompts import PromotionRequested
 from enikk_contracts.tasks import WaitSeconds
 
@@ -172,6 +173,7 @@ OwnerNoticeBody = Annotated[
     | DeploymentFinished
     | BuildFailed
     | PromotionRequested
+    | NoteChangeRequested
     | DigestFailed
     | ScheduleDelivered
     | PullStatusCard,

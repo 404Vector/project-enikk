@@ -35,6 +35,8 @@ from enikk_contracts.diagnostics import (
 from enikk_contracts.memory import (
     ForgetRequest,
     MemorySearch,
+    NoteChangeAction,
+    NoteChangeRequest,
     NoteKind,
     NoteRead,
     NoteWrite,
@@ -107,6 +109,7 @@ MEMORY_TOOLS: Final = tuple(
         "write_notes",
     )
 )
+NOTE_CHANGE_TOOL: Final = f"mcp__{SERVER}__request_note_change"
 THREAD_TOOLS: Final = tuple(
     f"mcp__{SERVER}__{name}"
     for name in (
@@ -169,6 +172,15 @@ WRITE_NOTE_DESCRIPTION: Final = (
     "write cannot add or remove the draft flag of an existing note: publishing and "
     "unpublishing stay with the owner. Git keeps the history."
 )
+NOTE_CHANGE_DESCRIPTION: Final = (
+    "Ask the owner, in the approval channel, to publish, unpublish, delete or move one "
+    "of the owner's notes. Nothing changes until the owner presses the button; the result "
+    "comes back to this thread as an [이벤트]. action: publish (remove draft: true so the "
+    "blog shows it), unpublish (add draft: true), delete, or move (needs to, the new path). "
+    "path: an existing note, public or in Private, never enikk's folder. reason: one or two "
+    "lines the owner reads. If the note changes before the owner decides, nothing is done "
+    "and you ask again."
+)
 WRITE_NOTES_DESCRIPTION: Final = (
     f"Write up to {MAX_NOTES_AT_ONCE} notes at once, each from a file in this thread's "
     "worktree or tmp, with the same rules as write_note. notes: a list of {path, file}. "
@@ -198,6 +210,10 @@ def _grants_prompts(job: EngineJob) -> bool:
     return PlatformTool.PROMPT_CANDIDATES in job.definition.tools.platform
 
 
+def _grants_private(job: EngineJob) -> bool:
+    return PlatformTool.VAULT_PRIVATE in job.definition.tools.platform
+
+
 def _defaults(job: EngineJob) -> bool:
     return job.definition.tools.platform_defaults
 
@@ -217,6 +233,7 @@ def granted_platform_tools(
 ) -> list[str]:
     return [
         *(MEMORY_TOOLS if memory and _defaults(job) else ()),
+        *([NOTE_CHANGE_TOOL] if memory and _defaults(job) and _grants_private(job) else ()),
         *(THREAD_TOOLS if thread and _defaults(job) else ()),
         *([DELEGATE_TOOL] if thread and _defaults(job) and job.definition.delegates else ()),
         *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
@@ -717,7 +734,49 @@ def memory_tools(current: CurrentJob, memory: MemoryKeeper) -> list[SdkMcpTool[A
             lines.append(_line(done))
         return _result("\n".join(lines), False)
 
-    return [remember, update_memory, forget_memory, recall, read_note, write_note, write_notes]
+    change_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": [a.value for a in NoteChangeAction]},
+            "path": {"type": "string"},
+            "to": {"type": "string", "description": "The new path; only for move."},
+            "reason": {"type": "string"},
+        },
+        "required": ["action", "path", "reason"],
+    }
+
+    @tool("request_note_change", NOTE_CHANGE_DESCRIPTION, change_schema)
+    async def request_note_change(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = NoteChangeRequest(
+                lease_id=current.job.lease_id,
+                action=NoteChangeAction(str(args.get("action", ""))),
+                path=str(args.get("path", "")),
+                to=str(args["to"]) if args.get("to") else None,
+                reason=str(args.get("reason", "")),
+            )
+        except (ValidationError, ValueError):
+            return _result(
+                "action (publish, unpublish, delete, move), path and reason are required; "
+                "move also needs to.",
+                True,
+            )
+        try:
+            await memory.request_note_change(current.job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now.", True)
+        except CoreApiError as exc:
+            return _result(f"Refused: {exc}", True)
+        return _result(
+            "Asked the owner in the approval channel. Nothing has changed yet; the result "
+            "comes back to this thread.",
+            False,
+        )
+
+    tools = [remember, update_memory, forget_memory, recall, read_note, write_note, write_notes]
+    if _grants_private(current.job):
+        tools.append(request_note_change)
+    return tools
 
 
 SEND_FILE_DESCRIPTION: Final = (

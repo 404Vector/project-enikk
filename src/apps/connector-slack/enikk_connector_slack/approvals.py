@@ -32,6 +32,7 @@ from enikk_contracts.approvals import (
 )
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
 from enikk_contracts.digests import DigestFailed, ScheduleDelivered
+from enikk_contracts.memory import NoteChangeDecision, NoteChangePosted, NoteChangeRequested
 from enikk_contracts.prompts import (
     PromotionAction,
     PromotionDecision,
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     Sleep = Callable[[float], Awaitable[None]]
 
 DECISIONS: Final = {blocks.APPROVE_ACTION: Decision.APPROVE, blocks.REJECT_ACTION: Decision.REJECT}
+NOTE_CHANGES: Final = {blocks.APPLY_NOTE_ACTION: True, blocks.REJECT_NOTE_ACTION: False}
 PROMOTIONS: Final = {
     blocks.PROMOTE_PROMPT_ACTION: PromotionAction.PROMOTE,
     blocks.REJECT_PROMPT_ACTION: PromotionAction.REJECT,
@@ -124,6 +126,9 @@ class NoticeRelay:
         body = notice.body
         if isinstance(body, PromotionRequested):
             await self._deliver_promotion(notice, body)
+            return
+        if isinstance(body, NoteChangeRequested):
+            await self._deliver_note_change(notice, body)
             return
         if isinstance(body, DigestFailed):
             await self._deliver_to_owner(notice, blocks.digest_failed(body))
@@ -208,6 +213,30 @@ class NoticeRelay:
             await self._core.promotion_posted(body.promotion_id, PromotionPosted(link=link))
         except (CoreApiError, CoreUnavailableError) as exc:
             _log.warning("could not tell the asking thread about %s: %s", body.prompt, exc)
+
+    async def _deliver_note_change(self, notice: OwnerNotice, body: NoteChangeRequested) -> None:
+        """The request in the approval channel, the start of the note in its thread, then
+        the asking thread hears where it is (ADR-0051 §4)."""
+        posted = await self._post_or_dm(
+            notice, self._approval_channel, blocks.note_change_request(body)
+        )
+        if posted is None:
+            return
+        if body.origin is not None:
+            origin = await self._slack.permalink(body.origin.channel, body.origin.thread)
+            if origin is not None:
+                await self._reply(posted, f"원래 요청 스레드: {origin}")
+        try:
+            await self._slack.post_message(
+                posted.channel, blocks.note_change_details(body), thread=posted.ts
+            )
+        except SlackDeliveryError as exc:
+            _log.warning("could not post the start of %s: %s", body.path, exc)
+        link = await self._slack.permalink(posted.channel, posted.ts)
+        try:
+            await self._core.note_change_posted(body.change_id, NoteChangePosted(link=link))
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("could not tell the asking thread about %s: %s", body.path, exc)
 
     async def _deliver_schedule(self, notice: OwnerNotice, body: ScheduleDelivered) -> None:
         """A run's answer: in its channel, else the owner's DM (ADR-0039 S6).
@@ -376,6 +405,10 @@ class ApprovalActions:
             if action.action_id == blocks.REVERT_ACTION:
                 await self._revert(actions, action.value)
                 continue
+            apply = NOTE_CHANGES.get(action.action_id)
+            if apply is not None:
+                await self._change_note(actions, action.value, apply=apply)
+                continue
             promotion = PROMOTIONS.get(action.action_id)
             if promotion is not None:
                 await self._promote(actions, action.value, promotion)
@@ -453,6 +486,31 @@ class ApprovalActions:
             return
         kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
         footer = blocks.promotion_decided(str(promotion_id), result, actions.user.id)
+        await self._slack.update_message(
+            actions.channel_id,
+            actions.message_ts,
+            actions.message_text,
+            [*kept, *(b.model_dump(mode="json", exclude_none=True) for b in footer)],
+        )
+
+    async def _change_note(self, actions: BlockActions, value: str, *, apply: bool) -> None:
+        try:
+            change_id = uuid.UUID(value)
+        except ValueError:
+            return
+        decision = NoteChangeDecision(apply=apply, decided_by=actions.user.id)
+        try:
+            result = await self._core.decide_note_change(change_id, decision)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("note change %s failed: %s", change_id, exc)
+            await self._slack.post_reply(
+                actions.channel_id,
+                actions.message_ts,
+                f":warning: 처리하지 못했습니다. 잠시 뒤 다시 눌러 주세요. ({exc})",
+            )
+            return
+        kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
+        footer = blocks.note_change_decided(result, actions.user.id)
         await self._slack.update_message(
             actions.channel_id,
             actions.message_ts,

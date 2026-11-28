@@ -17,7 +17,15 @@ from enikk_contracts.errors import ErrorResponse
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.github import GitHubHealth
 from enikk_contracts.health import HealthResponse
-from enikk_contracts.memory import MemoryMatches, MemoryWritten, NoteContent, NoteWritten
+from enikk_contracts.memory import (
+    MemoryMatches,
+    MemoryWritten,
+    NoteChangeCreated,
+    NoteChangeLinked,
+    NoteChangeResult,
+    NoteContent,
+    NoteWritten,
+)
 from enikk_contracts.outbox import OutboxAcked, OutboxBatch, OutboxFile, OutboxFileQuery
 from enikk_contracts.prompts import (
     PromotionLinked,
@@ -74,6 +82,9 @@ if TYPE_CHECKING:
     from enikk_contracts.memory import (
         ForgetRequest,
         MemorySearch,
+        NoteChangeDecision,
+        NoteChangePosted,
+        NoteChangeRequest,
         NoteRead,
         NoteWrite,
         RememberRequest,
@@ -276,6 +287,27 @@ class CoreClient:
         """Create or replace a public note of the owner's vault, the blog (ADR-0049)."""
         path = routes.NOTE_WRITE.format(task_id=task_id)
         return _parse(NoteWritten, await self._post(path, request, 60))
+
+    async def request_note_change(
+        self, task_id: uuid.UUID, request: NoteChangeRequest
+    ) -> NoteChangeCreated:
+        """Ask the owner to publish, unpublish, delete or move a note (ADR-0051 §4)."""
+        path = routes.NOTE_CHANGE.format(task_id=task_id)
+        return _parse(NoteChangeCreated, await self._post(path, request, 60))
+
+    async def decide_note_change(
+        self, change_id: uuid.UUID, decision: NoteChangeDecision
+    ) -> NoteChangeResult:
+        """The owner's button on a note change. Slack connector only."""
+        path = routes.NOTE_CHANGE_DECISION.format(change_id=change_id)
+        return _parse(NoteChangeResult, await self._post(path, decision, 60))
+
+    async def note_change_posted(
+        self, change_id: uuid.UUID, posted: NoteChangePosted
+    ) -> NoteChangeLinked:
+        """The note change request is in the approval channel. Slack connector only."""
+        path = routes.NOTE_CHANGE_POSTED.format(change_id=change_id)
+        return _parse(NoteChangeLinked, await self._post(path, posted))
 
     async def post_thread_file(
         self, task_id: uuid.UUID, request: ThreadFileRequest
