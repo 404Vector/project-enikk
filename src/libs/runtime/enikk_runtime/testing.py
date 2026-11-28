@@ -17,13 +17,14 @@ from enikk_contracts.tasks import (
     TaskAssignment,
     TaskStatus,
 )
-from enikk_core_client.errors import CoreConflictError, CoreUnavailableError
+from enikk_core_client.errors import CoreConflictError, CoreNotFoundError, CoreUnavailableError
 from enikk_runtime.errors import PromptUnavailableError
 from enikk_runtime.model import EngineResult, ResolvedPrompt
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from enikk_contracts.attachments import AttachmentContent, AttachmentFetch
     from enikk_contracts.tasks import Heartbeat, LeaseRequest, ResultReport
     from enikk_kernel.clock import Clock
     from enikk_runtime.model import EngineJob
@@ -54,6 +55,16 @@ class FakeCore:
         self.lost_leases: set[uuid.UUID] = set()
         self.outages = 0
         """Number of upcoming calls that fail with ``CoreUnavailableError``."""
+        self.attachments: dict[tuple[uuid.UUID, int], list[AttachmentContent]] = {}
+        """Answers to successive fetches of one attachment; the last one repeats."""
+
+    async def fetch_attachment(
+        self, task_id: uuid.UUID, index: int, fetch: AttachmentFetch
+    ) -> AttachmentContent:
+        answers = self.attachments.get((task_id, index))
+        if not answers:
+            raise CoreNotFoundError("no attachment (test)")
+        return answers.pop(0) if len(answers) > 1 else answers[0]
 
     def assign(
         self, agent: AgentDefinition | None = None, *, text: str = "hello"

@@ -10,12 +10,14 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.attachments import AttachmentState
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.schedules import RunStatus
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
 from enikk_core_domain.errors import ConcurrentUpdateError, NotFoundError
 from enikk_core_domain.model import (
     ApprovalState,
+    Attachment,
     NoticeStatus,
     OutboxFile,
     OutboxStatus,
@@ -38,6 +40,7 @@ from enikk_persistence_sql.tables import (
     ScheduleRunRow,
     SessionRow,
     StatusCardRow,
+    TaskAttachmentRow,
     TaskRow,
     TranscriptEntryRow,
     VaultNoteRow,
@@ -122,6 +125,43 @@ class SqlTaskRepository:
     async def find_by_source_event(self, event_id: str) -> Task | None:
         row = await self._db.scalar(select(TaskRow).where(TaskRow.source_event_id == event_id))
         return mappers.task_from_row(row) if row else None
+
+    async def add_attachment(self, attachment: Attachment) -> None:
+        self._db.add(TaskAttachmentRow(**_attachment_columns(attachment)))
+        await self._db.flush()
+
+    async def attachment(self, task_id: uuid.UUID, index: int) -> Attachment | None:
+        row = await self._db.get(TaskAttachmentRow, (task_id, index))
+        return _attachment(row) if row else None
+
+    async def attachments(self, task_id: uuid.UUID) -> Sequence[Attachment]:
+        rows = await self._db.scalars(
+            select(TaskAttachmentRow)
+            .where(TaskAttachmentRow.task_id == task_id)
+            .order_by(TaskAttachmentRow.index)
+        )
+        return [_attachment(row) for row in rows]
+
+    async def update_attachment(self, attachment: Attachment) -> None:
+        row = await self._db.get(TaskAttachmentRow, (attachment.task_id, attachment.index))
+        if row is None:
+            raise NotFoundError(f"attachment {attachment.index} of task {attachment.task_id}")
+        for name, value in _attachment_columns(attachment).items():
+            setattr(row, name, value)
+        await self._db.flush()
+
+    async def drop_attachments(self, task_id: uuid.UUID) -> None:
+        await self._db.execute(
+            delete(TaskAttachmentRow).where(TaskAttachmentRow.task_id == task_id)
+        )
+
+    async def drop_attachments_before(self, cutoff: datetime) -> int:
+        result = await self._db.execute(
+            delete(TaskAttachmentRow)
+            .where(TaskAttachmentRow.created_at < cutoff)
+            .returning(TaskAttachmentRow.task_id)
+        )
+        return len(result.all())
 
     async def recent(
         self,
@@ -834,3 +874,29 @@ class SqlJobQueue:
             .execution_options(populate_existing=True)
         )
         return [mappers.task_from_row(row) for row in rows]
+
+
+def _attachment_columns(attachment: Attachment) -> dict[str, object]:
+    return {
+        "task_id": attachment.task_id,
+        "index": attachment.index,
+        "name": attachment.name,
+        "size": attachment.size,
+        "state": attachment.state.value,
+        "content": attachment.content,
+        "detail": attachment.detail,
+        "created_at": attachment.created_at,
+    }
+
+
+def _attachment(row: TaskAttachmentRow) -> Attachment:
+    return Attachment(
+        task_id=row.task_id,
+        index=row.index,
+        name=row.name,
+        size=row.size,
+        state=AttachmentState(row.state),
+        content=row.content,
+        detail=row.detail,
+        created_at=row.created_at,
+    )

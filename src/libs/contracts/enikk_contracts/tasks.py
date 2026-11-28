@@ -9,6 +9,7 @@ from typing import Annotated, Final, Literal
 from pydantic import AwareDatetime, Field, StringConstraints
 
 from enikk_contracts.agents import AgentDefinition
+from enikk_contracts.attachments import MAX_ATTACHMENTS, TaskAttachment
 from enikk_contracts.base import Contract
 from enikk_contracts.common import Identifier, NonEmptyText
 from enikk_contracts.credentials import CredentialValue
@@ -69,6 +70,8 @@ class TaskAssignment(Contract):
     """A GitHub App installation token for the platform repository, for definitions
     granted ``github`` (ADR-0041 §1). Expires within an hour; empty when core has no
     GitHub App or could not get one."""
+    attachments: Annotated[tuple[TaskAttachment, ...], Field(max_length=MAX_ATTACHMENTS)] = ()
+    """Files the owner attached to the message (ADR-0042 2b): untrusted material."""
 
 
 class LeaseResponse(Contract):

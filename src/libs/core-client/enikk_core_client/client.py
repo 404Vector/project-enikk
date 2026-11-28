@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from enikk_contracts import routes
 from enikk_contracts.approvals import DecisionResult, NoticeAcked, NoticeBatch
+from enikk_contracts.attachments import AttachmentContent, AttachmentStored
 from enikk_contracts.credentials import Credentials
 from enikk_contracts.delegation import Delegated
 from enikk_contracts.deployments import RevertResult
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll
+    from enikk_contracts.attachments import AttachmentFetch, AttachmentUpload
     from enikk_contracts.base import Contract
     from enikk_contracts.credentials import CredentialRequest
     from enikk_contracts.delegation import DelegateRequest
@@ -198,6 +200,20 @@ class CoreClient:
         """The bytes of a ``FILE`` outbox message (ADR-0042)."""
         path = routes.OUTBOX_FILE.format(message_id=message_id)
         return _parse(OutboxFile, await self._post(path, OutboxFileQuery(), 60))
+
+    async def upload_attachment(
+        self, task_id: uuid.UUID, index: int, upload: AttachmentUpload
+    ) -> AttachmentStored:
+        """Connector: the bytes of an attachment of the task's message (ADR-0042 2b)."""
+        path = routes.TASK_ATTACHMENT_UPLOAD.format(task_id=task_id, index=index)
+        return _parse(AttachmentStored, await self._post(path, upload, 60))
+
+    async def fetch_attachment(
+        self, task_id: uuid.UUID, index: int, fetch: AttachmentFetch
+    ) -> AttachmentContent:
+        """Runtime: an attachment of the leased task (ADR-0042 2b)."""
+        path = routes.TASK_ATTACHMENT_FETCH.format(task_id=task_id, index=index)
+        return _parse(AttachmentContent, await self._post(path, fetch, 60))
 
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult:
         """Slack connector only: cancel the queued and running work of the task's thread."""

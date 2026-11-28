@@ -14,6 +14,7 @@ from pydantic import AwareDatetime, Field, StringConstraints, model_validator
 
 from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
+from enikk_contracts.attachments import MAX_ATTACHMENTS, AttachmentState
 from enikk_contracts.common import AgentName, ConversationRef, Engine, Identifier, NonEmptyText
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.tasks import FailureReason, ProgressNote, TaskStatus
@@ -358,6 +359,31 @@ class OutboxFile(FrozenModel):
     message_id: uuid.UUID
     filename: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     content: Annotated[bytes, Field(min_length=1, max_length=MAX_FILE_BYTES)]
+
+
+class Attachment(FrozenModel):
+    """A file the owner attached to the message of a task (ADR-0042 2b).
+
+    Kept until the task ends; ``content`` only when ``READY``."""
+
+    task_id: uuid.UUID
+    index: Annotated[int, Field(ge=0, lt=MAX_ATTACHMENTS)]
+    name: Annotated[str, StringConstraints(min_length=1, max_length=200)]
+    size: Annotated[int, Field(ge=0)]
+    state: AttachmentState = AttachmentState.PENDING
+    content: Annotated[bytes, Field(max_length=MAX_FILE_BYTES)] | None = None
+    detail: Annotated[str, StringConstraints(min_length=1, max_length=200)] | None = None
+    created_at: AwareDatetime
+
+    def ready(self, content: bytes) -> Self:
+        return self.model_copy(
+            update={"state": AttachmentState.READY, "content": content, "detail": None}
+        )
+
+    def failed(self, detail: str) -> Self:
+        return self.model_copy(
+            update={"state": AttachmentState.FAILED, "content": None, "detail": detail[:200]}
+        )
 
 
 class OutboxMessage(Entity):

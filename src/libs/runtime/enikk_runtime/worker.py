@@ -13,6 +13,7 @@ from enikk_contracts.agents import Execution
 from enikk_contracts.tasks import Failed, Heartbeat, LeaseRequest, ResultReport, Succeeded
 from enikk_core_client.errors import CoreConflictError, CoreNotFoundError, CoreUnavailableError
 from enikk_kernel.models import FrozenModel
+from enikk_runtime.attachments import save_attachments
 from enikk_runtime.errors import IncompatibleModelError, TaskFailedError
 from enikk_runtime.memory import with_memories
 from enikk_runtime.model import EngineJob
@@ -210,7 +211,14 @@ class TaskWorker:
         )
         workspace = await self._workspace(assignment)
         skills = await self._skill_list(assignment)
-        text = with_workspace(with_memories(assignment.input, assignment.memories), workspace)
+        attachments = (
+            await save_attachments(self._core, assignment, workspace.tmp_dir, self._sleep)
+            if workspace is not None and assignment.attachments
+            else ()
+        )
+        text = with_workspace(
+            with_memories(assignment.input, assignment.memories), workspace, attachments
+        )
         job = EngineJob(
             task_id=assignment.task_id,
             lease_id=assignment.lease_id,
