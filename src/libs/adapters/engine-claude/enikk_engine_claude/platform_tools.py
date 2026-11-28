@@ -23,7 +23,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from pydantic import BaseModel, ValidationError
 
 from enikk_contracts.agents import PlatformTool
-from enikk_contracts.delegation import MAX_REQUEST_CHARS, DelegateRequest
+from enikk_contracts.delegation import MAX_REQUEST_CHARS, AskRequest, DelegateRequest
 from enikk_contracts.diagnostics import (
     DeploymentsQuery,
     LogsQuery,
@@ -131,6 +131,7 @@ THREAD_TOOLS: Final = tuple(
     )
 )
 DELEGATE_TOOL: Final = f"mcp__{SERVER}__delegate"
+ASK_TOOL: Final = f"mcp__{SERVER}__ask_agent"
 
 _log = logging.getLogger(__name__)
 
@@ -244,6 +245,7 @@ def granted_platform_tools(
         *([NOTE_CHANGE_TOOL] if memory and _defaults(job) and _grants_private(job) else ()),
         *(THREAD_TOOLS if thread and _defaults(job) else ()),
         *([DELEGATE_TOOL] if thread and _defaults(job) and job.definition.delegates else ()),
+        *([ASK_TOOL] if thread and _defaults(job) and job.definition.asks else ()),
         *(DIAGNOSTIC_TOOLS if diagnostics and _defaults(job) else ()),
         *([READ_PROMPT_TOOL, PROPOSE_PROMPT_TOOL] if prompts and _grants_prompts(job) else ()),
         *([LOAD_SKILL_TOOL] if skills and _has_skills(job) else ()),
@@ -896,6 +898,8 @@ def thread_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[A
     tools = [send_file, react, *slack_tools(current, thread)]
     if current.job.definition.delegates:
         tools.append(delegate_tool(current, thread))
+    if current.job.definition.asks:
+        tools.append(ask_tool(current, thread))
     return tools
 
 
@@ -960,6 +964,72 @@ def delegate_tool(current: CurrentJob, thread: ThreadPoster) -> SdkMcpTool[Any]:
         )
 
     return delegate
+
+
+def ask_description(agents: tuple[str, ...]) -> str:
+    return (
+        f"Ask another agent for work that needs its tools or permissions (agents: "
+        f"{', '.join(agents)}), for example a change to the platform itself. Nothing runs "
+        "yet: a card with your request, your reason and [허가]·[거절] buttons appears in "
+        "this thread, and only the owner decides. The call returns at once. If the owner "
+        "allows it, the agent works in its own session and sees only your request, not "
+        "this conversation: write everything it needs (goal, constraints, file paths). "
+        "Its result, a rejection, or the request expiring undecided arrives in this "
+        "thread as an [이벤트] input that wakes you. So after asking, tell the owner the "
+        "card is waiting and end the turn unless you have other work. Its files are in "
+        "its workspace (see the workspace header). Ask only for what you cannot do "
+        f"yourself, once per need. request: at most {MAX_REQUEST_CHARS} characters; "
+        "reason: one or two lines, at most 500 characters."
+    )
+
+
+def ask_tool(current: CurrentJob, thread: ThreadPoster) -> SdkMcpTool[Any]:
+    agents = current.job.definition.asks
+    schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "enum": list(agents)},
+            "request": {"type": "string", "description": "The full request for the agent."},
+            "reason": {
+                "type": "string",
+                "description": "Why you need it, for the owner deciding. One or two lines.",
+            },
+        },
+        "required": ["agent", "request", "reason"],
+    }
+
+    @tool("ask_agent", ask_description(agents), schema)
+    async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
+        job = current.job
+        try:
+            request = AskRequest(
+                lease_id=job.lease_id,
+                agent=str(args.get("agent", "")),
+                request=str(args.get("request", "")),
+                reason=str(args.get("reason", "")),
+            )
+        except ValidationError:
+            return _result(
+                f"agent must be one of {', '.join(agents)}; request must have 1 to "
+                f"{MAX_REQUEST_CHARS} characters; reason 1 to 500.",
+                True,
+            )
+        try:
+            created = await thread.ask(job.task_id, request)
+        except CoreUnavailableError:
+            return _result("The platform is unreachable right now; tell the owner.", True)
+        except CoreApiError as exc:
+            return _result(f"Refused: {exc}", True)
+        return _result(
+            f"The request card for {created.agent} is in this thread (request "
+            f"{created.request_id}); nothing runs until the owner presses [허가]. It expires "
+            f"undecided at {created.expires_at.isoformat()}. The outcome will wake this "
+            "thread as an [이벤트] input. Tell the owner and end this turn unless other work "
+            "remains.",
+            False,
+        )
+
+    return ask_agent
 
 
 def slack_tools(current: CurrentJob, thread: ThreadPoster) -> list[SdkMcpTool[Any]]:

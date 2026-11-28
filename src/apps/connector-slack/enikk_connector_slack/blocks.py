@@ -3,6 +3,7 @@ of an agent PR (ADR-0020, ADR-0023, ADR-0032, ADR-0036)."""
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +18,7 @@ from enikk_contracts.approvals import (
     PullStatusCard,
     ResolutionOutcome,
 )
+from enikk_contracts.delegation import AskCard, AskResult, AskStatus
 from enikk_contracts.deployments import (
     AppResult,
     BuildFailed,
@@ -52,6 +54,8 @@ APPLY_NOTE_ACTION: Final = "enikk.note.apply"
 REJECT_NOTE_ACTION: Final = "enikk.note.reject"
 REVERT_PROMPT_ACTION: Final = "enikk.prompt.revert"
 CANCEL_ACTION: Final = "enikk.cancel"
+APPROVE_ASK_ACTION: Final = "enikk.ask.approve"
+REJECT_ASK_ACTION: Final = "enikk.ask.reject"
 MAX_FILE_LINES: Final = 20
 SECTION_LIMIT: Final = 2_900
 SUMMARY_LINES: Final = 2
@@ -733,3 +737,94 @@ def note_change_decided(result: NoteChangeResult, by: str) -> list[Block]:
     if result.detail:
         text += f"\n> {_escape(result.detail)}"
     return [Context(elements=(Text(text=text[:SECTION_LIMIT]),))]
+
+
+# ---------------------------------------------------- requests between agents (ADR-0054)
+
+ASK_TEXT: Final = {
+    AskStatus.REQUESTED: ":hourglass_flowing_sand: 아직 결정되지 않았습니다.",
+    AskStatus.APPROVED: ":white_check_mark: 허가했습니다.",
+    AskStatus.REJECTED: ":no_entry_sign: 거절했습니다. 아무것도 실행되지 않았습니다.",
+    AskStatus.EXPIRED: ":alarm_clock: 기한이 지나 거절됐습니다. 아무것도 실행되지 않았습니다.",
+}
+MAX_ASK_SECTIONS: Final = 10
+
+
+def ask_card(notice: AskCard) -> Message:
+    """The asking thread: who asks whom, why, the whole request, and the buttons."""
+    expires = int(notice.expires_at.timestamp())
+    fallback = f"{notice.expires_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC"
+    reason = "\n".join(f"> {line}" for line in _escape(notice.reason).splitlines() if line)
+    chunks = _chunks(_escape(notice.request), SECTION_LIMIT)
+    shown = chunks[:MAX_ASK_SECTIONS]
+    cut = len(chunks) > len(shown)
+    return Message(
+        text=f"{notice.requester} 가 {notice.agent} 에게 보내는 요청: 허가가 필요합니다",
+        blocks=(
+            _section(
+                f":raising_hand: *{notice.requester} → {notice.agent} 요청* "
+                f"허가하기 전에는 아무것도 실행되지 않습니다.\n*이유*\n{reason}"
+            ),
+            _section("*요청문*"),
+            *(_section(chunk) for chunk in shown),
+            *(
+                (Context(elements=(Text(text="(요청문이 길어 뒷부분을 줄였습니다.)"),)),)
+                if cut
+                else ()
+            ),
+            Context(
+                elements=(
+                    Text(
+                        text=f"{_slack_date(expires, fallback)}까지 결정하지 않으면 "
+                        "거절됩니다. 허가하면 "
+                        f"{notice.agent} 의 권한으로 실행됩니다."
+                    ),
+                )
+            ),
+            Actions(
+                block_id="enikk.ask",
+                elements=(
+                    Button(
+                        text=Text(type="plain_text", text="허가"),
+                        action_id=APPROVE_ASK_ACTION,
+                        value=str(notice.request_id),
+                        style="primary",
+                        confirm=Confirm(
+                            title=Text(type="plain_text", text=f"{notice.agent} 에게 맡기기"),
+                            text=Text(
+                                type="plain_text",
+                                text=(
+                                    f"{notice.requester} 의 요청을 {notice.agent} 의 권한으로 "
+                                    "실행합니다."
+                                )[:300],
+                            ),
+                            confirm=Text(type="plain_text", text="허가"),
+                            deny=Text(type="plain_text", text="취소"),
+                        ),
+                    ),
+                    Button(
+                        text=Text(type="plain_text", text="거절"),
+                        action_id=REJECT_ASK_ACTION,
+                        value=str(notice.request_id),
+                        style="danger",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def ask_decided(result: AskResult, by: str) -> list[Block]:
+    """Blocks that replace the buttons: what happened."""
+    text = ASK_TEXT[result.status]
+    if not result.changed:
+        text = f":information_source: 바뀐 것이 없습니다. 지금 상태: {text}"
+    text += f" (<@{by}>)"
+    if result.detail:
+        text += f"\n> {_escape(result.detail)}"
+    return [Context(elements=(Text(text=text[:SECTION_LIMIT]),))]
+
+
+def _slack_date(epoch: int, fallback: str) -> str:
+    """A time Slack shows in the reader's own time zone."""
+    return f"<!date^{epoch}^{{date_short_pretty}} {{time}}|{fallback}>"

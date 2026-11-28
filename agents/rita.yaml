@@ -47,6 +47,10 @@ tools:
      WebSearch, WebFetch, TaskCreate, TaskGet, TaskList, TaskUpdate, Task]
   # No prompt candidates and no GitHub token: changes to enikk itself go through enikk.
   platform: []
+# Agents she may ask for work she cannot do herself (changes to enikk itself, prompt
+# candidates and the like). Each request is a card in her thread; it runs only after the
+# owner presses [허가], and the result wakes her thread (ADR-0054).
+asks: [enikk]
 # Room for long editor work in one thread.
 limits:
   max_turns: 100

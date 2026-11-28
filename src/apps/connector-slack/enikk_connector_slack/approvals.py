@@ -30,6 +30,7 @@ from enikk_contracts.approvals import (
     PullStatusCard,
     StatusCardPosted,
 )
+from enikk_contracts.delegation import AskCard, AskDecision
 from enikk_contracts.deployments import BuildFailed, DeploymentFinished, RevertRequest
 from enikk_contracts.digests import DigestFailed, ScheduleDelivered
 from enikk_contracts.memory import NoteChangeDecision, NoteChangePosted, NoteChangeRequested
@@ -54,6 +55,7 @@ if TYPE_CHECKING:
 
 DECISIONS: Final = {blocks.APPROVE_ACTION: Decision.APPROVE, blocks.REJECT_ACTION: Decision.REJECT}
 NOTE_CHANGES: Final = {blocks.APPLY_NOTE_ACTION: True, blocks.REJECT_NOTE_ACTION: False}
+ASKS: Final = {blocks.APPROVE_ASK_ACTION: True, blocks.REJECT_ASK_ACTION: False}
 PROMOTIONS: Final = {
     blocks.PROMOTE_PROMPT_ACTION: PromotionAction.PROMOTE,
     blocks.REJECT_PROMPT_ACTION: PromotionAction.REJECT,
@@ -81,6 +83,7 @@ class NoticeRelay:
         self._deploy_channel = config.deploy_notify_channel
         self._approval_channel = config.approval_channel
         self._channel_ids: dict[str, str] = {}
+        self._personas = {c.channel: c.persona for c in config.agent_channels}
         self._policy = policy
         self._sleep = sleep
 
@@ -129,6 +132,9 @@ class NoticeRelay:
             return
         if isinstance(body, NoteChangeRequested):
             await self._deliver_note_change(notice, body)
+            return
+        if isinstance(body, AskCard):
+            await self._deliver_ask(notice, body)
             return
         if isinstance(body, DigestFailed):
             await self._deliver_to_owner(notice, blocks.digest_failed(body))
@@ -266,6 +272,33 @@ class NoticeRelay:
         else:
             _log.warning("schedule %s: no channel %s the bot can see", body.name, body.channel)
         await self._deliver_to_owner(notice, blocks.schedule_delivered(body, missing=True))
+
+    async def _deliver_ask(self, notice: OwnerNotice, body: AskCard) -> None:
+        """The request card in the asking thread itself, under its channel's name and
+        icon; the owner's DM only if the thread cannot take it (ADR-0054)."""
+        origin = body.origin
+        message = blocks.ask_card(body)
+        try:
+            await self._slack.post_message(
+                origin.channel,
+                message,
+                thread=origin.thread,
+                persona=self._personas.get(origin.channel),
+            )
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("could not post request %s in its thread: %s", body.request_id, exc)
+        else:
+            return
+        try:
+            await self._slack.post_message(
+                self._owner, blocks.sent_to_dm_instead(message, origin.channel)
+            )
+        except SlackDeliveryError as exc:
+            if exc.transient:
+                raise
+            _log.error("dropped owner notice %s: %s", notice.notice_id, exc)
 
     async def _deliver_to_owner(self, notice: OwnerNotice, message: blocks.Message) -> None:
         try:
@@ -405,6 +438,10 @@ class ApprovalActions:
             if action.action_id == blocks.REVERT_ACTION:
                 await self._revert(actions, action.value)
                 continue
+            approve = ASKS.get(action.action_id)
+            if approve is not None:
+                await self._decide_ask(actions, action.value, approve=approve)
+                continue
             apply = NOTE_CHANGES.get(action.action_id)
             if apply is not None:
                 await self._change_note(actions, action.value, apply=apply)
@@ -511,6 +548,32 @@ class ApprovalActions:
             return
         kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
         footer = blocks.note_change_decided(result, actions.user.id)
+        await self._slack.update_message(
+            actions.channel_id,
+            actions.message_ts,
+            actions.message_text,
+            [*kept, *(b.model_dump(mode="json", exclude_none=True) for b in footer)],
+        )
+
+    async def _decide_ask(self, actions: BlockActions, value: str, *, approve: bool) -> None:
+        try:
+            request_id = uuid.UUID(value)
+        except ValueError:
+            return
+        decision = AskDecision(approve=approve, decided_by=actions.user.id)
+        try:
+            result = await self._core.decide_ask(request_id, decision)
+        except (CoreApiError, CoreUnavailableError) as exc:
+            _log.warning("request %s failed: %s", request_id, exc)
+            await self._slack.post_ephemeral(
+                actions.channel_id,
+                actions.user.id,
+                f":warning: 처리하지 못했습니다. 아무것도 실행되지 않았습니다. "
+                f"잠시 뒤 다시 눌러 주세요. ({exc})",
+            )
+            return
+        kept = [b for b in actions.message_blocks if b.get("type") != "actions"]
+        footer = blocks.ask_decided(result, actions.user.id)
         await self._slack.update_message(
             actions.channel_id,
             actions.message_ts,

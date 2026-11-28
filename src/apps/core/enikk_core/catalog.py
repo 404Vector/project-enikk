@@ -42,6 +42,17 @@ class YamlAgentCatalog:
                         f"'{definition.name}' delegates to '{target}', which must run on the "
                         "shared runtime and delegate to no one (ADR-0047)"
                     )
+            for target in definition.asks:
+                found = self._by_name.get(target)
+                if found is None:
+                    raise ConfigurationError(
+                        f"'{definition.name}' asks '{target}', which is not an agent"
+                    )
+                if found.execution is not Execution.SHARED:
+                    raise ConfigurationError(
+                        f"'{definition.name}' asks '{target}', which must run on the shared "
+                        "runtime (ADR-0054)"
+                    )
 
     @classmethod
     def load(cls, directory: Path) -> YamlAgentCatalog:

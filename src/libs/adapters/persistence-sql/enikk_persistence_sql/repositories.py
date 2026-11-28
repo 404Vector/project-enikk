@@ -10,6 +10,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from enikk_contracts.agents import Execution
+from enikk_contracts.delegation import AskStatus
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.schedules import RunStatus
 from enikk_contracts.tasks import HELD_EVENT_PREFIX, TaskStatus
@@ -25,6 +26,7 @@ from enikk_core_domain.transcripts import MAIN_SUBPATH, entry_uuid, new_entries
 from enikk_persistence_sql import mappers
 from enikk_persistence_sql.tables import (
     ApprovalRow,
+    AskRow,
     ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
@@ -54,6 +56,7 @@ if TYPE_CHECKING:
     from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
     from enikk_contracts.digests import DigestStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
+    from enikk_core_domain.asks import AskedWork
     from enikk_core_domain.deployments import DeploymentWatch
     from enikk_core_domain.digests import ConversationDigest
     from enikk_core_domain.memory import NoteChange, VaultNote
@@ -564,6 +567,42 @@ class SqlNoteChangeRepository:
             .execution_options(populate_existing=True)
         )
         return mappers.note_change_from_row(row) if row else None
+
+
+class SqlAskRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, asked: AskedWork) -> None:
+        self._db.add(mappers.ask_to_row(asked))
+        await _flush(self._db, f"request {asked.id}")
+
+    async def update(self, asked: AskedWork) -> None:
+        row = await self._db.get(AskRow, asked.id)
+        if row is None:
+            raise NotFoundError(f"request {asked.id} does not exist")
+        mappers.ask_to_row(asked, row)
+        await _flush(self._db, f"request {asked.id}")
+
+    async def get_for_update(self, request_id: uuid.UUID) -> AskedWork | None:
+        row = await self._db.scalar(
+            select(AskRow)
+            .where(AskRow.id == request_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.ask_from_row(row) if row else None
+
+    async def due(self, now: datetime, limit: int) -> list[AskedWork]:
+        rows = await self._db.scalars(
+            select(AskRow)
+            .where(AskRow.status == AskStatus.REQUESTED.value, AskRow.expires_at <= now)
+            .order_by(AskRow.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        return [mappers.ask_from_row(row) for row in rows]
 
 
 class SqlDigestRepository:

@@ -14,6 +14,7 @@ from enikk_contracts.approvals import (
     NoticeBatch,
     ResolutionOutcome,
 )
+from enikk_contracts.delegation import AskResult, AskStatus
 from enikk_contracts.deployments import PullLink, RevertOutcome, RevertRequest, RevertResult
 from enikk_contracts.events import EventAccepted
 from enikk_contracts.memory import NoteChangeLinked, NoteChangeResult, NoteChangeStatus
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from enikk_connector_slack.blocks import Message
     from enikk_connector_slack.events import MessageRef
     from enikk_contracts.approvals import DecisionRequest, NoticeAck, NoticePoll, OwnerNotice
+    from enikk_contracts.delegation import AskDecision
     from enikk_contracts.events import InboundEvent
     from enikk_contracts.memory import NoteChangeDecision, NoteChangePosted
     from enikk_contracts.outbox import OutboundMessage, OutboxAck, OutboxFile, OutboxPoll
@@ -75,6 +77,8 @@ class FakeCore:
         self.note_decisions: list[tuple[uuid.UUID, NoteChangeDecision]] = []
         self.note_result = NoteChangeResult(status=NoteChangeStatus.DONE, changed=True)
         self.notes_posted: list[tuple[uuid.UUID, NoteChangePosted]] = []
+        self.ask_decisions: list[tuple[uuid.UUID, AskDecision]] = []
+        self.ask_result = AskResult(status=AskStatus.APPROVED, changed=True, detail="맡겼습니다.")
         self.cancels: list[uuid.UUID] = []
         self.cancel_finds_nothing = False
         self.files: dict[uuid.UUID, OutboxFile] = {}
@@ -162,6 +166,12 @@ class FakeCore:
     ) -> NoteChangeLinked:
         self.notes_posted.append((change_id, posted))
         return NoteChangeLinked(told_origin=True)
+
+    async def decide_ask(self, request_id: uuid.UUID, decision: AskDecision) -> AskResult:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.ask_decisions.append((request_id, decision))
+        return self.ask_result
 
     async def report_slack_workspace(self, report: SlackWorkspaceReport) -> SlackWorkspaceReceived:
         self.workspace_reports.append(report)

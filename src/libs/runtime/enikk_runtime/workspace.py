@@ -455,7 +455,7 @@ def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
         f"- 임시 자료: {workspace.tmp_dir} (웹에서 받은 파일처럼 신뢰하지 않는 자료는 여기에 둔다)"
     )
     lines.extend(
-        f"- {agent} 의 작업 공간: {path} (delegate 로 맡긴 일에서 {agent} 가 만든 파일. "
+        f"- {agent} 의 작업 공간: {path} (delegate·ask_agent 로 맡긴 일에서 {agent} 가 만든 파일. "
         "읽고 쓸 수 있고 send_file 로 보낼 수 있다)"
         for agent, path in workspace.delegate_dirs
     )

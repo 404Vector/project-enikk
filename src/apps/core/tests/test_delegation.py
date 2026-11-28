@@ -140,7 +140,7 @@ async def test_the_result_wakes_the_thread_that_handed_work_on(world: World) -> 
     batch = await world.usecases.poll_outbox(ConnectorKind.SLACK, POLL)
     replies = [m for m in batch.messages if m.task_id == child_id and m.kind is OutboundKind.REPLY]
     assert [m.text for m in replies] == [
-        "helper 가 맡은 작업을 마쳤습니다. 결과는 에닉이 이어서 전합니다."
+        "helper 가 맡은 작업을 마쳤습니다. 결과는 이 스레드에서 이어서 전합니다."
     ]
     assert all(m.conversation == THREAD for m in batch.messages)
 

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from enikk_contracts.outbox import OutboundKind
     from enikk_contracts.tasks import TaskStatus
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
+    from enikk_core_domain.asks import AskedWork
     from enikk_core_domain.auth import ServiceIdentity
     from enikk_core_domain.deployments import AppObservation, DeploymentWatch
     from enikk_core_domain.digests import ConversationDigest
@@ -289,6 +290,21 @@ class NoteChangeRepository(Protocol):
         ...
 
 
+class AskRepository(Protocol):
+    """Requests of one agent for another's work, decided by the owner (ADR-0054)."""
+
+    async def add(self, asked: AskedWork) -> None: ...
+    async def update(self, asked: AskedWork) -> None: ...
+
+    async def get_for_update(self, request_id: uuid.UUID) -> AskedWork | None:
+        """Load a request and lock it until the unit of work ends."""
+        ...
+
+    async def due(self, now: datetime, limit: int) -> Sequence[AskedWork]:
+        """Undecided requests whose time is up, oldest first, locked (skipping locked ones)."""
+        ...
+
+
 class DigestRepository(Protocol):
     """The state of each day's conversation summary (ADR-0035)."""
 
@@ -361,6 +377,8 @@ class UnitOfWork(Protocol):
     def prompt_promotions(self) -> PromptPromotionRepository: ...
     @property
     def note_changes(self) -> NoteChangeRepository: ...
+    @property
+    def asks(self) -> AskRepository: ...
     @property
     def digests(self) -> DigestRepository: ...
     @property

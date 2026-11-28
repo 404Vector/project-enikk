@@ -178,6 +178,12 @@ class WakeupSettings(SettingsModel):
     enabled: bool = False
 
 
+class AskSettings(SettingsModel):
+    """Requests of one agent for another's work, allowed by the owner (ADR-0054)."""
+
+    expires_hours: int = Field(default=24, ge=1, le=168)
+
+
 class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     host: str = "0.0.0.0"  # noqa: S104 - must accept traffic from the pod network
     port: int = Field(default=8000, ge=1, le=65535)
@@ -195,5 +201,6 @@ class CoreSettings(ServiceSettings, env_prefix="ENIKK_CORE_"):
     diagnostics: DiagnosticsSettings = DiagnosticsSettings()
     prompts: PromptSettings = PromptSettings()
     wakeups: WakeupSettings = WakeupSettings()
+    asks: AskSettings = AskSettings()
     # Identities allowed to call core (ADR-0011 §5). Empty: every caller is denied.
     role_bindings: tuple[RoleBindingSettings, ...] = ()

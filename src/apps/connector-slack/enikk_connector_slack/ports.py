@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         NoticeBatch,
         NoticePoll,
     )
+    from enikk_contracts.delegation import AskDecision, AskResult
     from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
     from enikk_contracts.memory import (
@@ -83,6 +84,8 @@ class CoreApi(Protocol):
     async def note_change_posted(
         self, change_id: uuid.UUID, posted: NoteChangePosted
     ) -> NoteChangeLinked: ...
+
+    async def decide_ask(self, request_id: uuid.UUID, decision: AskDecision) -> AskResult: ...
 
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult: ...
 
