@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from enikk_core_domain.model import (
         Approval,
         ApprovalState,
+        Attachment,
         Dispatch,
         Notice,
         OutboxFile,
@@ -51,6 +52,25 @@ class TaskRepository(Protocol):
         ...
 
     async def find_by_source_event(self, event_id: str) -> Task | None: ...
+
+    async def add_attachment(self, attachment: Attachment) -> None:
+        """An attachment of a task, waiting for its upload (ADR-0042 2b)."""
+        ...
+
+    async def attachment(self, task_id: uuid.UUID, index: int) -> Attachment | None: ...
+
+    async def attachments(self, task_id: uuid.UUID) -> Sequence[Attachment]:
+        """The task's attachments by ``index``."""
+        ...
+
+    async def update_attachment(self, attachment: Attachment) -> None: ...
+
+    async def drop_attachments(self, task_id: uuid.UUID) -> None: ...
+
+    async def drop_attachments_before(self, cutoff: datetime) -> int:
+        """Delete attachments created before ``cutoff``; returns how many."""
+        ...
+
     async def recent(
         self,
         since: datetime,

@@ -36,6 +36,7 @@ from enikk_core_domain.memory import NoteChange, VaultNote
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
+    Attachment,
     Dispatch,
     Notice,
     NoticeStatus,
@@ -134,6 +135,7 @@ class InMemoryDatabase:
         self.tasks: dict[uuid.UUID, Task] = {}
         self.outbox: dict[uuid.UUID, OutboxMessage] = {}
         self.outbox_files: dict[uuid.UUID, OutboxFile] = {}
+        self.attachments: dict[tuple[uuid.UUID, int], Attachment] = {}
         self.transcripts: dict[_Slot, tuple[TranscriptEntry, ...]] = {}
         self.dispatches: dict[uuid.UUID, Dispatch] = {}
         self.approvals: dict[uuid.UUID, Approval] = {}
@@ -159,6 +161,7 @@ class _Staged:
         self.tasks = dict(db.tasks)
         self.outbox = dict(db.outbox)
         self.outbox_files = dict(db.outbox_files)
+        self.attachments = dict(db.attachments)
         self.transcripts = dict(db.transcripts)
         self.dispatches = dict(db.dispatches)
         self.approvals = dict(db.approvals)
@@ -427,6 +430,29 @@ class _Tasks:
     async def find_by_source_event(self, event_id: str) -> Task | None:
         return next((t for t in self._s.tasks.values() if t.source_event_id == event_id), None)
 
+    async def add_attachment(self, attachment: Attachment) -> None:
+        self._s.attachments[(attachment.task_id, attachment.index)] = attachment
+
+    async def attachment(self, task_id: uuid.UUID, index: int) -> Attachment | None:
+        return self._s.attachments.get((task_id, index))
+
+    async def attachments(self, task_id: uuid.UUID) -> Sequence[Attachment]:
+        found = [a for (owner, _), a in self._s.attachments.items() if owner == task_id]
+        return sorted(found, key=lambda a: a.index)
+
+    async def update_attachment(self, attachment: Attachment) -> None:
+        self._s.attachments[(attachment.task_id, attachment.index)] = attachment
+
+    async def drop_attachments(self, task_id: uuid.UUID) -> None:
+        for key in [k for k in self._s.attachments if k[0] == task_id]:
+            del self._s.attachments[key]
+
+    async def drop_attachments_before(self, cutoff: datetime) -> int:
+        old = [k for k, a in self._s.attachments.items() if a.created_at < cutoff]
+        for key in old:
+            del self._s.attachments[key]
+        return len(old)
+
     async def recent(
         self,
         since: datetime,
@@ -692,6 +718,7 @@ class InMemoryUnitOfWork:
         self._db.tasks = dict(self._staged.tasks)
         self._db.outbox = dict(self._staged.outbox)
         self._db.outbox_files = dict(self._staged.outbox_files)
+        self._db.attachments = dict(self._staged.attachments)
         self._db.transcripts = dict(self._staged.transcripts)
         self._db.dispatches = dict(self._staged.dispatches)
         self._db.approvals = dict(self._staged.approvals)
@@ -841,6 +868,40 @@ async def check_outbox_files(new_uow: UnitOfWorkFactory) -> None:
         await uow.commit()
     async with new_uow() as uow:
         _expect(await uow.outbox.file(message.id) is None, "file dropped")
+
+
+async def check_attachments(new_uow: UnitOfWorkFactory) -> None:
+    owner = session()
+    work = task(owner)
+    first = Attachment(task_id=work.id, index=0, name="a.png", size=4, created_at=T0)
+    second = Attachment(task_id=work.id, index=1, name="b.txt", size=2, created_at=T0)
+    async with new_uow() as uow:
+        await uow.sessions.add(owner)
+        await uow.tasks.add(work)
+        await uow.tasks.add_attachment(second)
+        await uow.tasks.add_attachment(first)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(list(await uow.tasks.attachments(work.id)) == [first, second], "by index")
+        await uow.tasks.update_attachment(first.ready(b"\x89PNG"))
+        await uow.tasks.update_attachment(second.failed("too large"))
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(await uow.tasks.attachment(work.id, 0) == first.ready(b"\x89PNG"), "ready")
+        _expect(await uow.tasks.attachment(work.id, 1) == second.failed("too large"), "failed")
+        _expect(await uow.tasks.attachment(work.id, 2) is None, "no third")
+        _expect(await uow.tasks.drop_attachments_before(T0) == 0, "none older")
+        await uow.tasks.drop_attachments(work.id)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(list(await uow.tasks.attachments(work.id)) == [], "dropped")
+        await uow.tasks.add_attachment(first)
+        await uow.commit()
+    async with new_uow() as uow:
+        _expect(
+            await uow.tasks.drop_attachments_before(T0 + timedelta(seconds=1)) == 1, "old swept"
+        )
+        await uow.commit()
 
 
 async def check_updates_persist(new_uow: UnitOfWorkFactory) -> None:
@@ -1475,6 +1536,7 @@ async def check_active_in_session(new_uow: UnitOfWorkFactory) -> None:
 CONFORMANCE_CHECKS: tuple[Callable[[UnitOfWorkFactory], Awaitable[None]], ...] = (
     check_round_trip,
     check_outbox_files,
+    check_attachments,
     check_outbox_not_before,
     check_updates_persist,
     check_rollback_without_commit,

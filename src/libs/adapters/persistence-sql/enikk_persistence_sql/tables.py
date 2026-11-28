@@ -291,6 +291,23 @@ class OutboxFileRow(Base):
     content: Mapped[bytes] = mapped_column(LargeBinary)
 
 
+class TaskAttachmentRow(Base):
+    """A file the owner attached to a task's message, until the task ends (ADR-0042 2b)."""
+
+    __tablename__ = "task_attachments"
+
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True
+    )
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    size: Mapped[int] = mapped_column(BigInteger)
+    state: Mapped[str] = mapped_column(String(16))
+    content: Mapped[bytes | None] = mapped_column(LargeBinary)
+    detail: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class TranscriptEntryRow(Base):
     """One engine transcript entry, stored as opaque JSON (ADR-0014)."""
 

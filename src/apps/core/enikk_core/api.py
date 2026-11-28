@@ -22,6 +22,12 @@ from enikk_contracts.approvals import (
     NoticeBatch,
     NoticePoll,
 )
+from enikk_contracts.attachments import (
+    AttachmentContent,
+    AttachmentFetch,
+    AttachmentStored,
+    AttachmentUpload,
+)
 from enikk_contracts.common import ConnectorKind
 from enikk_contracts.credentials import CredentialRequest, Credentials
 from enikk_contracts.delegation import Delegated, DelegateRequest
@@ -305,6 +311,20 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         role = _owner_channel(await gate.admit(request))
         await _parse(request, CancelRequest)
         return _json(await usecases.cancel_task(role.connector, task_id))
+
+    @app.post(routes.TASK_ATTACHMENT_UPLOAD, responses={200: {"model": AttachmentStored}})
+    @requires("connector")
+    async def upload_attachment(task_id: uuid.UUID, index: int, request: Request) -> Response:
+        role = _connector(await gate.admit(request))
+        upload = await _parse(request, AttachmentUpload)
+        return _json(await usecases.upload_attachment(role.connector, task_id, index, upload))
+
+    @app.post(routes.TASK_ATTACHMENT_FETCH, responses={200: {"model": AttachmentContent}})
+    @requires("runtime")
+    async def fetch_attachment(task_id: uuid.UUID, index: int, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        fetch = await _parse(request, AttachmentFetch)
+        return _json(await usecases.fetch_attachment(scope, task_id, index, fetch))
 
     @app.post(routes.TASK_LEASE, responses={200: {"model": LeaseResponse}})
     @requires("runtime")
