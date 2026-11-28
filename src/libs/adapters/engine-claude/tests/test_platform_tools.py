@@ -8,7 +8,15 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, Tex
 from pydantic import SecretStr
 
 from enikk_contracts.agents import PlatformTool, ToolPolicy
-from enikk_contracts.memory import NoteContent, NoteRead, NoteWrite, NoteWritten
+from enikk_contracts.memory import (
+    NoteChangeAction,
+    NoteChangeCreated,
+    NoteChangeRequest,
+    NoteContent,
+    NoteRead,
+    NoteWrite,
+    NoteWritten,
+)
 from enikk_contracts.prompts import (
     PromptCandidateCreated,
     PromptCandidateRequest,
@@ -238,11 +246,18 @@ class _Notes:
     def __init__(self, error: Exception | None = None) -> None:
         self.reads: list[NoteRead] = []
         self.writes: list[NoteWrite] = []
+        self.changes: list[NoteChangeRequest] = []
         self._error = error
 
     async def read_note(self, task_id: uuid.UUID, request: NoteRead) -> NoteContent:
         self.reads.append(request)
         return NoteContent(path=request.path, exists=True, text="---\ndraft: true\n---\n본문")
+
+    async def request_note_change(
+        self, task_id: uuid.UUID, request: NoteChangeRequest
+    ) -> NoteChangeCreated:
+        self.changes.append(request)
+        return NoteChangeCreated(change_id=uuid.uuid4())
 
     async def write_note(self, task_id: uuid.UUID, request: NoteWrite) -> NoteWritten:
         if self._error is not None:
@@ -351,3 +366,37 @@ async def test_write_notes_writes_each_and_stops_at_a_refusal(tmp_path: Path) ->
     assert len(notes.writes) == 3
     too_many = await tools["write_notes"].handler({"notes": []})
     assert too_many["is_error"]
+
+
+def test_only_vault_private_roles_may_ask_for_note_changes() -> None:
+    from enikk_engine_claude.platform_tools import NOTE_CHANGE_TOOL
+
+    plain = granted_platform_tools(_with_tools(ToolPolicy()), memory=True)
+    assert NOTE_CHANGE_TOOL not in plain
+    granted = granted_platform_tools(
+        _with_tools(ToolPolicy(platform=(PlatformTool.VAULT_PRIVATE,))), memory=True
+    )
+    assert NOTE_CHANGE_TOOL in granted
+    assert "request_note_change" not in _note_tools(_Notes(), _job())
+
+
+async def test_request_note_change_asks_core_under_the_lease() -> None:
+    job = _with_tools(ToolPolicy(platform=(PlatformTool.VAULT_PRIVATE,)))
+    notes = _Notes()
+    tools = _note_tools(notes, job)
+    done = await tools["request_note_change"].handler(
+        {"action": "move", "path": "vault/a.md", "to": "vault/b.md", "reason": "rename"}
+    )
+    assert not done["is_error"]
+    assert "Nothing has changed yet" in done["content"][0]["text"]
+    assert notes.changes == [
+        NoteChangeRequest(
+            lease_id=job.lease_id,
+            action=NoteChangeAction.MOVE,
+            path="vault/a.md",
+            to="vault/b.md",
+            reason="rename",
+        )
+    ]
+    bad = await tools["request_note_change"].handler({"action": "burn", "path": "x", "reason": "y"})
+    assert bad["is_error"]

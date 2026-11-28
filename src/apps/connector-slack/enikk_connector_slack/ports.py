@@ -25,6 +25,12 @@ if TYPE_CHECKING:
     )
     from enikk_contracts.deployments import RevertRequest, RevertResult
     from enikk_contracts.events import EventAccepted, InboundEvent
+    from enikk_contracts.memory import (
+        NoteChangeDecision,
+        NoteChangeLinked,
+        NoteChangePosted,
+        NoteChangeResult,
+    )
     from enikk_contracts.outbox import (
         OutboxAck,
         OutboxAcked,
@@ -69,6 +75,14 @@ class CoreApi(Protocol):
     async def promotion_posted(
         self, promotion_id: uuid.UUID, posted: PromotionPosted
     ) -> PromotionLinked: ...
+
+    async def decide_note_change(
+        self, change_id: uuid.UUID, decision: NoteChangeDecision
+    ) -> NoteChangeResult: ...
+
+    async def note_change_posted(
+        self, change_id: uuid.UUID, posted: NoteChangePosted
+    ) -> NoteChangeLinked: ...
 
     async def cancel_task(self, task_id: uuid.UUID) -> CancelResult: ...
 

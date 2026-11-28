@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Final
 
 from enikk_contracts.approvals import PullStage
 from enikk_contracts.common import ConnectorKind
+from enikk_contracts.memory import NoteChangeStatus
 from enikk_contracts.prompts import PromotionStatus
 from enikk_core_domain.model import Task
 from enikk_core_domain.thread_context import MAX_MESSAGES, with_thread_context
@@ -51,6 +52,13 @@ PROMOTION_STATES: Final[dict[PromotionStatus, str]] = {
     PromotionStatus.STALE: "요청 뒤 production 이 바뀌어 승격하지 않음",
     PromotionStatus.REVERTED: "이전 production 으로 되돌림",
 }
+
+NOTE_CHANGE_STATES: Final[dict[NoteChangeStatus, str]] = {
+    NoteChangeStatus.DONE: "소유자가 승인해 실행함",
+    NoteChangeStatus.REJECTED: "소유자가 거절함",
+    NoteChangeStatus.STALE: "요청 뒤 노트가 바뀌어 실행하지 않음",
+}
+"""Outcomes of a note change (ADR-0051 §4) that wake the asking thread."""
 
 GUIDE: Final = (
     "core 가 보낸 알림입니다. 소유자의 메시지가 아닙니다.\n"
@@ -101,6 +109,13 @@ def delegation_event_text(agent: str, *, succeeded: bool, text: str) -> str:
 
 def promotion_event_text(prompt: str, version: int, status: PromotionStatus, detail: str) -> str:
     lines = [f"{HEADER} 프롬프트 `{prompt}` v{version} {PROMOTION_STATES[status]}"]
+    if detail:
+        lines.append(f"- 상세: {detail[:MAX_DETAIL]}")
+    return "\n".join([*lines, "", GUIDE])
+
+
+def note_change_event_text(action: str, path: str, status: NoteChangeStatus, detail: str) -> str:
+    lines = [f"{HEADER} 노트 {action} 요청 {NOTE_CHANGE_STATES[status]}", f"- 노트: {path}"]
     if detail:
         lines.append(f"- 상세: {detail[:MAX_DETAIL]}")
     return "\n".join([*lines, "", GUIDE])

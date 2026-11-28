@@ -172,6 +172,25 @@ class StatusCardRow(Base):
     ts: Mapped[str] = mapped_column(String(255))
 
 
+class NoteChangeRow(Base):
+    """The owner's decision on publishing, unpublishing, deleting or moving a note
+    (ADR-0051 §4)."""
+
+    __tablename__ = "note_changes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    action: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(500))
+    target: Mapped[str | None] = mapped_column(String(500))
+    reason: Mapped[str] = mapped_column(String(500))
+    blob_sha: Mapped[str] = mapped_column(String(64))
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tasks.id"))
+    status: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime]
+    decided_at: Mapped[datetime | None]
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+
+
 class PromptPromotionRow(Base):
     """The owner's promotion request of a prompt candidate (ADR-0032)."""
 

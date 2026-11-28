@@ -13,14 +13,14 @@ from enikk_contracts.agents import Execution
 from enikk_contracts.approvals import OwnerNoticeBody
 from enikk_contracts.common import ConnectorKind, ConversationRef, Engine
 from enikk_contracts.digests import DigestStatus
-from enikk_contracts.memory import NoteKind
+from enikk_contracts.memory import NoteChangeAction, NoteChangeStatus, NoteKind
 from enikk_contracts.outbox import OutboundKind
 from enikk_contracts.prompts import PromotionStatus
 from enikk_contracts.schedules import RunStatus, ScheduleSpec, ScheduleState
 from enikk_contracts.tasks import TaskStatus
 from enikk_core_domain.deployments import DeploymentWatch
 from enikk_core_domain.digests import ConversationDigest
-from enikk_core_domain.memory import VaultNote
+from enikk_core_domain.memory import NoteChange, VaultNote
 from enikk_core_domain.model import (
     Approval,
     ApprovalState,
@@ -40,6 +40,7 @@ from enikk_persistence_sql.tables import (
     ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
+    NoteChangeRow,
     NoticeRow,
     OutboxRow,
     PromptPromotionRow,
@@ -194,6 +195,37 @@ def prompt_promotion_from_row(row: PromptPromotionRow) -> PromptPromotion:
         reason=row.reason,
         task_id=row.task_id,
         status=PromotionStatus(row.status),
+        created_at=row.created_at,
+        decided_at=row.decided_at,
+        decided_by=row.decided_by,
+    )
+
+
+def note_change_to_row(change: NoteChange, row: NoteChangeRow | None = None) -> NoteChangeRow:
+    row = row or NoteChangeRow(id=change.id)
+    row.action = change.action.value
+    row.path = change.path
+    row.target = change.to
+    row.reason = change.reason
+    row.blob_sha = change.blob_sha
+    row.task_id = change.task_id
+    row.status = change.status.value
+    row.created_at = change.created_at
+    row.decided_at = change.decided_at
+    row.decided_by = change.decided_by
+    return row
+
+
+def note_change_from_row(row: NoteChangeRow) -> NoteChange:
+    return NoteChange(
+        id=row.id,
+        action=NoteChangeAction(row.action),
+        path=row.path,
+        to=row.target,
+        reason=row.reason,
+        blob_sha=row.blob_sha,
+        task_id=row.task_id,
+        status=NoteChangeStatus(row.status),
         created_at=row.created_at,
         decided_at=row.decided_at,
         decided_by=row.decided_by,

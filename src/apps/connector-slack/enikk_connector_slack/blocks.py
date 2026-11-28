@@ -25,6 +25,12 @@ from enikk_contracts.deployments import (
     RevertOutcome,
     RevertResult,
 )
+from enikk_contracts.memory import (
+    NoteChangeAction,
+    NoteChangeRequested,
+    NoteChangeResult,
+    NoteChangeStatus,
+)
 from enikk_contracts.prompts import (
     PromotionRequested,
     PromotionResult,
@@ -42,6 +48,8 @@ REJECT_ACTION: Final = "enikk.reject"
 REVERT_ACTION: Final = "enikk.revert"
 PROMOTE_PROMPT_ACTION: Final = "enikk.prompt.promote"
 REJECT_PROMPT_ACTION: Final = "enikk.prompt.reject"
+APPLY_NOTE_ACTION: Final = "enikk.note.apply"
+REJECT_NOTE_ACTION: Final = "enikk.note.reject"
 REVERT_PROMPT_ACTION: Final = "enikk.prompt.revert"
 CANCEL_ACTION: Final = "enikk.cancel"
 MAX_FILE_LINES: Final = 20
@@ -639,3 +647,89 @@ def _kind(prompt: str) -> str:
     if is_tool_config(prompt):
         return " (도구 설정)"
     return ""
+
+
+# ---------------------------------------------------------------- notes (ADR-0051 §4)
+
+NOTE_ACTION_NAMES: Final = {
+    NoteChangeAction.PUBLISH: "발행",
+    NoteChangeAction.UNPUBLISH: "내리기",
+    NoteChangeAction.DELETE: "삭제",
+    NoteChangeAction.MOVE: "이동",
+}
+NOTE_CHANGE_TEXT: Final = {
+    NoteChangeStatus.REQUESTED: ":hourglass_flowing_sand: 아직 결정되지 않았습니다.",
+    NoteChangeStatus.DONE: ":white_check_mark: 실행했습니다.",
+    NoteChangeStatus.REJECTED: ":no_entry_sign: 거절했습니다. 볼트는 바뀌지 않았습니다.",
+    NoteChangeStatus.STALE: ":warning: 실행하지 않았습니다.",
+}
+
+
+def _published(published: bool) -> str:
+    return "블로그에 공개" if published else "공개 안 됨"
+
+
+def note_change_request(notice: NoteChangeRequested) -> Message:
+    """The approval channel: which note, what change, what it means for the blog, why,
+    and the buttons. The start of the note follows in the thread (``note_change_details``)."""
+    name = NOTE_ACTION_NAMES[notice.action]
+    target = f"`{_escape(notice.path)}`" + (
+        f" → `{_escape(notice.to)}`" if notice.to is not None else ""
+    )
+    blog = f"블로그: {_published(notice.published_before)} → {_published(notice.published_after)}"
+    reason = "\n".join(
+        f"> {line}" for line in _escape(notice.reason).splitlines()[:SUMMARY_LINES] if line
+    )
+    confirm = f"{notice.path} 를 {name}합니다." + (
+        " 블로그 공개 여부가 바뀝니다." if notice.published_before != notice.published_after else ""
+    )
+    return Message(
+        text=f"노트 {name} 요청: {notice.path}",
+        blocks=(
+            _section(f":books: *노트 {name} 요청* {target}\n{blog}\n{reason}"[:SECTION_LIMIT]),
+            Context(elements=(Text(text="노트 앞부분은 이 메시지의 스레드에 있습니다."),)),
+            Actions(
+                block_id="enikk.note",
+                elements=(
+                    Button(
+                        text=Text(type="plain_text", text=name),
+                        action_id=APPLY_NOTE_ACTION,
+                        value=str(notice.change_id),
+                        style="primary",
+                        confirm=Confirm(
+                            title=Text(type="plain_text", text=f"노트 {name}"),
+                            text=Text(type="plain_text", text=confirm[:300]),
+                            confirm=Text(type="plain_text", text=name),
+                            deny=Text(type="plain_text", text="취소"),
+                        ),
+                    ),
+                    Button(
+                        text=Text(type="plain_text", text="거절"),
+                        action_id=REJECT_NOTE_ACTION,
+                        value=str(notice.change_id),
+                        style="danger",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+def note_change_details(notice: NoteChangeRequested) -> Message:
+    """Thread reply under a note change: the start of the note as it is now."""
+    body = notice.excerpt.replace("```", "`\u200b``")
+    return Message(
+        text=f"{notice.path} 앞부분",
+        blocks=(_section(f"*노트 앞부분*\n```{_escape(body)}```"[:SECTION_LIMIT]),),
+    )
+
+
+def note_change_decided(result: NoteChangeResult, by: str) -> list[Block]:
+    """Blocks that replace the buttons: what happened."""
+    text = NOTE_CHANGE_TEXT[result.status]
+    if not result.changed:
+        text = f":information_source: 바뀐 것이 없습니다. 지금 상태: {text}"
+    text += f" (<@{by}>)"
+    if result.detail:
+        text += f"\n> {_escape(result.detail)}"
+    return [Context(elements=(Text(text=text[:SECTION_LIMIT]),))]

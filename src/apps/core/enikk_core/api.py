@@ -48,6 +48,12 @@ from enikk_contracts.memory import (
     MemoryMatches,
     MemorySearch,
     MemoryWritten,
+    NoteChangeCreated,
+    NoteChangeDecision,
+    NoteChangeLinked,
+    NoteChangePosted,
+    NoteChangeRequest,
+    NoteChangeResult,
     NoteContent,
     NoteRead,
     NoteWrite,
@@ -466,6 +472,28 @@ def create_app(services: CoreServices, *, run_reaper: bool = True) -> FastAPI:
         body = await _parse(request, PromptReadRequest)
         await usecases.verify_lease(WorkerScope.shared(role.engine), task_id, body.lease_id)
         return _json(await _prompts(services).read(task_id, body))
+
+    @app.post(routes.NOTE_CHANGE, responses={200: {"model": NoteChangeCreated}})
+    @requires("runtime")
+    async def request_note_change(task_id: uuid.UUID, request: Request) -> Response:
+        scope = _worker(await gate.admit(request))
+        body = await _parse(request, NoteChangeRequest)
+        await usecases.verify_lease(scope, task_id, body.lease_id)
+        return _json(await _memory(services).request_change(task_id, body))
+
+    @app.post(routes.NOTE_CHANGE_DECISION, responses={200: {"model": NoteChangeResult}})
+    @requires("connector")
+    async def decide_note_change(change_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, NoteChangeDecision)
+        return _json(await _memory(services).decide_change(change_id, body))
+
+    @app.post(routes.NOTE_CHANGE_POSTED, responses={200: {"model": NoteChangeLinked}})
+    @requires("connector")
+    async def note_change_posted(change_id: uuid.UUID, request: Request) -> Response:
+        _owner_channel(await gate.admit(request))
+        body = await _parse(request, NoteChangePosted)
+        return _json(await _memory(services).change_posted(change_id, body))
 
     @app.post(routes.PROMOTION_DECISION, responses={200: {"model": PromotionResult}})
     @requires("connector")

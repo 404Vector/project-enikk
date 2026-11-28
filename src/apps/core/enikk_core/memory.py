@@ -34,19 +34,26 @@ from enikk_contracts.memory import (
     MemoryMatch,
     MemoryMatches,
     MemoryWritten,
+    NoteChangeAction,
+    NoteChangeCreated,
+    NoteChangeLinked,
+    NoteChangeRequested,
+    NoteChangeResult,
+    NoteChangeStatus,
     NoteContent,
     NoteKind,
     NoteWritten,
 )
 from enikk_contracts.outbox import OutboundKind
+from enikk_core.wakeups import NOTE_CHANGE_STATES, note_change_event_text
 from enikk_core_domain.errors import (
     DependencyUnavailableError,
     InvalidRequestError,
     NotFoundError,
     PermissionDeniedError,
 )
-from enikk_core_domain.memory import MAX_BODY, MemoryLayout, VaultNote, context_notes
-from enikk_core_domain.model import OutboxMessage
+from enikk_core_domain.memory import MAX_BODY, MemoryLayout, NoteChange, VaultNote, context_notes
+from enikk_core_domain.model import Notice, OutboxMessage
 from enikk_core_domain.redaction import looks_secret
 from enikk_github.permissions import TokenPurpose
 from enikk_kernel.models import FrozenModel
@@ -56,12 +63,16 @@ if TYPE_CHECKING:
         ForgetRequest,
         MemoryNote,
         MemorySearch,
+        NoteChangeDecision,
+        NoteChangePosted,
+        NoteChangeRequest,
         NoteRead,
         NoteWrite,
         RememberRequest,
         UpdateMemoryRequest,
     )
     from enikk_core.github import GitHubAppApi
+    from enikk_core.wakeups import SessionWaker
     from enikk_core_domain.model import Session, Task
     from enikk_core_domain.ports import AgentCatalog, UnitOfWork, UnitOfWorkFactory
     from enikk_github.app import InstallationToken
@@ -76,6 +87,13 @@ _HEADING: Final = re.compile(r"^#\s+(.+?)\s*$", re.M)
 _UNSAFE_NAME: Final = re.compile(r'[\\/:*?"<>|#^\[\]\x00-\x1f]+')
 FOLDER_OF: Final = {NoteKind.PREFERENCE: "선호", NoteKind.FACT: "사실", NoteKind.WORK: "진행 중"}
 WORK_DAYS: Final = 14
+EXCERPT_CHARS: Final = 1_500
+CHANGE_NAMES: Final = {
+    NoteChangeAction.PUBLISH: "발행",
+    NoteChangeAction.UNPUBLISH: "내리기",
+    NoteChangeAction.DELETE: "삭제",
+    NoteChangeAction.MOVE: "이동",
+}
 NOTE_CHARS: Final = 100_000
 """Characters of a note handed to an agent that reads it."""
 CONVERSATION_FOLDER: Final = "대화"
@@ -156,6 +174,27 @@ def is_draft(text: str) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() == "true")
 
 
+def set_draft(text: str, *, draft: bool) -> str:
+    """``text`` with its frontmatter's ``draft`` set: ``draft: true``, or no draft line."""
+    match = _FRONTMATTER.match(text)
+    if match is None:
+        return f"---\ndraft: true\n---\n{text}" if draft else text
+    lines = [line for line in match.group(1).splitlines() if not re.match(r"^draft\s*:", line)]
+    if draft:
+        lines.append("draft: true")
+    front = "\n".join(lines)
+    return f"---\n{front}\n---\n{text[match.end() :]}" if front else text[match.end() :]
+
+
+def _quiet(message: str, quiet: bool) -> str:
+    """Mark a commit so the vault's blog build skips it when nothing published changes."""
+    return f"{message} [skip ci]" if quiet else message
+
+
+def _excerpt(text: str) -> str:
+    return text if len(text) <= EXCERPT_CHARS else text[: EXCERPT_CHARS - 1] + "…"
+
+
 def _date(value: object) -> date | None:
     if isinstance(value, datetime):
         return value.date()
@@ -181,9 +220,13 @@ class MemoryService:
         writer: VaultWriteApi | None = None,
         ids: IdGenerator | None = None,
         agents: AgentCatalog | None = None,
+        owner: str | None = None,
+        waker: SessionWaker | None = None,
     ) -> None:
         self._uow = uow
         self._agents = agents
+        self._owner = owner
+        self._waker = waker
         self._app = app
         self._vault = vault
         self._policy = policy
@@ -440,6 +483,217 @@ class MemoryService:
             await uow.commit()
         _log.info("public note %s: %s", action, path)
         return NoteWritten(action=action, path=path, draft=draft or private)
+
+    # ------------------------------------------- changes that need the owner (ADR-0051 §4)
+
+    async def request_change(
+        self, task_id: uuid.UUID, request: NoteChangeRequest
+    ) -> NoteChangeCreated:
+        """Ask the owner, in the approval channel, to publish, unpublish, delete or move a
+        note. Nothing in the vault changes until the owner approves."""
+        task, session = await self._origin(task_id)
+        if not self._grants(task, PlatformTool.VAULT_PRIVATE):
+            raise PermissionDeniedError(
+                f"role '{task.agent}' may not ask to publish, unpublish, delete or move notes"
+            )
+        _refuse_secrets(request.reason)
+        self._check_targets(request.action, request.path, request.to)
+        token = await self._app.installation_token(self._policy.repository, TokenPurpose.WATCH)
+        try:
+            writer = self._require_writer()
+            sha = await writer.current_sha(token, request.path, self._policy.branch)
+            if sha is None:
+                raise NotFoundError(f"there is no note at {request.path}")
+            if request.to is not None and await writer.current_sha(
+                token, request.to, self._policy.branch
+            ):
+                raise InvalidRequestError(f"there is already a note at {request.to}")
+            text = await self._vault.text(token, sha)
+        finally:
+            await self._app.revoke(token)
+        before = self._published(request.path, text)
+        after = self._published_after(request.action, request.path, request.to, text)
+        if request.action is NoteChangeAction.PUBLISH and before:
+            raise InvalidRequestError(f"{request.path} is already published")
+        if request.action is NoteChangeAction.PUBLISH and not after:
+            raise InvalidRequestError(f"{request.path} is in a folder the blog leaves out")
+        if request.action is NoteChangeAction.UNPUBLISH and not before:
+            raise InvalidRequestError(f"{request.path} is not published")
+        now = self._clock.now()
+        change = NoteChange(
+            id=self._new_id(),
+            action=request.action,
+            path=request.path,
+            to=request.to,
+            reason=request.reason,
+            blob_sha=sha,
+            task_id=task.id,
+            created_at=now,
+        )
+        notice = NoteChangeRequested(
+            change_id=change.id,
+            action=change.action,
+            path=change.path,
+            to=change.to,
+            reason=change.reason,
+            published_before=before,
+            published_after=after,
+            excerpt=_excerpt(text),
+            origin=session.outbox_conversation,
+        )
+        async with self._uow() as uow:
+            await uow.note_changes.add(change)
+            await uow.notices.add(Notice(id=self._new_id(), body=notice, created_at=now))
+            await uow.commit()
+        _log.info("note change %s of %s asked by task %s", change.action, change.path, task.id)
+        return NoteChangeCreated(change_id=change.id)
+
+    async def change_posted(
+        self, change_id: uuid.UUID, posted: NoteChangePosted
+    ) -> NoteChangeLinked:
+        """The request is in the approval channel: tell the asking thread, with its link."""
+        async with self._uow() as uow:
+            change = await uow.note_changes.get_for_update(change_id)
+            if change is None:
+                raise NotFoundError(f"note change {change_id} not found")
+            where = f": {posted.link}" if posted.link else "."
+            told = await self._tell_change(
+                uow,
+                change,
+                f"노트 {CHANGE_NAMES[change.action]} 승인 요청을 보냈습니다{where}",
+            )
+            await uow.commit()
+        return NoteChangeLinked(told_origin=told)
+
+    async def decide_change(
+        self, change_id: uuid.UUID, decision: NoteChangeDecision
+    ) -> NoteChangeResult:
+        if self._owner is None or decision.decided_by != self._owner:
+            raise PermissionDeniedError("only the owner approves changes to notes")
+        async with self._uow() as uow:
+            change = await uow.note_changes.get_for_update(change_id)
+            if change is None:
+                raise NotFoundError(f"note change {change_id} not found")
+            if change.status is not NoteChangeStatus.REQUESTED:
+                return NoteChangeResult(
+                    status=change.status, changed=False, detail="이미 처리된 요청입니다."
+                )
+            now = self._clock.now()
+            name = f"{CHANGE_NAMES[change.action]}({change.path})"
+            if not decision.apply:
+                decided = change.decide(NoteChangeStatus.REJECTED, now, decision.decided_by)
+                detail = f"노트 {name} 요청이 거절됐습니다. 볼트는 바뀌지 않았습니다."
+            else:
+                decided, detail = await self._apply(uow, change, now, decision.decided_by)
+            await uow.note_changes.update(decided)
+            await self._tell_change(uow, decided, detail)
+            await uow.commit()
+        _log.info("note change %s: %s by the owner", change_id, decided.status)
+        return NoteChangeResult(status=decided.status, changed=True, detail=detail)
+
+    async def _apply(
+        self, uow: UnitOfWork, change: NoteChange, now: datetime, by: str
+    ) -> tuple[NoteChange, str]:
+        name = f"{CHANGE_NAMES[change.action]}({change.path})"
+        token = await self._token()
+        try:
+            writer = self._require_writer()
+            current = await writer.current_sha(token, change.path, self._policy.branch)
+            if current != change.blob_sha:
+                return (
+                    change.decide(NoteChangeStatus.STALE, now, by),
+                    f"노트 {name}: 요청 뒤 노트가 바뀌었거나 사라져 실행하지 않았습니다. "
+                    "다시 요청해 주세요.",
+                )
+            text = await self._vault.text(token, current)
+            stem = PurePosixPath(change.path).stem
+            if change.action is NoteChangeAction.MOVE and change.to is not None:
+                if await writer.current_sha(token, change.to, self._policy.branch):
+                    return (
+                        change.decide(NoteChangeStatus.STALE, now, by),
+                        f"노트 {name}: {change.to} 에 이미 노트가 있어 옮기지 않았습니다.",
+                    )
+                quiet = not (self._published(change.path, text) or self._published(change.to, text))
+                message = _quiet(f"blog: move {stem}", quiet)
+                sha = await writer.put(token, change.to, text, message, self._policy.branch)
+                await writer.delete(token, change.path, message, self._policy.branch)
+                await uow.vault.upsert(parse_note(change.to, sha, text, self.layout, now))
+                await uow.vault.remove([change.path])
+                done = f"노트를 옮겼습니다: {change.path} → {change.to}"
+            elif change.action is NoteChangeAction.DELETE:
+                quiet = not self._published(change.path, text)
+                await writer.delete(
+                    token, change.path, _quiet(f"blog: delete {stem}", quiet), self._policy.branch
+                )
+                await uow.vault.remove([change.path])
+                done = f"노트를 지웠습니다: {change.path} (git 이력에 남아 있습니다)"
+            else:
+                publish = change.action is NoteChangeAction.PUBLISH
+                changed = set_draft(text, draft=not publish)
+                verb = "publish" if publish else "unpublish"
+                sha = await writer.put(
+                    token, change.path, changed, f"blog: {verb} {stem}", self._policy.branch
+                )
+                await uow.vault.upsert(parse_note(change.path, sha, changed, self.layout, now))
+                done = (
+                    f"노트를 발행했습니다: {change.path}"
+                    if publish
+                    else f"노트를 블로그에서 내렸습니다: {change.path}"
+                )
+        finally:
+            await self._app.revoke(token)
+        return change.decide(NoteChangeStatus.DONE, now, by), done
+
+    def _check_targets(self, action: NoteChangeAction, path: str, to: str | None) -> None:
+        def allowed(p: str) -> bool:
+            return self.layout.publishable(p) or self.layout.private(p)
+
+        if not allowed(path):
+            raise PermissionDeniedError(
+                f"{path} is not one of the owner's notes (enikk's folder and hidden folders "
+                "are left out)"
+            )
+        if action is NoteChangeAction.MOVE:
+            if to is None or not allowed(to) or to == path:
+                raise InvalidRequestError("move needs a different 'to' among the owner's notes")
+        elif to is not None:
+            raise InvalidRequestError(f"'to' is only for move, not {action}")
+
+    def _published(self, path: str, text: str) -> bool:
+        return self.layout.publishable(path) and not is_draft(text)
+
+    def _published_after(
+        self, action: NoteChangeAction, path: str, to: str | None, text: str
+    ) -> bool:
+        if action is NoteChangeAction.PUBLISH:
+            return self.layout.publishable(path)
+        if action is NoteChangeAction.MOVE and to is not None:
+            return self._published(to, text)
+        return False
+
+    def _new_id(self) -> uuid.UUID:
+        if self._ids is None:
+            raise DependencyUnavailableError("ids are not configured")
+        return self._ids.new()
+
+    async def _tell_change(self, uow: UnitOfWork, change: NoteChange, text: str) -> bool:
+        """Post ``text`` in the asking thread and wake its session (ADR-0041 §4)."""
+        task = await uow.tasks.get_for_update(change.task_id)
+        session = None if task is None else await uow.sessions.get(task.session_id)
+        if task is None or session is None:
+            return False
+        now = self._clock.now()
+        await _post(uow, task, session, OutboundKind.REPLY, text, self._new_id(), now)
+        if self._waker is not None and change.status in NOTE_CHANGE_STATES:
+            await self._waker.wake(
+                uow,
+                session,
+                key=f"note:{change.id}:{change.status}",
+                text=note_change_event_text(
+                    CHANGE_NAMES[change.action], change.path, change.status, text
+                ),
+            )
+        return True
 
     def _grants(self, task: Task, tool: PlatformTool) -> bool:
         definition = None if self._agents is None else self._agents.get(task.agent)

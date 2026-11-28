@@ -7,12 +7,16 @@ folder, sorted into kinds by sub-folder.
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Annotated, Final
+import uuid
+from datetime import date, datetime
+from typing import Annotated, Final, Self
 
 from pydantic import AwareDatetime, Field
 
-from enikk_contracts.memory import MemoryNote, NoteKind
+from enikk_contracts.common import Identifier
+from enikk_contracts.memory import MemoryNote, NoteChangeAction, NoteChangeStatus, NoteKind
+from enikk_core_domain.errors import InvalidTransitionError
+from enikk_core_domain.model import Entity
 from enikk_kernel.models import FrozenModel
 
 MAX_BODY: Final = 20_000
@@ -127,3 +131,27 @@ def context_notes(
         budget -= cost
         picked.append(MemoryNote(path=note.path, title=note.title, kind=note.kind, text=text))
     return tuple(picked)
+
+
+class NoteChange(Entity):
+    """The owner's decision on publishing, unpublishing, deleting or moving one note
+    (ADR-0051 §4)."""
+
+    id: uuid.UUID
+    action: NoteChangeAction
+    path: Annotated[str, Field(min_length=1, max_length=500)]
+    to: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+    reason: Annotated[str, Field(min_length=1, max_length=500)]
+    blob_sha: Annotated[str, Field(min_length=1, max_length=64)]
+    """The note's blob when the change was asked for; core acts only on that version."""
+    task_id: uuid.UUID
+    """The task that asked for it; its thread hears the outcome."""
+    status: NoteChangeStatus = NoteChangeStatus.REQUESTED
+    created_at: AwareDatetime
+    decided_at: AwareDatetime | None = None
+    decided_by: Identifier | None = None
+
+    def decide(self, status: NoteChangeStatus, now: datetime, by: str) -> Self:
+        if self.status is not NoteChangeStatus.REQUESTED or status is NoteChangeStatus.REQUESTED:
+            raise InvalidTransitionError(f"note change {self.id} is {self.status}, not {status}")
+        return self._evolve(status=status, decided_at=now, decided_by=by)

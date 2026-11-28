@@ -58,13 +58,13 @@ def build_services(settings: CoreSettings) -> CoreServices:
     uow = SqlUnitOfWorkFactory(create_session_factory(engine))
     store = DirectoryCredentialStore(settings.credentials_dir)
     catalog = YamlAgentCatalog.load(settings.agents_dir)
-    memory = _memory(settings, store, clock, uow, ids, catalog)
-    mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.GITHUB_APP_PRIVATE_KEY))
     waker = (
         SessionWaker(catalog, clock, ids, settings.tasks.max_attempts)
         if settings.wakeups.enabled
         else None
     )
+    memory = _memory(settings, store, clock, uow, ids, catalog, waker)
+    mcp_tokens = McpTokenIssuer(lambda: store.get(CredentialName.GITHUB_APP_PRIVATE_KEY))
     usecases = CoreUseCases(
         uow=uow,
         catalog=catalog,
@@ -199,6 +199,7 @@ def _memory(
     uow: SqlUnitOfWorkFactory,
     ids: RandomIdGenerator,
     catalog: YamlAgentCatalog,
+    waker: SessionWaker | None,
 ) -> MemoryService | None:
     config = settings.github.to_config()
     if config is None or not settings.memory.enabled:
@@ -216,6 +217,8 @@ def _memory(
         writer=VaultWriter(app),
         ids=ids,
         agents=catalog,
+        owner=load_owner(settings.prompts.slack_config_file),
+        waker=waker,
         policy=MemoryPolicy(
             repository=m.repository,
             branch=m.branch,

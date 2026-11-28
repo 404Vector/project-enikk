@@ -28,6 +28,7 @@ from enikk_persistence_sql.tables import (
     ConversationDigestRow,
     DeploymentWatchRow,
     DispatchRow,
+    NoteChangeRow,
     NoticeRow,
     OutboxFileRow,
     OutboxRow,
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
     from enikk_contracts.transcripts import TranscriptEntry, TranscriptKey
     from enikk_core_domain.deployments import DeploymentWatch
     from enikk_core_domain.digests import ConversationDigest
-    from enikk_core_domain.memory import VaultNote
+    from enikk_core_domain.memory import NoteChange, VaultNote
     from enikk_core_domain.model import (
         Approval,
         Dispatch,
@@ -538,6 +539,31 @@ class SqlPromptPromotionRepository:
             .execution_options(populate_existing=True)
         )
         return mappers.prompt_promotion_from_row(row) if row else None
+
+
+class SqlNoteChangeRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def add(self, change: NoteChange) -> None:
+        self._db.add(mappers.note_change_to_row(change))
+        await _flush(self._db, f"note change {change.id}")
+
+    async def update(self, change: NoteChange) -> None:
+        row = await self._db.get(NoteChangeRow, change.id)
+        if row is None:
+            raise NotFoundError(f"note change {change.id} does not exist")
+        mappers.note_change_to_row(change, row)
+        await _flush(self._db, f"note change {change.id}")
+
+    async def get_for_update(self, change_id: uuid.UUID) -> NoteChange | None:
+        row = await self._db.scalar(
+            select(NoteChangeRow)
+            .where(NoteChangeRow.id == change_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return mappers.note_change_from_row(row) if row else None
 
 
 class SqlDigestRepository:
