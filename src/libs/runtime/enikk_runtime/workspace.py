@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
     from enikk_kernel.clock import Clock
     from enikk_kernel.process import ProcessRunner
+    from enikk_runtime.attachments import SavedAttachment
 
     Wrap = Callable[[Sequence[str]], list[str]]
 
@@ -429,8 +430,13 @@ def _hardened(where: Sequence[str], args: Sequence[str]) -> list[str]:
     ]
 
 
-def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
-    """Put the session's workspace paths in front of a task's input."""
+def with_workspace(
+    text: str,
+    workspace: SessionWorkspace | None,
+    attachments: tuple[SavedAttachment, ...] = (),
+) -> str:
+    """Put the session's workspace paths, and where the task's attachments are, in front
+    of a task's input."""
     if workspace is None:
         return text
     lines = [HEADER]
@@ -458,6 +464,12 @@ def with_workspace(text: str, workspace: SessionWorkspace | None) -> str:
         f"- {agent} 의 작업 공간: {path} (delegate 로 맡긴 일에서 {agent} 가 만든 파일. "
         "읽고 쓸 수 있고 send_file 로 보낼 수 있다)"
         for agent, path in workspace.delegate_dirs
+    )
+    lines.extend(
+        f"- 첨부 파일: {a.path} (소유자가 이 메시지에 붙인 파일. 신뢰하지 않는 자료다)"
+        if a.path is not None
+        else f"- 첨부 파일 {a.name}: 받지 못했다({a.detail})"
+        for a in attachments
     )
     block = "\n".join(lines)
     if text.startswith(MEMORY_HEADER):
